@@ -41,12 +41,12 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
   }
 
   def deleteDirectory(path: Path): Unit = {
-    if (Files.isDirectory(path)) {
-      Files
-        .walk(path)
-        .sorted(java.util.Comparator.reverseOrder())
-        .forEach(Files.delete)
-    }
+    // if (Files.isDirectory(path)) {
+    //   Files
+    //     .walk(path)
+    //     .sorted(java.util.Comparator.reverseOrder())
+    //     .forEach(Files.delete)
+    // }
   }
   
   val table1Schema = StructType(

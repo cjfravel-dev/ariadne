@@ -5,16 +5,17 @@ import org.apache.spark.sql.{SparkSession, DataFrame}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import scala.io.Source
-import io.circe._
-import io.circe.parser._
-import io.circe.syntax._
-import io.circe.generic.auto._
+import com.google.gson._
+import com.google.gson.reflect.TypeToken
 import io.delta.tables.DeltaTable
 import org.apache.spark.sql.Row
 import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.hadoop.conf.Configuration
 import java.nio.charset.StandardCharsets
 import scala.collection.mutable
+import collection.JavaConverters._
+import java.util
+import java.util.Collections
 
 case class Index private (
     spark: SparkSession,
@@ -42,35 +43,26 @@ case class Index private (
   private def metadataFilePath: Path = new Path(storagePath, "metadata.json")
   private def indexFilePath: Path = new Path(storagePath, "index")
 
-  def format: String = {
+  def format: String = metadata.format
+
+  private[ariadne] def format_=(newFormat: String): Unit = {
     val currentMetadata = metadata
-    currentMetadata.hcursor.downField("format").as[String] match {
-      case Right(storedFormat) => storedFormat
-      case Left(_)             => throw new MissingFormatException()
-    }
+    currentMetadata.format = newFormat
+    writeMetadata(currentMetadata)
   }
 
-  private[ariadne] def format_=(format: String): Unit = {
-    val currentMetadata = metadata
-    val updatedMetadata =
-      currentMetadata.deepMerge(Json.obj("format" -> Json.fromString(format)))
-    writeMetadata(updatedMetadata)
-  }
+  private[ariadne] def metadataExists: Boolean =
+    fs.exists(metadataFilePath)
 
-  private[ariadne] def metadataExists: Boolean = fs.exists(metadataFilePath)
-
-  private var _metadata: Json = _
-  private def metadata: Json = {
+  private var _metadata: Metadata = _
+  private def metadata: Metadata = {
     if (_metadata == null) {
       _metadata = if (metadataExists) {
         try {
           val inputStream = fs.open(metadataFilePath)
           val jsonString =
             Source.fromInputStream(inputStream)(StandardCharsets.UTF_8).mkString
-          parse(jsonString) match {
-            case Right(json) => json
-            case Left(_)     => throw new MetadataMissingOrCorruptException()
-          }
+          new Gson().fromJson(jsonString, classOf[Metadata])
         } catch {
           case _: Exception => throw new MetadataMissingOrCorruptException()
         }
@@ -81,154 +73,55 @@ case class Index private (
     _metadata
   }
 
-  private def writeMetadata(json: Json): Unit = {
+  def files: Set[String] = metadata.files.asScala.map(_.file).toSet
+
+  private def writeMetadata(metadata: Metadata): Unit = {
     val directoryPath = metadataFilePath.getParent
     if (!fs.exists(directoryPath)) fs.mkdirs(directoryPath)
 
-    val jsonString = json.spaces2
+    val jsonString = new Gson().toJson(metadata)
     val outputStream = fs.create(metadataFilePath)
     outputStream.write(jsonString.getBytes(StandardCharsets.UTF_8))
+    outputStream.flush()
     outputStream.close()
     _metadata = null
   }
 
-  def storedSchema: StructType = {
-    val currentMetadata = metadata
-    currentMetadata.hcursor.downField("schema").as[String] match {
-      case Right(storedSchemaJson) =>
-        try {
-          DataType.fromJson(storedSchemaJson).asInstanceOf[StructType]
-        } catch {
-          case _: Exception => throw new SchemaParseError()
-        }
-      case Left(_) => throw new MissingSchemaException()
-    }
-  }
+  def storedSchema: StructType =
+    DataType.fromJson(metadata.schema).asInstanceOf[StructType]
 
   def isFileAdded(fileName: String): Boolean = {
-    metadata.hcursor.downField("files").focus match {
-      case Some(files) =>
-        files.asArray.exists(
-          _.exists(file =>
-            file.hcursor.get[String]("file").getOrElse("") == fileName
-          )
-        )
-      case None => false
-    }
+    metadata.files.asScala.exists(_.file == fileName)
   }
 
   def addFile(fileNames: String*): Unit = {
     val toAdd = fileNames.toList.diff(files.toList)
     if (toAdd.isEmpty) return
 
-    val currentMetadata = metadata
     val timestamp = System.currentTimeMillis()
-    val existingFiles = currentMetadata.hcursor
-      .downField("files")
-      .as[Vector[Json]]
-      .getOrElse(Vector())
+    val newFiles = toAdd.map(FileMetadata(_, timestamp, indexed = false))
 
-    val newFilesJson = toAdd.map { fileName =>
-      Json.obj(
-        "file" -> Json.fromString(fileName),
-        "timestamp" -> Json.fromLong(timestamp),
-        "indexed" -> Json.fromBoolean(false)
-      )
-    }
-
-    val updatedMetadata = currentMetadata.deepMerge(
-      Json.obj("files" -> Json.fromValues(existingFiles ++ newFilesJson))
-    )
-    writeMetadata(updatedMetadata)
+    val currentMetadata = metadata
+    currentMetadata.files.addAll(newFiles.asJava)
+    writeMetadata(currentMetadata)
   }
 
-  def files: Set[String] = {
-    metadata.hcursor.downField("files").focus match {
-      case Some(files) =>
-        files.asArray
-          .getOrElse(Vector())
-          .flatMap { file =>
-            file.hcursor.get[String]("file").toOption
-          }
-          .toSet
-      case None => Set()
-    }
-  }
-
-  private[ariadne] def unindexedFiles: Set[String] = {
-    metadata.hcursor.downField("files").focus match {
-      case Some(files) =>
-        files.asArray
-          .getOrElse(Vector())
-          .flatMap { file =>
-            file.hcursor.get[Boolean]("indexed") match {
-              case Right(false) => file.hcursor.get[String]("file").toOption
-              case _            => None
-            }
-          }
-          .toSet
-      case None => Set()
-    }
-  }
+  private[ariadne] def unindexedFiles: Set[String] =
+    metadata.files.asScala.filter(!_.indexed).map(_.file).toSet
 
   def addIndex(index: String): Unit = {
-    if (indexes.contains(index)) return
-
-    val updatedMetadata = metadata.hcursor.downField("indexes").focus match {
-      case Some(indexesJson) =>
-        val updatedIndexes =
-          indexesJson.asArray.getOrElse(Vector()) :+ Json.fromString(index)
-        metadata.deepMerge(
-          Json.obj("indexes" -> Json.fromValues(updatedIndexes))
-        )
-      case None =>
-        metadata.deepMerge(
-          Json.obj("indexes" -> Json.arr(Json.fromString(index)))
-        )
-    }
-
-    val finalMetadata = updatedMetadata.hcursor.downField("files").focus match {
-      case Some(filesJson) =>
-        val updatedFiles = filesJson.asArray.getOrElse(Vector()).map { file =>
-          file.hcursor
-            .downField("indexed")
-            .withFocus(_ => Json.fromBoolean(false))
-            .top
-            .getOrElse(file)
-        }
-        updatedMetadata.deepMerge(
-          Json.obj("files" -> Json.fromValues(updatedFiles))
-        )
-      case None => updatedMetadata
-    }
-
-    writeMetadata(finalMetadata)
+    if (metadata.indexes.contains(index)) return
+    metadata.indexes.add(index)
+    metadata.files.asScala.foreach(_.indexed = false)
+    writeMetadata(metadata)
   }
 
-  private def setIndexedTrue: Unit = {
-    val updatedMetadata = metadata.hcursor.downField("files").focus match {
-      case Some(filesJson) =>
-        val updatedFiles = filesJson.asArray.getOrElse(Vector()).map { file =>
-          file.hcursor
-            .downField("indexed")
-            .withFocus(_ => Json.fromBoolean(true))
-            .top
-            .getOrElse(file)
-        }
-        metadata.deepMerge(Json.obj("files" -> Json.fromValues(updatedFiles)))
-      case None => metadata
-    }
-
-    writeMetadata(updatedMetadata)
+  private def setIndexedTrue(): Unit = {
+    metadata.files.asScala.foreach(_.indexed = true)
+    writeMetadata(metadata)
   }
 
-  def indexes: Set[String] = {
-    metadata.hcursor.downField("indexes").focus match {
-      case Some(indexesJson) =>
-        indexesJson.asArray.getOrElse(Vector()).flatMap(_.asString).toSet
-      case None => Set()
-    }
-  }
+  def indexes: Set[String] = metadata.indexes.asScala.toSet
 
   private def index: DataFrame = {
     val deltaTable = DeltaTable.forPath(spark, indexFilePath.toString)
@@ -260,7 +153,7 @@ case class Index private (
     val df = readFiles(unindexedFiles)
       .withColumn("FileName", input_file_name)
       .select(columns.toList.map(col): _*)
-      .distinct()
+      .distinct
 
     val aggExprs =
       indexes.toList.map(colName => collect_set(col(colName)).alias(colName))
@@ -301,12 +194,12 @@ case class Index private (
           .withColumn("Value", explode(col(column)))
           .where(col("Value").isin(values: _*))
           .select("FileName")
-          .distinct()
+          .distinct
 
         accumDF.union(filteredDF)
     }
 
-    resultDF.distinct().collect().map(_.getString(0)).toSet
+    resultDF.distinct.collect.map(_.getString(0)).toSet
   }
 }
 
@@ -340,30 +233,50 @@ object Index {
     index.storagePath = new Path(storagePath(spark), name)
 
     val metadataExists = index.metadataExists
+    val metadata = if (metadataExists) {
+      index.metadata
+    } else {
+      Metadata(
+        null,
+        null,
+        Collections.emptyList[FileMetadata](),
+        Collections.emptyList[String]()
+      )
+    }
 
     schema match {
       case Some(s) =>
         if (metadataExists) {
-          val currentMetadata = index.metadata
-          currentMetadata.hcursor.downField("schema").as[String] match {
-            case Right(storedSchema) =>
-              if (storedSchema != s.json) {
-                throw new IllegalArgumentException(
-                  s"Stored schema does not match the provided schema for index: $name."
-                )
-              }
-            case Left(_) =>
-              index.writeMetadata(Json.obj("schema" -> Json.fromString(s.json)))
+          if (metadata.schema != s.json) {
+            throw new IllegalArgumentException(
+              s"Stored schema does not match the provided schema for index: $name."
+            )
           }
         } else {
-          index.writeMetadata(Json.obj("schema" -> Json.fromString(s.json)))
+          metadata.schema = s.json
         }
       case None =>
         if (!metadataExists) {
           throw new SchemaNotProvidedException()
         }
     }
-    format.foreach(index.format = _)
+    format match {
+      case Some(f) =>
+        if (metadataExists) {
+          if (metadata.format != f) {
+            throw new IllegalArgumentException(
+              s"Stored format does not match the provided format for index: $name."
+            )
+          }
+        } else {
+          metadata.format = f
+        }
+      case None =>
+        if (!metadataExists) {
+          throw new MissingFormatException()
+        }
+    }
+    index.writeMetadata(metadata)
     index
   }
 
@@ -378,10 +291,9 @@ object Index {
       val filtered = df.select(indexesToUse.map(col): _*)
       val indexes = indexesToUse.map { column =>
         val distinctValues =
-          filtered.select(column).distinct().collect().map(_.get(0))
+          filtered.select(column).distinct.collect.map(_.get(0))
         column -> distinctValues
       }.toMap
-      val spark = df.sparkSession
       val files = index.locateFiles(indexes)
       val matchedFiles = cache.getOrElseUpdate(files, index.readFiles(files))
       df.join(matchedFiles, usingColumns, joinType)

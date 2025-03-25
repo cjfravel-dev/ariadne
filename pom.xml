@@ -5,7 +5,7 @@
 
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne</artifactId>
-    <version>0.0.1-alpha-2</version>
+    <version>0.0.1-alpha-3</version>
     <packaging>jar</packaging>
 
     <name>${project.groupId}:${project.artifactId}</name>
@@ -60,21 +60,11 @@
             <version>2.4.0</version>
         </dependency>
 
-        <!-- Circe -->
+        <!-- Gson -->
         <dependency>
-            <groupId>io.circe</groupId>
-            <artifactId>circe-core_2.12</artifactId>
-            <version>0.14.12</version>
-        </dependency>
-        <dependency>
-            <groupId>io.circe</groupId>
-            <artifactId>circe-generic_2.12</artifactId>
-            <version>0.14.12</version>
-        </dependency>
-        <dependency>
-            <groupId>io.circe</groupId>
-            <artifactId>circe-parser_2.12</artifactId>
-            <version>0.14.12</version>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.12.1</version>
         </dependency>
 
         <!-- ScalaTest -->
@@ -106,28 +96,6 @@
                             <goal>add-source</goal>
                             <goal>doc-jar</goal>
                         </goals>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <version>3.6.0</version>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>shade</goal>
-                        </goals>
-                        <configuration>
-                            <relocations>
-                                <relocation>
-                                    <pattern>io.circe</pattern>
-                                    <shadedPattern>dev.cjfravel.shaded.io.circe</shadedPattern>
-                                </relocation>
-                            </relocations>
-                        </configuration>
                     </execution>
                 </executions>
             </plugin>
