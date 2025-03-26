@@ -27,7 +27,10 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
       .config(sc.getConf)
       .config("spark.ariadne.storagePath", tempDir.toString)
       .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-      .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+      .config(
+        "spark.sql.catalog.spark_catalog",
+        "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+      )
       .getOrCreate()
   }
 
@@ -48,7 +51,7 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     //     .forEach(Files.delete)
     // }
   }
-  
+
   val table1Schema = StructType(
     Seq(
       StructField("Id", IntegerType, nullable = false),
@@ -69,7 +72,15 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
       val index = Index(spark, "noschema")
     }
   }
-  
+
+  test("Requires same schema") {
+    val index = Index(spark, "schema", table1Schema, "csv")
+    val index2 = Index(spark, "schema", table1Schema, "csv")
+    assertThrows[IllegalArgumentException] {
+      val index3 = Index(spark, "schema", table2Schema, "csv")
+    }
+  }
+
   test("Only requires schema first time") {
     assertThrows[SchemaNotProvidedException] {
       val index = Index(spark, "noschema")
@@ -151,7 +162,11 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     assert(index.unindexedFiles.size === 0)
     index.printIndex
     index.printMetadata
-    assert(index.locateFiles(Map("Version" -> Array("3"), "Id" -> Array("1"))).size === 2)
+    assert(
+      index
+        .locateFiles(Map("Version" -> Array("3"), "Id" -> Array("1")))
+        .size === 2
+    )
     assert(index.locateFiles(Map("Value" -> Array(4.5))).size === 1)
     assert(index.locateFiles(Map("Value" -> Array(-1))).size === 0)
   }
@@ -167,7 +182,8 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     index.addIndex("Version")
     index.update
 
-    val table2 = spark.read.schema(table2Schema)
+    val table2 = spark.read
+      .schema(table2Schema)
       .option("header", "true")
       .csv(getClass.getResource("/data/table2_part0.csv").getPath)
 
@@ -175,5 +191,8 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     assert(table2.join(index, Seq("Version"), "fullouter").count === 4)
     assert(table2.join(index, Seq("Version", "Id"), "fullouter").count === 8)
     
+    assert(index.join(table2, Seq("Version", "Id"), "left_semi").count === 1)
+    assert(index.join(table2, Seq("Version"), "fullouter").count === 4)
+    assert(index.join(table2, Seq("Version", "Id"), "fullouter").count === 8)
   }
 }
