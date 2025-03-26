@@ -185,7 +185,7 @@ case class Index private (
     writeMetadata(metadata)
   }
 
-  /** Sets all files as unindexed */
+  /** Sets all files as indexed */
   private def setIndexedTrue(): Unit = {
     metadata.files.asScala.foreach(_.indexed = true)
     writeMetadata(metadata)
@@ -378,6 +378,45 @@ object Index {
     fs.exists(path)
   }
 
+  /** Checks if an index with the given name exists.
+    * @param spark
+    *   The SparkSession instance.
+    * @param name
+    *   The name of the index.
+    * @return
+    *   True if the index exists, otherwise false.
+    */
+  def exists(spark: SparkSession, name: String): Boolean = {
+    val path = new Path(storagePath(spark), name)
+    val fs = FileSystem.get(
+      path.getParent.toUri,
+      spark.sparkContext.hadoopConfiguration
+    )
+    fs.exists(path)
+  }
+
+  /** Removes the index with the given name.
+    * @param spark
+    *   The SparkSession instance.
+    * @param name
+    *   The name of the index.
+    * @return
+    *   True if the index was successfully removed, otherwise false.
+    */
+  def remove(spark: SparkSession, name: String): Boolean = {
+    if(!exists(spark, name)) {
+      throw new IndexNotFoundException(name)
+    }
+
+    val path = new Path(storagePath(spark), name)
+    val fs = FileSystem.get(
+      path.getParent.toUri,
+      spark.sparkContext.hadoopConfiguration
+    )
+    
+    fs.delete(path, true)
+  }
+
   /** Factory method to create an Index instance.
     * @param spark
     *   The SparkSession instance.
@@ -395,7 +434,29 @@ object Index {
       name: String,
       schema: StructType,
       format: String
-  ): Index = apply(spark, name, Some(schema), Some(format))
+  ): Index = apply(spark, name, Some(schema), Some(format), false)
+
+  /** Factory method to create an Index instance.
+    * @param spark
+    *   The SparkSession instance.
+    * @param name
+    *   The name of the index.
+    * @param schema
+    *   The schema.
+    * @param format
+    *   The format.
+    * @param allowSchemaMismatch
+    *   The allows schema to be a mismatch.
+    * @return
+    *   An Index instance.
+    */
+  def apply(
+      spark: SparkSession,
+      name: String,
+      schema: StructType,
+      format: String,
+      allowSchemaMismatch: Boolean
+  ): Index = apply(spark, name, Some(schema), Some(format), allowSchemaMismatch)
 
   /** Factory method to create an Index instance.
     * @param spark
@@ -406,6 +467,8 @@ object Index {
     *   The optional schema.
     * @param format
     *   The optional format.
+    * @param allowSchemaMismatch
+    *   The optional flag to allow new schema.
     * @return
     *   An Index instance.
     */
@@ -413,7 +476,8 @@ object Index {
       spark: SparkSession,
       name: String,
       schema: Option[StructType] = None,
-      format: Option[String] = None
+      format: Option[String] = None,
+      allowSchemaMismatch: Boolean = false
   ): Index = {
     val index = Index(spark, name, schema)
     index.storagePath = new Path(storagePath(spark), name)
@@ -433,10 +497,18 @@ object Index {
     schema match {
       case Some(s) =>
         if (metadataExists) {
-          if (metadata.schema != s.json) {
-            throw new IllegalArgumentException(
-              s"Stored schema does not match the provided schema for index: $name."
-            )
+          if (allowSchemaMismatch) {
+            if (metadata.schema != s.json) {
+              metadata.indexes.forEach(col => {
+                if (!SchemaHelper.fieldExists(s, col)) {
+                  throw new IndexNotFoundInNewSchemaException(col)
+                }
+              })
+              metadata.files.asScala.foreach(_.indexed = false)
+            }
+            metadata.schema = s.json
+          } else if (metadata.schema != s.json) {
+            throw new SchemaMismatchException()
           }
         } else {
           metadata.schema = s.json
@@ -450,9 +522,7 @@ object Index {
       case Some(f) =>
         if (metadataExists) {
           if (metadata.format != f) {
-            throw new IllegalArgumentException(
-              s"Stored format does not match the provided format for index: $name."
-            )
+            throw new FormatMismatchException()
           }
         } else {
           metadata.format = f
