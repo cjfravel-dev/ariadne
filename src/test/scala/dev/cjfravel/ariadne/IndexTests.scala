@@ -76,8 +76,27 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
   test("Requires same schema") {
     val index = Index(spark, "schema", table1Schema, "csv")
     val index2 = Index(spark, "schema", table1Schema, "csv")
-    assertThrows[IllegalArgumentException] {
+    assertThrows[SchemaMismatchException] {
       val index3 = Index(spark, "schema", table2Schema, "csv")
+    }
+  }
+  
+  test("Can specify new schema") {
+    val index = Index(spark, "schemachange", table1Schema, "csv")
+    index.addIndex("Id")
+    val index2 = Index(spark, "schemachange", table2Schema, "csv", true)
+    assertThrows[IndexNotFoundInNewSchemaException] {
+      val index3 = Index(spark, "schemachange2", table1Schema, "csv")
+      index3.addIndex("Value")
+      val index4 = Index(spark, "schemachange2", table2Schema, "csv", true)
+    }
+  }
+  
+  test("Requires same format") {
+    val index = Index(spark, "format", table1Schema, "csv")
+    val index2 = Index(spark, "format", table1Schema, "csv")
+    assertThrows[FormatMismatchException] {
+      val index3 = Index(spark, "format", table1Schema, "parquet")
     }
   }
 
@@ -211,5 +230,18 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
         index.join(table2, Seq("Version"), "left_semi").schema
       ) === normalizeSchema(table1Schema)
     )
+  }
+
+  test("index exists") {
+    val index = Index(spark, "exists", table1Schema, "csv")
+    assert(Index.exists(spark, "exists") === true)
+    assert(Index.exists(spark, "doesntexist") === false)
+  }
+  
+  test("remove index") {
+    val index = Index(spark, "toremove", table1Schema, "csv")
+    assert(Index.exists(spark, "toremove") === true)
+    Index.remove(spark, "toremove")
+    assert(Index.exists(spark, "toremove") === false)
   }
 }
