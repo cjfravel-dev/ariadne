@@ -203,11 +203,7 @@ case class Index private (
   }
 
   private val joinCache = mutable.Map[Set[String], DataFrame]()
-  def join(
-      df: DataFrame,
-      usingColumns: Seq[String],
-      joinType: String = "inner"
-  ): DataFrame = {
+  private def joinDf(df: DataFrame, usingColumns: Seq[String]): DataFrame = {
     val indexesToUse = this.indexes.intersect(usingColumns.toSet).toSeq
     val filtered = df.select(indexesToUse.map(col): _*)
     val indexes = indexesToUse.map { column =>
@@ -216,8 +212,16 @@ case class Index private (
       column -> distinctValues
     }.toMap
     val files = locateFiles(indexes)
-    val matchedFiles = joinCache.getOrElseUpdate(files, readFiles(files))
-    df.join(matchedFiles, usingColumns, joinType)
+    joinCache.getOrElseUpdate(files, readFiles(files))
+  }
+
+  def join(
+      df: DataFrame,
+      usingColumns: Seq[String],
+      joinType: String = "inner"
+  ): DataFrame = {
+    val indexDf = joinDf(df, usingColumns)
+    indexDf.join(df, usingColumns, joinType)
   }
 }
 
@@ -304,7 +308,8 @@ object Index {
         usingColumns: Seq[String],
         joinType: String = "inner"
     ): DataFrame = {
-      index.join(df, usingColumns, joinType)
+      val indexDf = index.joinDf(df, usingColumns)
+      df.join(indexDf, usingColumns, joinType)
     }
   }
 }

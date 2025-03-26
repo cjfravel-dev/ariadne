@@ -171,6 +171,13 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     assert(index.locateFiles(Map("Value" -> Array(-1))).size === 0)
   }
 
+  private def normalizeSchema(schema: StructType): StructType = StructType(
+    schema.fields
+      // spark will covert non-null to null when reading csv
+      .map(f => StructField(f.name.toLowerCase, f.dataType, nullable = false))
+      .sortBy(_.name)
+  )
+
   test("Join") {
     val index = Index(spark, "table1", table1Schema, "csv")
     val paths = Array(
@@ -190,9 +197,19 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     assert(table2.join(index, Seq("Version", "Id"), "left_semi").count === 1)
     assert(table2.join(index, Seq("Version"), "fullouter").count === 4)
     assert(table2.join(index, Seq("Version", "Id"), "fullouter").count === 8)
-    
+    assert(
+      normalizeSchema(
+        table2.join(index, Seq("Version"), "left_semi").schema
+      ) === normalizeSchema(table2Schema)
+    )
+
     assert(index.join(table2, Seq("Version", "Id"), "left_semi").count === 1)
     assert(index.join(table2, Seq("Version"), "fullouter").count === 4)
     assert(index.join(table2, Seq("Version", "Id"), "fullouter").count === 8)
+    assert(
+      normalizeSchema(
+        index.join(table2, Seq("Version"), "left_semi").schema
+      ) === normalizeSchema(table1Schema)
+    )
   }
 }
