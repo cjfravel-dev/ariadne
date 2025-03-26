@@ -17,19 +17,43 @@ import collection.JavaConverters._
 import java.util
 import java.util.Collections
 
+/** Represents an Index for managing metadata and file-based indexes in Apache
+  * Spark.
+  *
+  * This class provides methods to add, locate, and manage file-based indexing
+  * in Spark using Delta Lake. It supports schema enforcement, metadata
+  * persistence, and file tracking.
+  *
+  * @constructor
+  *   Private: use the factory methods in the companion object.
+  * @param spark
+  *   The SparkSession instance.
+  * @param name
+  *   The name of the index.
+  * @param schema
+  *   The optional schema of the index.
+  */
 case class Index private (
     spark: SparkSession,
     name: String,
     schema: Option[StructType]
 ) {
+
+  /** Path to the storage location of the index. */
   private var _storagePath: Path = _
   def storagePath: Path = _storagePath
 
-  private[ariadne] def storagePath_=(storagePath: Path): Unit = {
+  /** Sets the storage path for the index.
+    * @param storagePath
+    *   The new storage path. Should be a valid Hadoop path.
+    */
+  private def storagePath_=(storagePath: Path): Unit = {
     _storagePath = storagePath
   }
 
   private var _fs: FileSystem = _
+
+  /** Hadoop FileSystem instance associated with the storage path. */
   def fs: FileSystem = {
     if (_fs == null) {
       _fs = FileSystem.get(
@@ -40,21 +64,41 @@ case class Index private (
     _fs
   }
 
+  /** Hadoop path for the metadata file */
   private def metadataFilePath: Path = new Path(storagePath, "metadata.json")
+
+  /** Hadoop path for the index delta table */
   private def indexFilePath: Path = new Path(storagePath, "index")
 
+  /** Returns the format of the stored data. */
   def format: String = metadata.format
 
-  private[ariadne] def format_=(newFormat: String): Unit = {
+  /** Updates the format of the stored data.
+    * @param newFormat
+    *   The new format to set.
+    */
+  private def format_=(newFormat: String): Unit = {
     val currentMetadata = metadata
     currentMetadata.format = newFormat
     writeMetadata(currentMetadata)
   }
 
-  private[ariadne] def metadataExists: Boolean =
+  /** Checks if metadata exists in the storage location.
+    * @return
+    *   True if metadata exists, otherwise false.
+    */
+  private def metadataExists: Boolean =
     fs.exists(metadataFilePath)
 
   private var _metadata: Metadata = _
+
+  /** Retrieves the stored metadata for the index.
+    *
+    * @return
+    *   Metadata associated with the index.
+    * @throws MetadataMissingOrCorruptException
+    *   if metadata is missing or cannot be parsed.
+    */
   private def metadata: Metadata = {
     if (_metadata == null) {
       _metadata = if (metadataExists) {
@@ -73,8 +117,13 @@ case class Index private (
     _metadata
   }
 
+  /** Returns a set of file names stored in the index. */
   def files: Set[String] = metadata.files.asScala.map(_.file).toSet
 
+  /** Writes metadata to the storage location.
+    * @param metadata
+    *   The metadata to write.
+    */
   private def writeMetadata(metadata: Metadata): Unit = {
     val directoryPath = metadataFilePath.getParent
     if (!fs.exists(directoryPath)) fs.mkdirs(directoryPath)
@@ -87,13 +136,24 @@ case class Index private (
     _metadata = null
   }
 
+  /** Returns the stored schema of the index. */
   def storedSchema: StructType =
     DataType.fromJson(metadata.schema).asInstanceOf[StructType]
 
+  /** Helper function to see if a file was already added
+    *
+    * @param fileName
+    * @return
+    *   True is the file is included already
+    */
   def isFileAdded(fileName: String): Boolean = {
     metadata.files.asScala.exists(_.file == fileName)
   }
 
+  /** Adds files to the index.
+    * @param fileNames
+    *   The names of the files to add.
+    */
   def addFile(fileNames: String*): Unit = {
     val toAdd = fileNames.toList.diff(files.toList)
     if (toAdd.isEmpty) return
@@ -106,9 +166,18 @@ case class Index private (
     writeMetadata(currentMetadata)
   }
 
+  /** Helper function to get a list of files that haven't yet been indexed
+    *
+    * @return
+    *   Set of filenames
+    */
   private[ariadne] def unindexedFiles: Set[String] =
     metadata.files.asScala.filter(!_.indexed).map(_.file).toSet
 
+  /** Adds an index entry.
+    * @param index
+    *   The index entry to add.
+    */
   def addIndex(index: String): Unit = {
     if (metadata.indexes.contains(index)) return
     metadata.indexes.add(index)
@@ -116,26 +185,54 @@ case class Index private (
     writeMetadata(metadata)
   }
 
+  /** Sets all files as unindexed */
   private def setIndexedTrue(): Unit = {
     metadata.files.asScala.foreach(_.indexed = true)
     writeMetadata(metadata)
   }
 
+  /** Helper function to get the indexes
+    *
+    * @return
+    *   Set of column names to be indexed
+    */
   def indexes: Set[String] = metadata.indexes.asScala.toSet
 
+  /** Helper function to load the index
+    *
+    * @return
+    *   DataFrame containing latest version of the index
+    */
   private def index: DataFrame = {
     val deltaTable = DeltaTable.forPath(spark, indexFilePath.toString)
     deltaTable.toDF
   }
 
+  /** Prints the index DataFrame to the console, including its schema.
+    *
+    * This method retrieves the latest version of the index stored in Delta
+    * Lake, displays its contents, and prints its schema.
+    */
   private[ariadne] def printIndex(): Unit = {
     val df = index
     df.show(false)
     df.printSchema()
   }
 
+  /** Prints the metadata associated with the index to the console.
+    *
+    * This metadata contains details about the index, including its schema,
+    * format, and tracked files.
+    */
   private[ariadne] def printMetadata: Unit = println(metadata)
 
+  /** Reads a set of files into a DataFrame based on the specified format.
+    *
+    * @param files
+    *   A set of file paths to read.
+    * @return
+    *   A DataFrame containing the contents of the specified files.
+    */
   private def readFiles(files: Set[String]): DataFrame = {
     format match {
       case "csv" =>
@@ -148,6 +245,7 @@ case class Index private (
     }
   }
 
+  /** Updates the index with new files. */
   def update: Unit = {
     val columns = indexes + "FileName"
     val df = readFiles(unindexedFiles)
@@ -179,6 +277,12 @@ case class Index private (
     setIndexedTrue
   }
 
+  /** Locates files based on index values.
+    * @param indexes
+    *   A map of index column names to their values.
+    * @return
+    *   A set of file names matching the criteria.
+    */
   def locateFiles(indexes: Map[String, Array[Any]]): Set[String] = {
     val df = index
     val schema = StructType(
@@ -203,6 +307,22 @@ case class Index private (
   }
 
   private val joinCache = mutable.Map[Set[String], DataFrame]()
+
+  /** Retrieves and caches a DataFrame containing indexed data relevant to the
+    * given DataFrame.
+    *
+    * This method determines which index columns exist in the provided
+    * DataFrame, retrieves the relevant indexed files, and loads them into a
+    * DataFrame.
+    *
+    * @param df
+    *   The DataFrame to match against the index.
+    * @param usingColumns
+    *   The columns used for the join.
+    * @return
+    *   A DataFrame containing data from indexed files that match the provided
+    *   DataFrame.
+    */
   private def joinDf(df: DataFrame, usingColumns: Seq[String]): DataFrame = {
     val indexesToUse = this.indexes.intersect(usingColumns.toSet).toSeq
     val filtered = df.select(indexesToUse.map(col): _*)
@@ -215,6 +335,16 @@ case class Index private (
     joinCache.getOrElseUpdate(files, readFiles(files))
   }
 
+  /** Joins a DataFrame with the index.
+    * @param df
+    *   The DataFrame to join.
+    * @param usingColumns
+    *   The columns to use for the join.
+    * @param joinType
+    *   The type of join (default is "inner").
+    * @return
+    *   The resulting joined DataFrame.
+    */
   def join(
       df: DataFrame,
       usingColumns: Seq[String],
@@ -225,10 +355,20 @@ case class Index private (
   }
 }
 
+/** Companion object for the Index class.
+  */
 object Index {
+
+  /** Retrieves the storage path from Spark configuration. */
   def storagePath(spark: SparkSession): String =
     spark.conf.get("spark.ariadne.storagePath")
 
+  /** Checks if the storage path exists.
+    * @param spark
+    *   The SparkSession instance.
+    * @return
+    *   True if the storage path exists, otherwise false.
+    */
   def checkStoragePath(spark: SparkSession): Boolean = {
     val path = new Path(storagePath(spark))
     val fs = FileSystem.get(
@@ -238,6 +378,18 @@ object Index {
     fs.exists(path)
   }
 
+  /** Factory method to create an Index instance.
+    * @param spark
+    *   The SparkSession instance.
+    * @param name
+    *   The name of the index.
+    * @param schema
+    *   The schema.
+    * @param format
+    *   The format.
+    * @return
+    *   An Index instance.
+    */
   def apply(
       spark: SparkSession,
       name: String,
@@ -245,6 +397,18 @@ object Index {
       format: String
   ): Index = apply(spark, name, Some(schema), Some(format))
 
+  /** Factory method to create an Index instance.
+    * @param spark
+    *   The SparkSession instance.
+    * @param name
+    *   The name of the index.
+    * @param schema
+    *   The optional schema.
+    * @param format
+    *   The optional format.
+    * @return
+    *   An Index instance.
+    */
   def apply(
       spark: SparkSession,
       name: String,
@@ -302,7 +466,21 @@ object Index {
     index
   }
 
+  /** Implicit class for enhancing DataFrame operations with index based
+    * operations.
+    */
   implicit class DataFrameOps(df: DataFrame) {
+
+    /** Joins the DataFrame with an Index.
+      * @param index
+      *   The Index instance.
+      * @param usingColumns
+      *   The columns to use for the join.
+      * @param joinType
+      *   The type of join (default is "inner").
+      * @return
+      *   The joined DataFrame.
+      */
     def join(
         index: Index,
         usingColumns: Seq[String],
