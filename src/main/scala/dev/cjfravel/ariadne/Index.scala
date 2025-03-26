@@ -201,6 +201,28 @@ case class Index private (
 
     resultDF.distinct.collect.map(_.getString(0)).toSet
   }
+
+  private val joinCache = mutable.Map[Set[String], DataFrame]()
+  private def joinDf(df: DataFrame, usingColumns: Seq[String]): DataFrame = {
+    val indexesToUse = this.indexes.intersect(usingColumns.toSet).toSeq
+    val filtered = df.select(indexesToUse.map(col): _*)
+    val indexes = indexesToUse.map { column =>
+      val distinctValues =
+        filtered.select(column).distinct.collect.map(_.get(0))
+      column -> distinctValues
+    }.toMap
+    val files = locateFiles(indexes)
+    joinCache.getOrElseUpdate(files, readFiles(files))
+  }
+
+  def join(
+      df: DataFrame,
+      usingColumns: Seq[String],
+      joinType: String = "inner"
+  ): DataFrame = {
+    val indexDf = joinDf(df, usingColumns)
+    indexDf.join(df, usingColumns, joinType)
+  }
 }
 
 object Index {
@@ -281,22 +303,13 @@ object Index {
   }
 
   implicit class DataFrameOps(df: DataFrame) {
-    private val cache = mutable.Map[Set[String], DataFrame]()
     def join(
         index: Index,
         usingColumns: Seq[String],
         joinType: String = "inner"
     ): DataFrame = {
-      val indexesToUse = index.indexes.intersect(usingColumns.toSet).toSeq
-      val filtered = df.select(indexesToUse.map(col): _*)
-      val indexes = indexesToUse.map { column =>
-        val distinctValues =
-          filtered.select(column).distinct.collect.map(_.get(0))
-        column -> distinctValues
-      }.toMap
-      val files = index.locateFiles(indexes)
-      val matchedFiles = cache.getOrElseUpdate(files, index.readFiles(files))
-      df.join(matchedFiles, usingColumns, joinType)
+      val indexDf = index.joinDf(df, usingColumns)
+      df.join(indexDf, usingColumns, joinType)
     }
   }
 }
