@@ -16,6 +16,7 @@ import scala.collection.mutable
 import collection.JavaConverters._
 import java.util
 import java.util.Collections
+import org.apache.logging.log4j.{Logger, LogManager}
 
 /** Represents an Index for managing metadata and file-based indexes in Apache
   * Spark.
@@ -38,6 +39,7 @@ case class Index private (
     name: String,
     schema: Option[StructType]
 ) {
+  val logger = LogManager.getLogger("ariadne")
 
   /** Path to the storage location of the index. */
   private var _storagePath: Path = _
@@ -114,6 +116,7 @@ case class Index private (
         throw new MetadataMissingOrCorruptException()
       }
     }
+    logger.trace(s"Read metadata from ${metadataFilePath.toString}")
     _metadata
   }
 
@@ -134,6 +137,7 @@ case class Index private (
     outputStream.flush()
     outputStream.close()
     _metadata = null
+    logger.trace(s"Wrote metadata to ${metadataFilePath.toString}")
   }
 
   /** Returns the stored schema of the index. */
@@ -156,7 +160,10 @@ case class Index private (
     */
   def addFile(fileNames: String*): Unit = {
     val toAdd = fileNames.toList.diff(files.toList)
-    if (toAdd.isEmpty) return
+    if (toAdd.isEmpty) {
+      logger.warn("All files were already added")
+      return
+    }
 
     val timestamp = System.currentTimeMillis()
     val newFiles = toAdd.map(FileMetadata(_, timestamp, indexed = false))
@@ -164,6 +171,7 @@ case class Index private (
     val currentMetadata = metadata
     currentMetadata.files.addAll(newFiles.asJava)
     writeMetadata(currentMetadata)
+    logger.trace(s"Added ${toAdd.length} files")
   }
 
   /** Helper function to get a list of files that haven't yet been indexed
@@ -325,6 +333,7 @@ case class Index private (
     */
   private def joinDf(df: DataFrame, usingColumns: Seq[String]): DataFrame = {
     val indexesToUse = this.indexes.intersect(usingColumns.toSet).toSeq
+    logger.trace(s"Found indexes for ${indexesToUse.mkString(",")}")
     val filtered = df.select(indexesToUse.map(col): _*)
     val indexes = indexesToUse.map { column =>
       val distinctValues =
@@ -404,7 +413,7 @@ object Index {
     *   True if the index was successfully removed, otherwise false.
     */
   def remove(spark: SparkSession, name: String): Boolean = {
-    if(!exists(spark, name)) {
+    if (!exists(spark, name)) {
       throw new IndexNotFoundException(name)
     }
 
@@ -413,7 +422,7 @@ object Index {
       path.getParent.toUri,
       spark.sparkContext.hadoopConfiguration
     )
-    
+
     fs.delete(path, true)
   }
 

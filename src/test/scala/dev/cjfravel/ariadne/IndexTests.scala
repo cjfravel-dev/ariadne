@@ -20,7 +20,6 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
   override def beforeAll(): Unit = {
     tempDir = Files.createTempDirectory("ariadne-test-output-")
     sc = new SparkContext("local[*]", "TestAriadne")
-    sc.setLogLevel("ERROR")
 
     spark = SparkSession
       .builder()
@@ -80,7 +79,7 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
       val index3 = Index(spark, "schema", table2Schema, "csv")
     }
   }
-  
+
   test("Can specify new schema") {
     val index = Index(spark, "schemachange", table1Schema, "csv")
     index.addIndex("Id")
@@ -91,7 +90,7 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
       val index4 = Index(spark, "schemachange2", table2Schema, "csv", true)
     }
   }
-  
+
   test("Requires same format") {
     val index = Index(spark, "format", table1Schema, "csv")
     val index2 = Index(spark, "format", table1Schema, "csv")
@@ -134,6 +133,9 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     paths.foreach(path => assert(index.isFileAdded(path) === false))
     index.addFile(paths: _*)
     paths.foreach(path => assert(index.isFileAdded(path) === true))
+
+    // manual logger test
+    index.addFile(paths: _*)
   }
 
   test("Read table1_part0") {
@@ -237,7 +239,7 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     assert(Index.exists(spark, "exists") === true)
     assert(Index.exists(spark, "doesntexist") === false)
   }
-  
+
   test("remove index") {
     val index = Index(spark, "toremove", table1Schema, "csv")
     assert(Index.exists(spark, "toremove") === true)
