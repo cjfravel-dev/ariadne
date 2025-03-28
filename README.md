@@ -19,6 +19,13 @@ Ariadne enables you to create simple indexes, allowing you to efficiently locate
 > **Note:** When using an index in a join, it is no longer a "narrow" transformation. The index must first retrieve matching values from its records, load the appropriate data, and then perform the narrow transformation on the resulting DataFrame.  
 
 ### Example Usage  
+```xml
+<dependency>
+    <groupId>dev.cjfravel</groupId>
+    <artifactId>ariadne</artifactId>
+    <version>0.0.1-alpha-7</version>
+</dependency>
+```
 
 ```scala
 val files = // Array(...)
@@ -32,12 +39,15 @@ val joinedWithoutIndex = otherDf.join(table, Seq("version", "id"), "left_semi")
 spark.conf.set("spark.ariadne.storagePath", s"abfss://${container}@${storageAccount}.dfs.core.windows.net/ariadne")
 
 import dev.cjfravel.ariadne
+Context.spark = spark
 
 // Create and configure the index
-val index = Index(spark, "table", tableSchema, "parquet")
+val index = Index("table", tableSchema, "parquet")
 index.addIndex("version")
 index.addFile(files: _*)
 index.update
 
 // Use the index in the join
-val joinedWithIndex = otherDf.join(index, Seq("version", "id"), "left_semi")
+val dfJoinedAgainstIndex = otherDf.join(index, Seq("version", "id"), "left_semi") // records in otherDf that have matching data in indexed files
+val indexJoinedAgainstDf = index.join(otherDf, Seq("version", "id"), "left_semi") // matching data that has been indexed that is in otherDf
+```
