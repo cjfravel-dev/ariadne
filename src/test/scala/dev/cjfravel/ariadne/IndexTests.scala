@@ -11,46 +11,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import java.nio.file.{Files, Path, StandardCopyOption}
 import dev.cjfravel.ariadne.Index.DataFrameOps
 
-class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
-
-  private var spark: SparkSession = _
-  private var sc: SparkContext = _
-  private var tempDir: Path = _
-
-  override def beforeAll(): Unit = {
-    tempDir = Files.createTempDirectory("ariadne-test-output-")
-    sc = new SparkContext("local[*]", "TestAriadne")
-
-    spark = SparkSession
-      .builder()
-      .config(sc.getConf)
-      .config("spark.ariadne.storagePath", tempDir.toString)
-      .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-      .config(
-        "spark.sql.catalog.spark_catalog",
-        "org.apache.spark.sql.delta.catalog.DeltaCatalog"
-      )
-      .getOrCreate()
-  }
-
-  override def afterAll(): Unit = {
-    if (spark != null) {
-      spark.stop()
-    }
-    if (tempDir != null) {
-      deleteDirectory(tempDir)
-    }
-  }
-
-  def deleteDirectory(path: Path): Unit = {
-    if (Files.isDirectory(path)) {
-      Files
-        .walk(path)
-        .sorted(java.util.Comparator.reverseOrder())
-        .forEach(Files.delete)
-    }
-  }
-
+class IndexTests extends SparkTests {
   val table1Schema = StructType(
     Seq(
       StructField("Id", IntegerType, nullable = false),
@@ -68,71 +29,67 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
 
   test("Requires schema") {
     assertThrows[SchemaNotProvidedException] {
-      val index = Index(spark, "noschema")
+      val index = Index("noschema")
     }
   }
 
   test("Requires same schema") {
-    val index = Index(spark, "schema", table1Schema, "csv")
-    val index2 = Index(spark, "schema", table1Schema, "csv")
+    val index = Index("schema", table1Schema, "csv")
+    val index2 = Index("schema", table1Schema, "csv")
     assertThrows[SchemaMismatchException] {
-      val index3 = Index(spark, "schema", table2Schema, "csv")
+      val index3 = Index("schema", table2Schema, "csv")
     }
   }
 
   test("Can specify new schema") {
-    val index = Index(spark, "schemachange", table1Schema, "csv")
+    val index = Index("schemachange", table1Schema, "csv")
     index.addIndex("Id")
-    val index2 = Index(spark, "schemachange", table2Schema, "csv", true)
+    val index2 = Index("schemachange", table2Schema, "csv", true)
     assertThrows[IndexNotFoundInNewSchemaException] {
-      val index3 = Index(spark, "schemachange2", table1Schema, "csv")
+      val index3 = Index("schemachange2", table1Schema, "csv")
       index3.addIndex("Value")
-      val index4 = Index(spark, "schemachange2", table2Schema, "csv", true)
+      val index4 = Index("schemachange2", table2Schema, "csv", true)
     }
   }
 
   test("Requires same format") {
-    val index = Index(spark, "format", table1Schema, "csv")
-    val index2 = Index(spark, "format", table1Schema, "csv")
+    val index = Index("format", table1Schema, "csv")
+    val index2 = Index("format", table1Schema, "csv")
     assertThrows[FormatMismatchException] {
-      val index3 = Index(spark, "format", table1Schema, "parquet")
+      val index3 = Index("format", table1Schema, "parquet")
     }
   }
 
   test("Only requires schema first time") {
     assertThrows[SchemaNotProvidedException] {
-      val index = Index(spark, "noschema")
+      val index = Index("noschema")
     }
-    val index = Index(spark, "schema", table1Schema, "csv")
-    val index2 = Index(spark, "schema")
+    val index = Index("schema", table1Schema, "csv")
+    val index2 = Index("schema")
   }
 
   test("Can retrieve same schema") {
-    val index = Index(spark, "sameschema", table1Schema, "csv")
+    val index = Index("sameschema", table1Schema, "csv")
     assert(index.storedSchema === table1Schema)
   }
 
-  test("storagePath") {
-    assert(Index.storagePath(spark) === tempDir.toString)
-  }
-
   test("Index addFile") {
-    val index = Index(spark, "test", table1Schema, "csv")
-    val path = getClass.getResource("/data/table1_part0.csv").getPath
-    assert(index.isFileAdded(path) === false)
+    val index = Index("test", table1Schema, "csv")
+    val path = resourcePath("/data/table1_part0.csv")
+    assert(index.hasFile(path) === false)
     index.addFile(path)
-    assert(index.isFileAdded(path) === true)
+    assert(index.hasFile(path) === true)
   }
 
   test("Index addFiles") {
-    val index = Index(spark, "test2", table1Schema, "csv")
+    val index = Index("test2", table1Schema, "csv")
     val paths = Array(
-      getClass.getResource("/data/table1_part0.csv").getPath,
-      getClass.getResource("/data/table1_part1.csv").getPath
+      resourcePath("/data/table1_part0.csv"),
+      resourcePath("/data/table1_part1.csv")
     )
-    paths.foreach(path => assert(index.isFileAdded(path) === false))
+    paths.foreach(path => assert(index.hasFile(path) === false))
     index.addFile(paths: _*)
-    paths.foreach(path => assert(index.isFileAdded(path) === true))
+    paths.foreach(path => assert(index.hasFile(path) === true))
 
     // manual logger test
     index.addFile(paths: _*)
@@ -142,7 +99,7 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     val df = spark.read
       .option("header", "true")
       .schema(table1Schema)
-      .csv(getClass.getResource("/data/table1_part0.csv").getPath)
+      .csv(resourcePath("/data/table1_part0.csv"))
 
     assert(df.count() == 4)
   }
@@ -151,7 +108,7 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     val df = spark.read
       .option("header", "true")
       .schema(table1Schema)
-      .csv(getClass.getResource("/data/table1_part1.csv").getPath)
+      .csv(resourcePath("/data/table1_part1.csv"))
 
     assert(df.count() == 4)
   }
@@ -161,18 +118,18 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
       .option("header", "true")
       .schema(table1Schema)
       .csv(
-        getClass.getResource("/data/table1_part0.csv").getPath,
-        getClass.getResource("/data/table1_part1.csv").getPath
+        resourcePath("/data/table1_part0.csv"),
+        resourcePath("/data/table1_part1.csv")
       )
 
     assert(df.count() == 8)
   }
 
   test("Update index") {
-    val index = Index(spark, "test2", table1Schema, "csv")
+    val index = Index("update", table1Schema, "csv")
     val paths = Array(
-      getClass.getResource("/data/table1_part0.csv").getPath,
-      getClass.getResource("/data/table1_part1.csv").getPath
+      resourcePath("/data/table1_part0.csv"),
+      resourcePath("/data/table1_part1.csv")
     )
     index.addFile(paths: _*)
     assert(index.unindexedFiles.size === 2)
@@ -200,10 +157,10 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
   )
 
   test("Join") {
-    val index = Index(spark, "table1", table1Schema, "csv")
+    val index = Index("join", table1Schema, "csv")
     val paths = Array(
-      getClass.getResource("/data/table1_part0.csv").getPath,
-      getClass.getResource("/data/table1_part1.csv").getPath
+      resourcePath("/data/table1_part0.csv"),
+      resourcePath("/data/table1_part1.csv")
     )
     index.addFile(paths: _*)
     index.addIndex("Id")
@@ -213,7 +170,7 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     val table2 = spark.read
       .schema(table2Schema)
       .option("header", "true")
-      .csv(getClass.getResource("/data/table2_part0.csv").getPath)
+      .csv(resourcePath("/data/table2_part0.csv"))
 
     assert(table2.join(index, Seq("Version", "Id"), "left_semi").count === 1)
     assert(table2.join(index, Seq("Version"), "fullouter").count === 4)
@@ -235,15 +192,20 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
   }
 
   test("index exists") {
-    val index = Index(spark, "exists", table1Schema, "csv")
-    assert(Index.exists(spark, "exists") === true)
-    assert(Index.exists(spark, "doesntexist") === false)
+    val index = Index("exists", table1Schema, "csv")
+    val path = resourcePath("/data/table1_part0.csv")
+    index.addFile(path)
+    assert(Index.exists("exists") === true)
+
+    assert(Index.exists("doesntexist") === false)
   }
 
   test("remove index") {
-    val index = Index(spark, "toremove", table1Schema, "csv")
-    assert(Index.exists(spark, "toremove") === true)
-    Index.remove(spark, "toremove")
-    assert(Index.exists(spark, "toremove") === false)
+    val index = Index("toremove", table1Schema, "csv")
+    val path = resourcePath("/data/table1_part0.csv")
+    index.addFile(path)
+    assert(Index.exists("toremove") === true)
+    Index.remove("toremove")
+    assert(Index.exists("toremove") === false)
   }
 }
