@@ -14,8 +14,11 @@ import org.apache.hadoop.fs.FSDataInputStream
 object AriadneContext {
   val logger = LogManager.getLogger("ariadne")
 
-  private[ariadne] var _spark: SparkSession = _
-  def spark_=(spark: SparkSession): Unit = {
+  private var _spark: SparkSession = _
+  private var _fs: FileSystem = _
+  private var _storagePath: Path = _
+
+  def setSparkSession(spark: SparkSession): Unit = {
     logger.trace("spark set")
     _spark = spark
     _storagePath = new Path(
@@ -27,8 +30,6 @@ object AriadneContext {
     )
   }
 
-  private var _fs: FileSystem = _
-  private var _storagePath: Path = _
 
   /** SparkSession associated with the running job */
   private[ariadne] def spark: SparkSession = _spark
