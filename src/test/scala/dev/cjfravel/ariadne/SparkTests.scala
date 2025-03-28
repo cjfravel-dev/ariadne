@@ -28,7 +28,7 @@ trait SparkTests extends AnyFunSuite with BeforeAndAfterAll {
       )
       .getOrCreate()
 
-    Context.spark = spark
+    AriadneContext.spark = spark
   }
 
   override def afterAll(): Unit = {

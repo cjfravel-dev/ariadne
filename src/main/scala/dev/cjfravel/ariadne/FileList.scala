@@ -26,17 +26,17 @@ case class FileEntry(filename: String, addedAt: java.sql.Timestamp)
 
 case class FileList private (
     name: String
-) {
+) extends AriadneContextUser {
   val logger = LogManager.getLogger("ariadne")
 
-  private def storagePath: Path = new Path(FileList.storagePath, name)
+  override def storagePath: Path = new Path(FileList.storagePath, name)
 
   private var _files: Dataset[FileEntry] = _
 
   private def files(spark: SparkSession): Dataset[FileEntry] = {
     if (_files == null) {
       import spark.implicits._
-      _files = Context.delta(storagePath) match {
+      _files = delta(storagePath) match {
         case Some(delta) => delta.toDF.as[FileEntry]
         case None        => spark.emptyDataset[FileEntry]
       }
@@ -45,7 +45,7 @@ case class FileList private (
     _files
   }
 
-  def files: Dataset[FileEntry] = files(Context.spark)
+  def files: Dataset[FileEntry] = files(spark)
 
   private def addFile(spark: SparkSession, fileNames: String*): Unit = {
     import spark.implicits._
@@ -67,13 +67,13 @@ case class FileList private (
     logger.trace(s"Added ${toAdd.size} files")
   }
 
-  def addFile(fileNames: String*): Unit = addFile(Context.spark, fileNames: _*)
+  def addFile(fileNames: String*): Unit = addFile(spark, fileNames: _*)
 
   def hasFile(fileName: String): Boolean =
     !files.filter(col("filename") === fileName).isEmpty
 
   private def write: Unit = {
-    Context.delta(storagePath) match {
+    delta(storagePath) match {
       case Some(delta) =>
         delta
           .as("target")
@@ -95,17 +95,17 @@ case class FileList private (
 
 }
 
-object FileList {
-  def storagePath: Path = new Path(Context.storagePath, "filelists")
+object FileList extends AriadneContextUser {
+  override def storagePath: Path = new Path(super.storagePath, "filelists")
 
   def exists(name: String): Boolean =
-    Context.exists(new Path(storagePath, name))
+    exists(new Path(storagePath, name))
 
   def remove(name: String): Boolean = {
     if (!exists(name)) {
       throw new FileListNotFoundException(name)
     }
 
-    Context.delete(new Path(storagePath, name))
+    delete(new Path(storagePath, name))
   }
 }
