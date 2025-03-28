@@ -1,15 +1,7 @@
 package dev.cjfravel.ariadne
 
 import dev.cjfravel.ariadne.exceptions._
-import org.apache.spark.sql.{SparkSession, Row}
-import org.apache.spark.SparkContext
 import org.apache.spark.sql.types._
-
-import org.scalatest.BeforeAndAfterAll
-import org.scalatest.funsuite.AnyFunSuite
-
-import java.nio.file.{Files, Path, StandardCopyOption}
-import dev.cjfravel.ariadne.Index.DataFrameOps
 
 class IndexTests extends SparkTests {
   val table1Schema = StructType(

@@ -23,7 +23,7 @@ Ariadne enables you to create simple indexes, allowing you to efficiently locate
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne</artifactId>
-    <version>0.0.1-alpha-9</version>
+    <version>0.0.1-alpha-10</version>
 </dependency>
 ```
 
@@ -40,7 +40,7 @@ val joinedWithoutIndex = otherDf.join(table, Seq("version", "id"), "left_semi")
 spark.conf.set("spark.ariadne.storagePath", s"abfss://${container}@${storageAccount}.dfs.core.windows.net/ariadne")
 
 import dev.cjfravel.ariadne
-AriadneContext.spark = spark
+AriadneContext.setSparkSession(spark)
 
 // Create and configure the index
 val index = Index("table", tableSchema, "parquet")
