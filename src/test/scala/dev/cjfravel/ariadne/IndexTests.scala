@@ -11,48 +11,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import java.nio.file.{Files, Path, StandardCopyOption}
 import dev.cjfravel.ariadne.Index.DataFrameOps
 
-class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
-
-  private var spark: SparkSession = _
-  private var sc: SparkContext = _
-  private var tempDir: Path = _
-
-  override def beforeAll(): Unit = {
-    tempDir = Files.createTempDirectory("ariadne-test-output-")
-    sc = new SparkContext("local[*]", "TestAriadne")
-
-    spark = SparkSession
-      .builder()
-      .config(sc.getConf)
-      .config("spark.ariadne.storagePath", tempDir.toString)
-      .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-      .config(
-        "spark.sql.catalog.spark_catalog",
-        "org.apache.spark.sql.delta.catalog.DeltaCatalog"
-      )
-      .getOrCreate()
-
-    Context.spark = spark
-  }
-
-  override def afterAll(): Unit = {
-    if (spark != null) {
-      spark.stop()
-    }
-    if (tempDir != null) {
-      deleteDirectory(tempDir)
-    }
-  }
-
-  def deleteDirectory(path: Path): Unit = {
-    if (Files.isDirectory(path)) {
-      Files
-        .walk(path)
-        .sorted(java.util.Comparator.reverseOrder())
-        .forEach(Files.delete)
-    }
-  }
-
+class IndexTests extends SparkTests {
   val table1Schema = StructType(
     Seq(
       StructField("Id", IntegerType, nullable = false),
@@ -67,10 +26,6 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
       StructField("Version", IntegerType, nullable = false)
     )
   )
-
-  test("storagePath") {
-    assert(Context.storagePath.toString === tempDir.toString)
-  }
 
   test("Requires schema") {
     assertThrows[SchemaNotProvidedException] {
@@ -120,21 +75,21 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
 
   test("Index addFile") {
     val index = Index("test", table1Schema, "csv")
-    val path = getClass.getResource("/data/table1_part0.csv").getPath
-    assert(index.isFileAdded(path) === false)
+    val path = resourcePath("/data/table1_part0.csv")
+    assert(index.hasFile(path) === false)
     index.addFile(path)
-    assert(index.isFileAdded(path) === true)
+    assert(index.hasFile(path) === true)
   }
 
   test("Index addFiles") {
     val index = Index("test2", table1Schema, "csv")
     val paths = Array(
-      getClass.getResource("/data/table1_part0.csv").getPath,
-      getClass.getResource("/data/table1_part1.csv").getPath
+      resourcePath("/data/table1_part0.csv"),
+      resourcePath("/data/table1_part1.csv")
     )
-    paths.foreach(path => assert(index.isFileAdded(path) === false))
+    paths.foreach(path => assert(index.hasFile(path) === false))
     index.addFile(paths: _*)
-    paths.foreach(path => assert(index.isFileAdded(path) === true))
+    paths.foreach(path => assert(index.hasFile(path) === true))
 
     // manual logger test
     index.addFile(paths: _*)
@@ -144,7 +99,7 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     val df = spark.read
       .option("header", "true")
       .schema(table1Schema)
-      .csv(getClass.getResource("/data/table1_part0.csv").getPath)
+      .csv(resourcePath("/data/table1_part0.csv"))
 
     assert(df.count() == 4)
   }
@@ -153,7 +108,7 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     val df = spark.read
       .option("header", "true")
       .schema(table1Schema)
-      .csv(getClass.getResource("/data/table1_part1.csv").getPath)
+      .csv(resourcePath("/data/table1_part1.csv"))
 
     assert(df.count() == 4)
   }
@@ -163,18 +118,18 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
       .option("header", "true")
       .schema(table1Schema)
       .csv(
-        getClass.getResource("/data/table1_part0.csv").getPath,
-        getClass.getResource("/data/table1_part1.csv").getPath
+        resourcePath("/data/table1_part0.csv"),
+        resourcePath("/data/table1_part1.csv")
       )
 
     assert(df.count() == 8)
   }
 
   test("Update index") {
-    val index = Index("test2", table1Schema, "csv")
+    val index = Index("update", table1Schema, "csv")
     val paths = Array(
-      getClass.getResource("/data/table1_part0.csv").getPath,
-      getClass.getResource("/data/table1_part1.csv").getPath
+      resourcePath("/data/table1_part0.csv"),
+      resourcePath("/data/table1_part1.csv")
     )
     index.addFile(paths: _*)
     assert(index.unindexedFiles.size === 2)
@@ -202,10 +157,10 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
   )
 
   test("Join") {
-    val index = Index("table1", table1Schema, "csv")
+    val index = Index("join", table1Schema, "csv")
     val paths = Array(
-      getClass.getResource("/data/table1_part0.csv").getPath,
-      getClass.getResource("/data/table1_part1.csv").getPath
+      resourcePath("/data/table1_part0.csv"),
+      resourcePath("/data/table1_part1.csv")
     )
     index.addFile(paths: _*)
     index.addIndex("Id")
@@ -215,7 +170,7 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
     val table2 = spark.read
       .schema(table2Schema)
       .option("header", "true")
-      .csv(getClass.getResource("/data/table2_part0.csv").getPath)
+      .csv(resourcePath("/data/table2_part0.csv"))
 
     assert(table2.join(index, Seq("Version", "Id"), "left_semi").count === 1)
     assert(table2.join(index, Seq("Version"), "fullouter").count === 4)
@@ -238,14 +193,19 @@ class IndexTests extends AnyFunSuite with BeforeAndAfterAll {
 
   test("index exists") {
     val index = Index("exists", table1Schema, "csv")
-    assert(Index.exists(spark, "exists") === true)
-    assert(Index.exists(spark, "doesntexist") === false)
+    val path = resourcePath("/data/table1_part0.csv")
+    index.addFile(path)
+    assert(Index.exists("exists") === true)
+
+    assert(Index.exists("doesntexist") === false)
   }
 
   test("remove index") {
     val index = Index("toremove", table1Schema, "csv")
-    assert(Index.exists(spark, "toremove") === true)
-    Index.remove(spark, "toremove")
-    assert(Index.exists(spark, "toremove") === false)
+    val path = resourcePath("/data/table1_part0.csv")
+    index.addFile(path)
+    assert(Index.exists("toremove") === true)
+    Index.remove("toremove")
+    assert(Index.exists("toremove") === false)
   }
 }

@@ -17,6 +17,8 @@ import collection.JavaConverters._
 import java.util
 import java.util.Collections
 import org.apache.logging.log4j.{Logger, LogManager}
+import dev.cjfravel.ariadne.Index.DataFrameOps
+import org.apache.spark.SparkConf
 
 /** Represents an Index for managing metadata and file-based indexes in Apache
   * Spark.
@@ -40,14 +42,16 @@ case class Index private (
 ) {
   val logger = LogManager.getLogger("ariadne")
 
-  /** Path to the storage location of the index. */
-  private def storagePath: Path = new Path(Context.storagePath, name)
+  private def fileList: FileList = FileList(Index.fileListName(name))
 
-  /** Hadoop path for the metadata file */
-  private def metadataFilePath: Path = new Path(storagePath, "metadata.json")
+  /** Path to the storage location of the index. */
+  private def storagePath: Path = new Path(Index.storagePath, name)
 
   /** Hadoop path for the index delta table */
   private def indexFilePath: Path = new Path(storagePath, "index")
+
+  /** Hadoop path for the index delta table */
+  private def metadataFilePath: Path = new Path(storagePath, "metadata.json")
 
   /** Returns the format of the stored data. */
   def format: String = metadata.format
@@ -97,9 +101,6 @@ case class Index private (
     _metadata
   }
 
-  /** Returns a set of file names stored in the index. */
-  def files: Set[String] = metadata.files.asScala.map(_.file).toSet
-
   /** Writes metadata to the storage location.
     * @param metadata
     *   The metadata to write.
@@ -121,43 +122,35 @@ case class Index private (
   def storedSchema: StructType =
     DataType.fromJson(metadata.schema).asInstanceOf[StructType]
 
-  /** Helper function to see if a file was already added
-    *
-    * @param fileName
-    * @return
-    *   True is the file is included already
-    */
-  def isFileAdded(fileName: String): Boolean = {
-    metadata.files.asScala.exists(_.file == fileName)
-  }
+  def hasFile(fileName: String): Boolean = fileList.hasFile(fileName)
 
-  /** Adds files to the index.
-    * @param fileNames
-    *   The names of the files to add.
-    */
-  def addFile(fileNames: String*): Unit = {
-    val toAdd = fileNames.toList.diff(files.toList)
-    if (toAdd.isEmpty) {
-      logger.warn("All files were already added")
-      return
-    }
-
-    val timestamp = System.currentTimeMillis()
-    val newFiles = toAdd.map(FileMetadata(_, timestamp, indexed = false))
-
-    val currentMetadata = metadata
-    currentMetadata.files.addAll(newFiles.asJava)
-    writeMetadata(currentMetadata)
-    logger.trace(s"Added ${toAdd.length} files")
-  }
+  def addFile(fileNames: String*): Unit = fileList.addFile(fileNames: _*)
 
   /** Helper function to get a list of files that haven't yet been indexed
     *
     * @return
     *   Set of filenames
     */
-  private[ariadne] def unindexedFiles: Set[String] =
-    metadata.files.asScala.filter(!_.indexed).map(_.file).toSet
+  private[ariadne] def unindexedFiles: Set[String] = unindexedFiles(
+    Context.spark
+  )
+  private[ariadne] def unindexedFiles(spark: SparkSession): Set[String] = {
+    val files = fileList.files
+    if (files.isEmpty) {
+      return Set()
+    }
+    import spark.implicits._
+    index match {
+      case Some(df) =>
+        files
+          .join(df, Seq("filename"), "left_anti")
+          .as[FileEntry]
+          .map(_.filename)
+          .collect()
+          .toSet
+      case None => files.map(_.filename).collect().toSet
+    }
+  }
 
   /** Adds an index entry.
     * @param index
@@ -166,13 +159,6 @@ case class Index private (
   def addIndex(index: String): Unit = {
     if (metadata.indexes.contains(index)) return
     metadata.indexes.add(index)
-    metadata.files.asScala.foreach(_.indexed = false)
-    writeMetadata(metadata)
-  }
-
-  /** Sets all files as indexed */
-  private def setIndexedTrue(): Unit = {
-    metadata.files.asScala.foreach(_.indexed = true)
     writeMetadata(metadata)
   }
 
@@ -188,9 +174,11 @@ case class Index private (
     * @return
     *   DataFrame containing latest version of the index
     */
-  private def index: DataFrame = {
-    val deltaTable = DeltaTable.forPath(Context.spark, indexFilePath.toString)
-    deltaTable.toDF
+  private def index: Option[DataFrame] = {
+    Context.delta(indexFilePath) match {
+      case Some(delta) => Some(delta.toDF)
+      case None        => None
+    }
   }
 
   /** Prints the index DataFrame to the console, including its schema.
@@ -199,9 +187,12 @@ case class Index private (
     * Lake, displays its contents, and prints its schema.
     */
   private[ariadne] def printIndex(): Unit = {
-    val df = index
-    df.show(false)
-    df.printSchema()
+    index match {
+      case Some(df) =>
+        df.show(false)
+        df.printSchema()
+      case None =>
+    }
   }
 
   /** Prints the metadata associated with the index to the console.
@@ -232,34 +223,34 @@ case class Index private (
 
   /** Updates the index with new files. */
   def update: Unit = {
-    val columns = indexes + "FileName"
+    val columns = indexes + "filename"
     val df = readFiles(unindexedFiles)
-      .withColumn("FileName", input_file_name)
+      .withColumn("filename", input_file_name)
       .select(columns.toList.map(col): _*)
       .distinct
 
     val aggExprs =
       indexes.toList.map(colName => collect_set(col(colName)).alias(colName))
-    val groupedDf = df.groupBy("FileName").agg(aggExprs.head, aggExprs.tail: _*)
+    val groupedDf = df.groupBy("filename").agg(aggExprs.head, aggExprs.tail: _*)
 
-    if (!Context.exists(indexFilePath)) {
-      groupedDf.write
-        .format("delta")
-        .mode("overwrite")
-        .save(indexFilePath.toString)
-    } else {
-      val deltaTable = DeltaTable.forPath(Context.spark, indexFilePath.toString)
-      deltaTable
-        .as("target")
-        .merge(groupedDf.as("source"), "target.FileName = source.FileName")
-        .whenMatched()
-        .updateExpr(indexes.map(colName => colName -> s"source.$colName").toMap)
-        .whenNotMatched()
-        .insertAll()
-        .execute()
+    Context.delta(indexFilePath) match {
+      case Some(delta) =>
+        delta
+          .as("target")
+          .merge(groupedDf.as("source"), "target.filename = source.filename")
+          .whenMatched()
+          .updateExpr(
+            indexes.map(colName => colName -> s"source.$colName").toMap
+          )
+          .whenNotMatched()
+          .insertAll()
+          .execute()
+      case None =>
+        groupedDf.write
+          .format("delta")
+          .mode("overwrite")
+          .save(indexFilePath.toString)
     }
-
-    setIndexedTrue
   }
 
   /** Locates files based on index values.
@@ -269,29 +260,32 @@ case class Index private (
     *   A set of file names matching the criteria.
     */
   def locateFiles(indexes: Map[String, Array[Any]]): Set[String] = {
-    val df = index
-    val schema = StructType(
-      Array(StructField("FileName", StringType, nullable = false))
-    )
-    val emptyDF =
-      Context.spark.createDataFrame(
-        Context.spark.sparkContext.emptyRDD[Row],
-        schema
-      )
+    index match {
+      case Some(df) =>
+        val schema = StructType(
+          Array(StructField("filename", StringType, nullable = false))
+        )
+        val emptyDF =
+          Context.spark.createDataFrame(
+            Context.spark.sparkContext.emptyRDD[Row],
+            schema
+          )
 
-    val resultDF = indexes.foldLeft(emptyDF) {
-      case (accumDF, (column, values)) =>
-        val filteredDF = df
-          .select("FileName", column)
-          .withColumn("Value", explode(col(column)))
-          .where(col("Value").isin(values: _*))
-          .select("FileName")
-          .distinct
+        val resultDF = indexes.foldLeft(emptyDF) {
+          case (accumDF, (column, values)) =>
+            val filteredDF = df
+              .select("filename", column)
+              .withColumn("value", explode(col(column)))
+              .where(col("value").isin(values: _*))
+              .select("filename")
+              .distinct
 
-        accumDF.union(filteredDF)
+            accumDF.union(filteredDF)
+        }
+
+        resultDF.distinct.collect.map(_.getString(0)).toSet
+      case None => Set()
     }
-
-    resultDF.distinct.collect.map(_.getString(0)).toSet
   }
 
   private val joinCache = mutable.Map[Set[String], DataFrame]()
@@ -347,32 +341,20 @@ case class Index private (
 /** Companion object for the Index class.
   */
 object Index {
+  def storagePath: Path = new Path(Context.storagePath, "indexes")
 
-  /** Checks if an index with the given name exists.
-    * @param spark
-    *   The SparkSession instance.
-    * @param name
-    *   The name of the index.
-    * @return
-    *   True if the index exists, otherwise false.
-    */
-  def exists(spark: SparkSession, name: String): Boolean =
-    Context.exists(new Path(Context.storagePath, name))
+  def fileListName(name: String): String = s"[ariadne_index] $name"
 
-  /** Removes the index with the given name.
-    * @param spark
-    *   The SparkSession instance.
-    * @param name
-    *   The name of the index.
-    * @return
-    *   True if the index was successfully removed, otherwise false.
-    */
-  def remove(spark: SparkSession, name: String): Boolean = {
-    if (!exists(spark, name)) {
+  def exists(name: String): Boolean =
+    FileList.exists(fileListName(name)) || Context.exists(new Path(Context.storagePath, name))
+
+  def remove(name: String): Boolean = {
+    if (!exists(name)) {
       throw new IndexNotFoundException(name)
     }
 
-    Context.delete(new Path(Context.storagePath, name))
+    val fileListRemoved = FileList.remove(fileListName(name))
+    Context.delete(new Path(Context.storagePath, name)) || fileListRemoved
   }
 
   /** Factory method to create an Index instance.
@@ -437,7 +419,6 @@ object Index {
       Metadata(
         null,
         null,
-        Collections.emptyList[FileMetadata](),
         Collections.emptyList[String]()
       )
     }
@@ -452,7 +433,6 @@ object Index {
                   throw new IndexNotFoundInNewSchemaException(col)
                 }
               })
-              metadata.files.asScala.foreach(_.indexed = false)
             }
             metadata.schema = s.json
           } else if (metadata.schema != s.json) {
