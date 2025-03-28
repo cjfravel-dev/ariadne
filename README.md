@@ -23,7 +23,7 @@ Ariadne enables you to create simple indexes, allowing you to efficiently locate
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne</artifactId>
-    <version>0.0.1-alpha-7</version>
+    <version>0.0.1-alpha-8</version>
 </dependency>
 ```
 
