@@ -39,13 +39,13 @@ import org.apache.spark.SparkConf
 case class Index private (
     name: String,
     schema: Option[StructType]
-) {
+) extends AriadneContextUser {
   val logger = LogManager.getLogger("ariadne")
 
   private def fileList: FileList = FileList(Index.fileListName(name))
 
   /** Path to the storage location of the index. */
-  private def storagePath: Path = new Path(Index.storagePath, name)
+  override def storagePath: Path = new Path(Index.storagePath, name)
 
   /** Hadoop path for the index delta table */
   private def indexFilePath: Path = new Path(storagePath, "index")
@@ -71,7 +71,7 @@ case class Index private (
     *   True if metadata exists, otherwise false.
     */
   private def metadataExists: Boolean =
-    Context.fs.exists(metadataFilePath)
+    exists(metadataFilePath)
 
   private var _metadata: Metadata = _
 
@@ -86,7 +86,7 @@ case class Index private (
     if (_metadata == null) {
       _metadata = if (metadataExists) {
         try {
-          val inputStream = Context.fs.open(metadataFilePath)
+          val inputStream = open(metadataFilePath)
           val jsonString =
             Source.fromInputStream(inputStream)(StandardCharsets.UTF_8).mkString
           new Gson().fromJson(jsonString, classOf[Metadata])
@@ -107,10 +107,10 @@ case class Index private (
     */
   private def writeMetadata(metadata: Metadata): Unit = {
     val directoryPath = metadataFilePath.getParent
-    if (!Context.fs.exists(directoryPath)) Context.fs.mkdirs(directoryPath)
+    if (!exists(directoryPath)) fs.mkdirs(directoryPath)
 
     val jsonString = new Gson().toJson(metadata)
-    val outputStream = Context.fs.create(metadataFilePath)
+    val outputStream = fs.create(metadataFilePath)
     outputStream.write(jsonString.getBytes(StandardCharsets.UTF_8))
     outputStream.flush()
     outputStream.close()
@@ -131,9 +131,7 @@ case class Index private (
     * @return
     *   Set of filenames
     */
-  private[ariadne] def unindexedFiles: Set[String] = unindexedFiles(
-    Context.spark
-  )
+  private[ariadne] def unindexedFiles: Set[String] = unindexedFiles(spark)
   private[ariadne] def unindexedFiles(spark: SparkSession): Set[String] = {
     val files = fileList.files
     if (files.isEmpty) {
@@ -175,7 +173,7 @@ case class Index private (
     *   DataFrame containing latest version of the index
     */
   private def index: Option[DataFrame] = {
-    Context.delta(indexFilePath) match {
+    delta(indexFilePath) match {
       case Some(delta) => Some(delta.toDF)
       case None        => None
     }
@@ -212,12 +210,12 @@ case class Index private (
   private def readFiles(files: Set[String]): DataFrame = {
     format match {
       case "csv" =>
-        Context.spark.read
+        spark.read
           .option("header", "true")
           .schema(storedSchema)
           .csv(files.toList: _*)
       case "parquet" =>
-        Context.spark.read.schema(storedSchema).parquet(files.toList: _*)
+        spark.read.schema(storedSchema).parquet(files.toList: _*)
     }
   }
 
@@ -233,7 +231,7 @@ case class Index private (
       indexes.toList.map(colName => collect_set(col(colName)).alias(colName))
     val groupedDf = df.groupBy("filename").agg(aggExprs.head, aggExprs.tail: _*)
 
-    Context.delta(indexFilePath) match {
+    delta(indexFilePath) match {
       case Some(delta) =>
         delta
           .as("target")
@@ -266,8 +264,8 @@ case class Index private (
           Array(StructField("filename", StringType, nullable = false))
         )
         val emptyDF =
-          Context.spark.createDataFrame(
-            Context.spark.sparkContext.emptyRDD[Row],
+          spark.createDataFrame(
+            spark.sparkContext.emptyRDD[Row],
             schema
           )
 
@@ -340,13 +338,15 @@ case class Index private (
 
 /** Companion object for the Index class.
   */
-object Index {
-  def storagePath: Path = new Path(Context.storagePath, "indexes")
+object Index extends AriadneContextUser {
+  override def storagePath: Path = new Path(super.storagePath, "indexes")
 
   def fileListName(name: String): String = s"[ariadne_index] $name"
 
   def exists(name: String): Boolean =
-    FileList.exists(fileListName(name)) || Context.exists(new Path(Context.storagePath, name))
+    FileList.exists(fileListName(name)) || super.exists(
+      new Path(super.storagePath, name)
+    )
 
   def remove(name: String): Boolean = {
     if (!exists(name)) {
@@ -354,7 +354,7 @@ object Index {
     }
 
     val fileListRemoved = FileList.remove(fileListName(name))
-    Context.delete(new Path(Context.storagePath, name)) || fileListRemoved
+    delete(new Path(super.storagePath, name)) || fileListRemoved
   }
 
   /** Factory method to create an Index instance.

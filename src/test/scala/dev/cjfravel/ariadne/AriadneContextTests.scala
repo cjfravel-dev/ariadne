@@ -10,8 +10,8 @@ import org.scalatest.funsuite.AnyFunSuite
 
 import java.nio.file.{Files, Path}
 
-class ContextTests extends SparkTests {
+class AriadneContextTests extends SparkTests {
   test("storagePath") {
-    assert(Context.storagePath.toString === tempDir.toString)
+    assert(AriadneContext.storagePath.toString === tempDir.toString)
   }
 }
