@@ -313,7 +313,22 @@ case class Index private (
       column -> distinctValues
     }.toMap
     val files = locateFiles(indexes)
-    joinCache.getOrElseUpdate(files, readFiles(files))
+    logger.trace(s"Found ${files.size} files in index")
+    val readIndex = readFiles(files)
+    val filters =
+      indexes.collect {
+        case (column, values) if values.nonEmpty =>
+          col(column).isin(values: _*)
+      }
+
+    val filteredReadIndex =
+      if (filters.nonEmpty) {
+        readIndex.filter(filters.reduce(_ && _))
+      } else {
+        readIndex
+      }
+
+    joinCache.getOrElseUpdate(files, filteredReadIndex.cache)
   }
 
   /** Joins a DataFrame with the index.
