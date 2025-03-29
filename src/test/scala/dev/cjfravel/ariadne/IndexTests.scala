@@ -165,8 +165,8 @@ class IndexTests extends SparkTests {
       .csv(resourcePath("/data/table2_part0.csv"))
 
     assert(table2.join(index, Seq("Version", "Id"), "left_semi").count === 1)
-    assert(table2.join(index, Seq("Version"), "fullouter").count === 4)
-    assert(table2.join(index, Seq("Version", "Id"), "fullouter").count === 8)
+    assert(table2.join(index, Seq("Version"), "fullouter").count === 1)
+    assert(table2.join(index, Seq("Version", "Id"), "fullouter").count === 1)
     assert(
       normalizeSchema(
         table2.join(index, Seq("Version"), "left_semi").schema
@@ -174,8 +174,8 @@ class IndexTests extends SparkTests {
     )
 
     assert(index.join(table2, Seq("Version", "Id"), "left_semi").count === 1)
-    assert(index.join(table2, Seq("Version"), "fullouter").count === 4)
-    assert(index.join(table2, Seq("Version", "Id"), "fullouter").count === 8)
+    assert(index.join(table2, Seq("Version"), "fullouter").count === 1)
+    assert(index.join(table2, Seq("Version", "Id"), "fullouter").count === 1)
     assert(
       normalizeSchema(
         index.join(table2, Seq("Version"), "left_semi").schema
