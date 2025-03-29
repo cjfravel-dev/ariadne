@@ -30,7 +30,6 @@ object AriadneContext {
     )
   }
 
-
   /** SparkSession associated with the running job */
   private[ariadne] def spark: SparkSession = _spark
 
@@ -44,7 +43,12 @@ object AriadneContext {
   private[ariadne] def storagePath: Path = _storagePath
   private[ariadne] def delta(path: Path): Option[DeltaTable] = {
     if (exists(path)) {
-      Some(DeltaTable.forPath(spark, path.toString))
+      if (DeltaTable.isDeltaTable(spark, path.toString)) {
+        Some(DeltaTable.forPath(spark, path.toString))
+      } else {
+        delete(path)
+        None
+      }
     } else {
       None
     }
