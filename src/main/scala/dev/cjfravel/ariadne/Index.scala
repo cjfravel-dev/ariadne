@@ -142,6 +142,7 @@ case class Index private (
       case Some(df) =>
         files
           .join(df, Seq("filename"), "left_anti")
+          .limit(updateFileLimit)
           .as[FileEntry]
           .map(_.filename)
           .collect()
@@ -222,33 +223,50 @@ case class Index private (
   /** Updates the index with new files. */
   def update: Unit = {
     val columns = indexes + "filename"
-    val df = readFiles(unindexedFiles)
-      .withColumn("filename", input_file_name)
-      .select(columns.toList.map(col): _*)
-      .distinct
+    Stream
+      .iterate(unindexedFiles)(unindexed => {
+        if (unindexed.nonEmpty) {
+          logger.trace(s"Updating index for ${unindexed.size} files")
+          val df = readFiles(unindexed)
+            .withColumn("filename", input_file_name)
+            .select(columns.toList.map(col): _*)
+            .distinct
 
-    val aggExprs =
-      indexes.toList.map(colName => collect_set(col(colName)).alias(colName))
-    val groupedDf = df.groupBy("filename").agg(aggExprs.head, aggExprs.tail: _*)
+          val aggExprs =
+            indexes.toList.map(colName =>
+              collect_set(col(colName)).alias(colName)
+            )
+          val groupedDf =
+            df.groupBy("filename").agg(aggExprs.head, aggExprs.tail: _*)
 
-    delta(indexFilePath) match {
-      case Some(delta) =>
-        delta
-          .as("target")
-          .merge(groupedDf.as("source"), "target.filename = source.filename")
-          .whenMatched()
-          .updateExpr(
-            indexes.map(colName => colName -> s"source.$colName").toMap
-          )
-          .whenNotMatched()
-          .insertAll()
-          .execute()
-      case None =>
-        groupedDf.write
-          .format("delta")
-          .mode("overwrite")
-          .save(indexFilePath.toString)
-    }
+          delta(indexFilePath) match {
+            case Some(delta) =>
+              delta
+                .as("target")
+                .merge(
+                  groupedDf.as("source"),
+                  "target.filename = source.filename"
+                )
+                .whenMatched()
+                .updateExpr(
+                  indexes.map(colName => colName -> s"source.$colName").toMap
+                )
+                .whenNotMatched()
+                .insertAll()
+                .execute()
+            case None =>
+              groupedDf.write
+                .format("delta")
+                .mode("overwrite")
+                .save(indexFilePath.toString)
+          }
+          unindexedFiles
+        } else {
+          Set.empty
+        }
+      })
+      .dropWhile(_.nonEmpty)
+      .head
   }
 
   /** Locates files based on index values.
