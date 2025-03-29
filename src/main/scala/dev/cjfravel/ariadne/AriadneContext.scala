@@ -17,6 +17,7 @@ object AriadneContext {
   private var _spark: SparkSession = _
   private var _fs: FileSystem = _
   private var _storagePath: Path = _
+  private var _updateFileLimit: Int = _
 
   def setSparkSession(spark: SparkSession): Unit = {
     logger.trace("spark set")
@@ -28,6 +29,7 @@ object AriadneContext {
       _storagePath.getParent.toUri,
       spark.sparkContext.hadoopConfiguration
     )
+    _updateFileLimit = spark.conf.get("spark.ariadne.updateFileLimit", "100").toInt
   }
 
   /** SparkSession associated with the running job */
@@ -53,6 +55,8 @@ object AriadneContext {
       None
     }
   }
+
+  private[ariadne] def updateFileLimit: Int = _updateFileLimit
 }
 
 private[ariadne] trait AriadneContextUser {
@@ -65,4 +69,6 @@ private[ariadne] trait AriadneContextUser {
 
   def storagePath: Path = AriadneContext.storagePath
   def delta(path: Path): Option[DeltaTable] = AriadneContext.delta(path)
+  
+  def updateFileLimit: Int = AriadneContext.updateFileLimit
 }
