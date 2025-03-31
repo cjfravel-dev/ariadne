@@ -1,0 +1,12 @@
+{
+    "format": "parquet",
+    "schema": "not a real schema",
+    "indexes": [
+        "Test",
+        "Test2"
+    ],
+    "computed_indexes": {
+        "test": "expr1",
+        "test2": "expr2"
+    }
+}

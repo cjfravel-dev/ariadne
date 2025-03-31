@@ -1,0 +1,8 @@
+{
+    "format": "parquet",
+    "schema": "not a real schema",
+    "indexes": [
+        "Test",
+        "Test2"
+    ]
+}

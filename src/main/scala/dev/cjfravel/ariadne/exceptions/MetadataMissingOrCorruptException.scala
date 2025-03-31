@@ -1,4 +1,4 @@
 package dev.cjfravel.ariadne.exceptions
 
 class MetadataMissingOrCorruptException
-    extends Exception("Metadata is missing or corrupt")
+    extends Exception("IndexMetadata is missing or corrupt")

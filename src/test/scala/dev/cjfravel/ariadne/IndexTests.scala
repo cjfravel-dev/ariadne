@@ -2,6 +2,8 @@ package dev.cjfravel.ariadne
 
 import dev.cjfravel.ariadne.exceptions._
 import org.apache.spark.sql.types._
+import org.apache.spark.sql.functions._
+import dev.cjfravel.ariadne.Index.DataFrameOps
 
 class IndexTests extends SparkTests {
   val table1Schema = StructType(
@@ -16,6 +18,20 @@ class IndexTests extends SparkTests {
     Seq(
       StructField("Id", IntegerType, nullable = false),
       StructField("Version", IntegerType, nullable = false)
+    )
+  )
+
+  val table3Schema = StructType(
+    Seq(
+      StructField("Id", StringType, nullable = false),
+      StructField("Value", DoubleType, nullable = false)
+    )
+  )
+
+  val table4Schema = StructType(
+    Seq(
+      StructField("Id", StringType, nullable = false),
+      StructField("Status", StringType, nullable = false)
     )
   )
 
@@ -199,5 +215,58 @@ class IndexTests extends SparkTests {
     assert(Index.exists("toremove") === true)
     Index.remove("toremove")
     assert(Index.exists("toremove") === false)
+  }
+
+  test("computed_index") {
+    val index = Index("computed", table3Schema, "csv")
+    val paths = Array(
+      resourcePath("/data/table3_part0.csv"),
+      resourcePath("/data/table3_part1.csv")
+    )
+    index.addFile(paths: _*)
+    val column = substring(col("Id"), 1, 4)
+    index.addComputedIndex("Category", column)
+    index.update
+
+    assert(
+      spark.read
+        .schema(table4Schema)
+        .option("header", "true")
+        .csv(resourcePath("/data/table4_part0.csv"))
+        .withColumn("Category", column)
+        .join(index, Seq("Category"), "inner")
+        .count == 3
+    )
+
+    assert(
+      spark.read
+        .schema(table4Schema)
+        .option("header", "true")
+        .csv(resourcePath("/data/table4_part1.csv"))
+        .withColumn("Category", column)
+        .join(index, Seq("Category"), "inner")
+        .count == 2
+    )
+
+    assert(
+      spark.read
+        .schema(table4Schema)
+        .option("header", "true")
+        .csv(resourcePath("/data/table4_part0.csv"))
+        .withColumn("Category", column)
+        .join(index, Seq("Category", "Id"), "inner")
+        .count == 1
+    )
+
+    assert(
+      spark.read
+        .schema(table4Schema)
+        .option("header", "true")
+        .csv(resourcePath("/data/table4_part1.csv"))
+        .withColumn("Category", column)
+        .join(index, Seq("Category", "Id"), "inner")
+        .count == 1
+    )
+
   }
 }
