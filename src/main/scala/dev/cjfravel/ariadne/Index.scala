@@ -5,8 +5,6 @@ import org.apache.spark.sql.{SparkSession, DataFrame}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import scala.io.Source
-import com.google.gson._
-import com.google.gson.reflect.TypeToken
 import io.delta.tables.DeltaTable
 import org.apache.spark.sql.Row
 import org.apache.hadoop.fs.{Path, FileSystem}
@@ -19,6 +17,9 @@ import java.util.Collections
 import org.apache.logging.log4j.{Logger, LogManager}
 import dev.cjfravel.ariadne.Index.DataFrameOps
 import org.apache.spark.SparkConf
+import com.google.gson.Gson
+import org.apache.spark.sql.Column
+import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 
 /** Represents an Index for managing metadata and file-based indexes in Apache
   * Spark.
@@ -73,23 +74,23 @@ case class Index private (
   private def metadataExists: Boolean =
     exists(metadataFilePath)
 
-  private var _metadata: Metadata = _
+  private var _metadata: IndexMetadata = _
 
   /** Retrieves the stored metadata for the index.
     *
     * @return
-    *   Metadata associated with the index.
+    *   IndexMetadata associated with the index.
     * @throws MetadataMissingOrCorruptException
     *   if metadata is missing or cannot be parsed.
     */
-  private def metadata: Metadata = {
+  private def metadata: IndexMetadata = {
     if (_metadata == null) {
       _metadata = if (metadataExists) {
         try {
           val inputStream = open(metadataFilePath)
           val jsonString =
             Source.fromInputStream(inputStream)(StandardCharsets.UTF_8).mkString
-          new Gson().fromJson(jsonString, classOf[Metadata])
+          IndexMetadata(jsonString)
         } catch {
           case _: Exception => throw new MetadataMissingOrCorruptException()
         }
@@ -105,7 +106,7 @@ case class Index private (
     * @param metadata
     *   The metadata to write.
     */
-  private def writeMetadata(metadata: Metadata): Unit = {
+  private def writeMetadata(metadata: IndexMetadata): Unit = {
     val directoryPath = metadataFilePath.getParent
     if (!exists(directoryPath)) fs.mkdirs(directoryPath)
 
@@ -165,7 +166,14 @@ case class Index private (
     * @return
     *   Set of column names to be indexed
     */
-  def indexes: Set[String] = metadata.indexes.asScala.toSet
+  def indexes: Set[String] =
+    metadata.indexes.asScala.toSet ++ metadata.computed_indexes.keySet().asScala
+
+  def addComputedIndex(name: String, col: Column): Unit = {
+    if (metadata.computed_indexes.containsKey(name)) return
+    metadata.computed_indexes.put(name, col.expr.sql)
+    writeMetadata(metadata)
+  }
 
   /** Helper function to load the index
     *
@@ -208,15 +216,21 @@ case class Index private (
     *   A DataFrame containing the contents of the specified files.
     */
   private def readFiles(files: Set[String]): DataFrame = {
-    format match {
-      case "csv" =>
-        spark.read
-          .option("header", "true")
-          .schema(storedSchema)
-          .csv(files.toList: _*)
-      case "parquet" =>
-        spark.read.schema(storedSchema).parquet(files.toList: _*)
-    }
+    metadata.computed_indexes.asScala
+      .foldLeft(format match {
+        case "csv" =>
+          spark.read
+            .option("header", "true")
+            .schema(storedSchema)
+            .csv(files.toList: _*)
+        case "parquet" =>
+          spark.read.schema(storedSchema).parquet(files.toList: _*)
+      }) { case (tempDf, (colName, exprStr)) =>
+        tempDf.withColumn(
+          colName,
+          new Column(CatalystSqlParser.parseExpression(exprStr))
+        )
+      }
   }
 
   /** Updates the index with new files. */
@@ -225,10 +239,12 @@ case class Index private (
     val unindexed = unindexedFiles
     if (unindexed.nonEmpty) {
       logger.trace(s"Updating index for ${unindexed.size} files")
-      val df = readFiles(unindexed)
-        .withColumn("filename", input_file_name)
-        .select(columns.toList.map(col): _*)
-        .distinct
+
+      val df: DataFrame =
+        readFiles(unindexed)
+          .withColumn("filename", input_file_name)
+          .select(columns.toList.map(col): _*)
+          .distinct
 
       val aggExprs =
         indexes.toList.map(colName => collect_set(col(colName)).alias(colName))
@@ -440,10 +456,11 @@ object Index extends AriadneContextUser {
     val metadata = if (metadataExists) {
       index.metadata
     } else {
-      Metadata(
+      IndexMetadata(
         null,
         null,
-        Collections.emptyList[String]()
+        Collections.emptyList[String](),
+        Collections.emptyMap[String, String]()
       )
     }
 
