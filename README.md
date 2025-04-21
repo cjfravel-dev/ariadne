@@ -23,7 +23,7 @@ Ariadne enables you to create simple indexes, allowing you to efficiently locate
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne</artifactId>
-    <version>0.0.1-alpha-15</version>
+    <version>0.0.1-alpha-16</version>
 </dependency>
 ```
 
@@ -53,6 +53,6 @@ val dfJoinedAgainstIndex = otherDf.join(index, Seq("version", "id"), "left_semi"
 val indexJoinedAgainstDf = index.join(otherDf, Seq("version", "id"), "left_semi") // matching data that has been indexed that is in otherDf
 
 // you can add computed indexes using standard Column types
-index.addComputedIndex("category", substring(col("id"), 1, 4))
+index.addComputedIndex("category", "substring(Id, 1, 4)")
 index.update
 ```

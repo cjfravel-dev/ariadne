@@ -18,8 +18,6 @@ import org.apache.logging.log4j.{Logger, LogManager}
 import dev.cjfravel.ariadne.Index.DataFrameOps
 import org.apache.spark.SparkConf
 import com.google.gson.Gson
-import org.apache.spark.sql.Column
-import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 
 /** Represents an Index for managing metadata and file-based indexes in Apache
   * Spark.
@@ -169,9 +167,9 @@ case class Index private (
   def indexes: Set[String] =
     metadata.indexes.asScala.toSet ++ metadata.computed_indexes.keySet().asScala
 
-  def addComputedIndex(name: String, col: Column): Unit = {
+  def addComputedIndex(name: String, sql_expression: String): Unit = {
     if (metadata.computed_indexes.containsKey(name)) return
-    metadata.computed_indexes.put(name, col.expr.sql)
+    metadata.computed_indexes.put(name, sql_expression)
     writeMetadata(metadata)
   }
 
@@ -228,8 +226,7 @@ case class Index private (
       }) { case (tempDf, (colName, exprStr)) =>
         tempDf.withColumn(
           colName,
-          new Column(CatalystSqlParser.parseExpression(exprStr))
-        )
+          expr(exprStr))
       }
   }
 
