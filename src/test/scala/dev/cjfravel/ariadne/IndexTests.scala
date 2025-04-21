@@ -224,7 +224,7 @@ class IndexTests extends SparkTests {
       resourcePath("/data/table3_part1.csv")
     )
     index.addFile(paths: _*)
-    val column = substring(col("Id"), 1, 4)
+    val column = "substring(Id, 1, 4)"
     index.addComputedIndex("Category", column)
     index.update
 
@@ -233,7 +233,7 @@ class IndexTests extends SparkTests {
         .schema(table4Schema)
         .option("header", "true")
         .csv(resourcePath("/data/table4_part0.csv"))
-        .withColumn("Category", column)
+        .withColumn("Category", substring(col("Id"), 1, 4))
         .join(index, Seq("Category"), "inner")
         .count == 3
     )
@@ -243,7 +243,7 @@ class IndexTests extends SparkTests {
         .schema(table4Schema)
         .option("header", "true")
         .csv(resourcePath("/data/table4_part1.csv"))
-        .withColumn("Category", column)
+        .withColumn("Category", substring(col("Id"), 1, 4))
         .join(index, Seq("Category"), "inner")
         .count == 2
     )
@@ -253,7 +253,7 @@ class IndexTests extends SparkTests {
         .schema(table4Schema)
         .option("header", "true")
         .csv(resourcePath("/data/table4_part0.csv"))
-        .withColumn("Category", column)
+        .withColumn("Category", substring(col("Id"), 1, 4))
         .join(index, Seq("Category", "Id"), "inner")
         .count == 1
     )
@@ -263,7 +263,7 @@ class IndexTests extends SparkTests {
         .schema(table4Schema)
         .option("header", "true")
         .csv(resourcePath("/data/table4_part1.csv"))
-        .withColumn("Category", column)
+        .withColumn("Category", substring(col("Id"), 1, 4))
         .join(index, Seq("Category", "Id"), "inner")
         .count == 1
     )
