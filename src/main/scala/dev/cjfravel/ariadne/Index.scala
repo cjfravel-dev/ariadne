@@ -376,6 +376,34 @@ case class Index private (
     val indexDf = joinDf(df, usingColumns)
     indexDf.join(df, usingColumns, joinType)
   }
+
+  /** Returns a DataFrame of statistics for each indexed column (based on array length per file) and file count. */
+  def stats(): DataFrame = {
+    index match {
+      case Some(df) =>
+        // File count
+        val fileCountAgg = df.select(countDistinct("filename").as("FileCount"))
+
+        // For each index, compute stats as a struct column
+        val statCols = indexes.toSeq.map { colName =>
+          val lenCol = size(col(colName))
+          struct(
+            min(lenCol).as("min"),
+            max(lenCol).as("max"),
+            avg(lenCol).as("avg"),
+            expr("percentile_approx(size(" + colName + "), 0.5)").as("median"),
+            stddev(lenCol).as("stddev")
+          ).as(colName)
+        }
+
+        // Build a single-row DataFrame with all stats
+        val aggExprs = Seq(countDistinct("filename").as("FileCount")) ++ statCols
+        df.agg(aggExprs.head, aggExprs.tail: _*)
+
+      case None =>
+        spark.emptyDataFrame
+    }
+  }
 }
 
 /** Companion object for the Index class.
