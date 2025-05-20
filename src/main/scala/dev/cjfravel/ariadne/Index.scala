@@ -146,8 +146,8 @@ case class Index private (
       case Some(df) =>
         files
           .join(df, Seq("filename"), "left_anti")
-          .as[FileEntry]
-          .map(_.filename)
+          .select("filename")
+          .as[String]
           .collect()
           .toSet
       case None => files.map(_.filename).collect().toSet
