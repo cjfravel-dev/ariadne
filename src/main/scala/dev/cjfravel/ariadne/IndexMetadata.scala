@@ -20,7 +20,7 @@ object IndexMetadata {
     // v1 -> v2
     if (indexMetadata.computed_indexes == null) {
       indexMetadata.computed_indexes =
-        util.Collections.emptyMap[String, String]()
+        new util.HashMap[String, String]()
     }
     indexMetadata
   }

@@ -74,6 +74,23 @@ case class Index private (
 
   private var _metadata: IndexMetadata = _
 
+  /** Forces a reload of metadata from disk. */
+  def refreshMetadata(): Unit = {
+    _metadata = if (metadataExists) {
+      try {
+        val inputStream = open(metadataFilePath)
+        val jsonString =
+          Source.fromInputStream(inputStream)(StandardCharsets.UTF_8).mkString
+        IndexMetadata(jsonString)
+      } catch {
+        case _: Exception => throw new MetadataMissingOrCorruptException()
+      }
+    } else {
+      throw new MetadataMissingOrCorruptException()
+    }
+    logger.trace(s"Read metadata from ${metadataFilePath.toString}")
+  }
+
   /** Retrieves the stored metadata for the index.
     *
     * @return
@@ -83,20 +100,8 @@ case class Index private (
     */
   private def metadata: IndexMetadata = {
     if (_metadata == null) {
-      _metadata = if (metadataExists) {
-        try {
-          val inputStream = open(metadataFilePath)
-          val jsonString =
-            Source.fromInputStream(inputStream)(StandardCharsets.UTF_8).mkString
-          IndexMetadata(jsonString)
-        } catch {
-          case _: Exception => throw new MetadataMissingOrCorruptException()
-        }
-      } else {
-        throw new MetadataMissingOrCorruptException()
-      }
+      refreshMetadata()
     }
-    logger.trace(s"Read metadata from ${metadataFilePath.toString}")
     _metadata
   }
 
@@ -113,7 +118,7 @@ case class Index private (
     outputStream.write(jsonString.getBytes(StandardCharsets.UTF_8))
     outputStream.flush()
     outputStream.close()
-    _metadata = null
+    _metadata = metadata // Update in-memory cache
     logger.trace(s"Wrote metadata to ${metadataFilePath.toString}")
   }
 
@@ -456,8 +461,8 @@ object Index extends AriadneContextUser {
       IndexMetadata(
         null,
         null,
-        Collections.emptyList[String](),
-        Collections.emptyMap[String, String]()
+        new util.ArrayList[String](),
+        new util.HashMap[String, String]()
       )
     }
 

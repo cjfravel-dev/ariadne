@@ -9,8 +9,9 @@ import java.nio.file.Files
 
 class IndexMetadataTests extends AnyFunSuite {
   test("v1") {
-    val path = getClass.getResource("/index_metadata/v1.json").getPath
-    val jsonString = new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8)
+    val stream = getClass.getResourceAsStream("/index_metadata/v1.json")
+    require(stream != null, "Resource not found: /index_metadata/v1.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
     val metadata = IndexMetadata(jsonString)
     assert(metadata.format === "parquet")
     assert(metadata.schema === "not a real schema")
@@ -21,8 +22,9 @@ class IndexMetadataTests extends AnyFunSuite {
   
 
   test("v1 -> v2") {
-    val path = getClass.getResource("/index_metadata/v1.json").getPath
-    val jsonString = new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8)
+    val stream = getClass.getResourceAsStream("/index_metadata/v1.json")
+    require(stream != null, "Resource not found: /index_metadata/v1.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
     val metadata = IndexMetadata(jsonString)
     assert(metadata.format === "parquet")
     assert(metadata.schema === "not a real schema")
@@ -33,8 +35,9 @@ class IndexMetadataTests extends AnyFunSuite {
   }
 
   test("v2") {
-    val path = getClass.getResource("/index_metadata/v2.json").getPath
-    val jsonString = new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8)
+    val stream = getClass.getResourceAsStream("/index_metadata/v2.json")
+    require(stream != null, "Resource not found: /index_metadata/v2.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
     val metadata = IndexMetadata(jsonString)
     assert(metadata.format === "parquet")
     assert(metadata.schema === "not a real schema")
