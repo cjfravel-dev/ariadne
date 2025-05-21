@@ -4,6 +4,7 @@ import dev.cjfravel.ariadne.exceptions._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import dev.cjfravel.ariadne.Index.DataFrameOps
+import java.nio.file.Files
 
 class IndexTests extends SparkTests {
   val table1Schema = StructType(
@@ -146,7 +147,7 @@ class IndexTests extends SparkTests {
     index.addIndex("Value")
     index.update
     assert(index.unindexedFiles.size === 0)
-    index.printIndex
+    index.printIndex(false)
     index.printMetadata
     assert(
       index
@@ -267,6 +268,63 @@ class IndexTests extends SparkTests {
         .join(index, Seq("Category", "Id"), "inner")
         .count == 1
     )
+  }
 
+  test("large index") {
+    val df = spark.range(0, 1500000).toDF("Id")
+      .withColumn("Guid", expr("uuid()").cast(StringType))
+        
+    val path = tempDir.resolve("large_index")
+    df.coalesce(1)
+      .write
+      .option("header", "true")
+      .option("delimiter", ",")
+      .mode("overwrite")
+      .csv(path.toString)
+
+    val fileName = "file://" + Files
+      .walk(path)
+      .filter(Files.isRegularFile(_))
+      .filter(_.getFileName.toString.endsWith(".csv"))
+      .findFirst()
+      .get()
+      .toString
+
+    val index = Index("large_index", df.schema, "csv")
+    index.addFile(fileName)
+    index.addIndex("Id")
+    index.addIndex("Guid")
+    index.update
+    assert(index.unindexedFiles.size === 0)
+
+    val joinTestId = df
+      .select("Id")
+      .sample(0.2)
+      .limit(100)
+    assert(
+      index
+        .join(joinTestId, Seq("Id"), "left_semi")
+        .count() === 100
+    )
+
+    val joinTestGuid = df
+      .select("Guid")
+      .sample(0.2)
+      .limit(100)
+    assert(
+      index
+        .join(joinTestGuid, Seq("Guid"), "left_semi")
+        .count() === 100
+    )
+
+    val joinTestIdGuid = df
+      .select("Id", "Guid")
+      .sample(0.2)
+      .limit(100)
+    assert(
+      index
+        .join(joinTestIdGuid, Seq("Id", "Guid"), "left_semi")
+        .count() === 100
+    )
   }
 }
