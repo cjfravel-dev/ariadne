@@ -49,6 +49,10 @@ case class Index private (
   /** Hadoop path for the index delta table */
   private def indexFilePath: Path = new Path(storagePath, "index")
 
+  /** Hadoop root path for large index delta tables */
+  private def largeIndexesFilePath: Path =
+    new Path(storagePath, "large_indexes")
+
   /** Hadoop path for the index delta table */
   private def metadataFilePath: Path = new Path(storagePath, "metadata.json")
 
@@ -185,8 +189,38 @@ case class Index private (
     */
   private def index: Option[DataFrame] = {
     delta(indexFilePath) match {
-      case Some(delta) => Some(delta.toDF)
-      case None        => None
+      case Some(delta) => {
+        val index = delta.toDF
+        // search largeIndexesFilePath for files to merge into the index
+        val largeIndexesFiles = fs
+          .listStatus(largeIndexesFilePath)
+          .filter(_.isDirectory)
+          .flatMap { dir =>
+            fs.listStatus(dir.getPath).map(_.getPath.toString)
+          }
+          .toSet
+
+        // for each file in largeIndexesFiles, read the file and merge it into the index
+        val combined = largeIndexesFiles.foldLeft(index) {
+          (accumDf, fileName) =>
+            val colName = fileName.split("/").reverse(1)
+            val safeColName = s"ariadne_large_index_$colName"
+            val largeIndex = spark.read
+              .format("delta")
+              .load(fileName)
+              .groupBy("filename")
+              .agg(collect_set(colName).alias(safeColName))
+              .select("filename", safeColName)
+
+            accumDf
+              .join(largeIndex, Seq("filename"), "left")
+              .withColumn(colName, coalesce(col(colName), col(safeColName)))
+              .drop(safeColName)
+        }
+
+        Some(combined)
+      }
+      case None => None
     }
   }
 
@@ -195,10 +229,10 @@ case class Index private (
     * This method retrieves the latest version of the index stored in Delta
     * Lake, displays its contents, and prints its schema.
     */
-  private[ariadne] def printIndex(): Unit = {
+  private[ariadne] def printIndex(truncate: Boolean = false): Unit = {
     index match {
       case Some(df) =>
-        df.show(false)
+        df.show(truncate)
         df.printSchema()
       case None =>
     }
@@ -229,10 +263,15 @@ case class Index private (
         case "parquet" =>
           spark.read.schema(storedSchema).parquet(files.toList: _*)
       }) { case (tempDf, (colName, exprStr)) =>
-        tempDf.withColumn(
-          colName,
-          expr(exprStr))
+        tempDf.withColumn(colName, expr(exprStr))
       }
+  }
+
+  private def cleanFileName(fileName: String): String = {
+    fileName
+      .replaceAll("[^a-zA-Z0-9]", "_")
+      .replaceAll("__+", "_")
+      .replaceAll("^_|_$", "")
   }
 
   /** Updates the index with new files. */
@@ -253,12 +292,67 @@ case class Index private (
       val groupedDf =
         df.groupBy("filename").agg(aggExprs.head, aggExprs.tail: _*)
 
+      // determine the large indexes that need to be exploded into separate files
+      val largeGroupedDf = indexes.foldLeft(groupedDf) {
+        case (accumDf, colName) =>
+          accumDf.withColumn(
+            colName,
+            when(size(col(colName)) < overflowLimit, null)
+              .otherwise(col(colName))
+          )
+      }
+      val largeFiles = largeGroupedDf
+        .select("filename")
+        .where(indexes.map(colName => col(colName).isNotNull).reduce(_ && _))
+        .distinct()
+        .collect()
+        .map(_.getString(0))
+        .toSet
+
+      // for each file in largeFile and for each index, create a new file in
+      // largeIndexesFilePath/<colName>/<fileName> with the exploded values from the index column
+      largeFiles.foreach { fileName =>
+        indexes.foreach(colName => {
+          val filePath =
+            new Path(
+              new Path(largeIndexesFilePath, colName),
+              cleanFileName(fileName)
+            )
+          val indexDf = largeGroupedDf
+            .where(col("filename") === fileName)
+            .select("filename", colName)
+            .withColumn(colName, explode(col(colName)))
+
+          // in the case of multiple indexed columns we only do this for the columns that need
+          // to be split to a separate file, if it's still small it'll be written directly
+          // to the index file
+          if (indexDf.count() > 0) {
+            indexDf.write
+              .format("delta")
+              .mode("overwrite")
+              .save(filePath.toString)
+          }
+        })
+      }
+
+      // for each index replace with null if the array is larger than 500k elements as
+      // they are already exploded into separate files, we do not remove the filename if
+      // the all indexes are null because we want to flag the file as indexed
+      val smallGroupedDf = indexes.foldLeft(groupedDf) {
+        case (accumDf, colName) =>
+          accumDf.withColumn(
+            colName,
+            when(size(col(colName)) >= overflowLimit, null)
+              .otherwise(col(colName))
+          )
+      }
+
       delta(indexFilePath) match {
         case Some(delta) =>
           delta
             .as("target")
             .merge(
-              groupedDf.as("source"),
+              smallGroupedDf.as("source"),
               "target.filename = source.filename"
             )
             .whenMatched()
@@ -269,12 +363,11 @@ case class Index private (
             .insertAll()
             .execute()
         case None =>
-          groupedDf.write
+          smallGroupedDf.write
             .format("delta")
             .mode("overwrite")
             .save(indexFilePath.toString)
       }
-      unindexedFiles
     }
   }
 
@@ -313,7 +406,8 @@ case class Index private (
     }
   }
 
-  private val joinCache = mutable.Map[Set[String], DataFrame]()
+  private val joinCache =
+    mutable.Map[(Set[String], Map[String, Seq[Any]]), DataFrame]()
 
   /** Retrieves and caches a DataFrame containing indexed data relevant to the
     * given DataFrame.
@@ -339,6 +433,7 @@ case class Index private (
         filtered.select(column).distinct.collect.map(_.get(0))
       column -> distinctValues
     }.toMap
+    
     val files = locateFiles(indexes)
     logger.trace(s"Found ${files.size} files in index")
     val readIndex = readFiles(files)
@@ -355,7 +450,9 @@ case class Index private (
         readIndex
       }
 
-    joinCache.getOrElseUpdate(files, filteredReadIndex.cache)
+    val cacheKey = (files, indexes.mapValues(_.toSeq))
+
+    joinCache.getOrElseUpdate(cacheKey, filteredReadIndex.cache)
   }
 
   /** Joins a DataFrame with the index.
@@ -377,7 +474,9 @@ case class Index private (
     indexDf.join(df, usingColumns, joinType)
   }
 
-  /** Returns a DataFrame of statistics for each indexed column (based on array length per file) and file count. */
+  /** Returns a DataFrame of statistics for each indexed column (based on array
+    * length per file) and file count.
+    */
   def stats(): DataFrame = {
     index match {
       case Some(df) =>
@@ -397,7 +496,8 @@ case class Index private (
         }
 
         // Build a single-row DataFrame with all stats
-        val aggExprs = Seq(countDistinct("filename").as("FileCount")) ++ statCols
+        val aggExprs =
+          Seq(countDistinct("filename").as("FileCount")) ++ statCols
         df.agg(aggExprs.head, aggExprs.tail: _*)
 
       case None =>
