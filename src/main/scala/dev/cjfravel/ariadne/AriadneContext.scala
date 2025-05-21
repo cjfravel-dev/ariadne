@@ -17,7 +17,7 @@ object AriadneContext {
   private var _spark: SparkSession = _
   private var _fs: FileSystem = _
   private var _storagePath: Path = _
-  private var _overflowLimit: Long = _
+  private var _largeIndexLimit: Long = _
 
   def setSparkSession(spark: SparkSession): Unit = {
     logger.trace("spark set")
@@ -25,9 +25,9 @@ object AriadneContext {
     _storagePath = new Path(
       spark.conf.get("spark.ariadne.storagePath")
     )
-    _overflowLimit = spark.conf
+    _largeIndexLimit = spark.conf
       .get(
-        "spark.ariadne.overflowLimit",
+        "spark.ariadne.largeIndexLimit",
         "500000"
       )
       .toLong
@@ -48,7 +48,7 @@ object AriadneContext {
 
   /** Path on FileSystem where ariadre should create file */
   private[ariadne] def storagePath: Path = _storagePath
-  private[ariadne] def overflowLimit: Long = _overflowLimit
+  private[ariadne] def largeIndexLimit: Long = _largeIndexLimit
   private[ariadne] def delta(path: Path): Option[DeltaTable] = {
     if (exists(path)) {
       if (DeltaTable.isDeltaTable(spark, path.toString)) {
@@ -73,5 +73,5 @@ private[ariadne] trait AriadneContextUser {
 
   def storagePath: Path = AriadneContext.storagePath
   def delta(path: Path): Option[DeltaTable] = AriadneContext.delta(path)
-  def overflowLimit: Long = AriadneContext.overflowLimit
+  def largeIndexLimit: Long = AriadneContext.largeIndexLimit
 }

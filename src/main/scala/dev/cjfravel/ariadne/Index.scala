@@ -192,6 +192,10 @@ case class Index private (
       case Some(delta) => {
         val index = delta.toDF
         // search largeIndexesFilePath for files to merge into the index
+        if (!exists(largeIndexesFilePath)) {
+          return Some(index)
+        }
+        
         val largeIndexesFiles = fs
           .listStatus(largeIndexesFilePath)
           .filter(_.isDirectory)
@@ -297,7 +301,7 @@ case class Index private (
         case (accumDf, colName) =>
           accumDf.withColumn(
             colName,
-            when(size(col(colName)) < overflowLimit, null)
+            when(size(col(colName)) < largeIndexLimit, null)
               .otherwise(col(colName))
           )
       }
@@ -342,7 +346,7 @@ case class Index private (
         case (accumDf, colName) =>
           accumDf.withColumn(
             colName,
-            when(size(col(colName)) >= overflowLimit, null)
+            when(size(col(colName)) >= largeIndexLimit, null)
               .otherwise(col(colName))
           )
       }
@@ -433,7 +437,7 @@ case class Index private (
         filtered.select(column).distinct.collect.map(_.get(0))
       column -> distinctValues
     }.toMap
-    
+
     val files = locateFiles(indexes)
     logger.trace(s"Found ${files.size} files in index")
     val readIndex = readFiles(files)
