@@ -414,4 +414,156 @@ class IndexTests extends SparkTests {
     val fs = org.apache.hadoop.fs.FileSystem.get(spark.sparkContext.hadoopConfiguration)
     fs.delete(new org.apache.hadoop.fs.Path(tempPath), true)
   }
+
+  // JSON Support Test Cases
+  test("JSON format support - basic indexing") {
+    // Define schema that matches the JSON array structure
+    val jsonEventsSchema = StructType(Seq(
+      StructField("event_id", StringType, nullable = true),
+      StructField("participants", ArrayType(StructType(Seq(
+        StructField("role", StringType, nullable = true),
+        StructField("user_id", LongType, nullable = true)
+      ))), nullable = true),
+      StructField("tags", ArrayType(StructType(Seq(
+        StructField("category", StringType, nullable = true),
+        StructField("name", StringType, nullable = true)
+      ))), nullable = true)
+    ))
+
+    // Create index with JSON format and multiLine option for JSON arrays
+    val readOptions = Map("multiLine" -> "true")
+    val index = Index("json_events", jsonEventsSchema, "json", readOptions)
+    val jsonPath = resourcePath("/data/array_events.json")
+    
+    // Test file operations
+    assert(index.hasFile(jsonPath) === false)
+    index.addFile(jsonPath)
+    assert(index.hasFile(jsonPath) === true)
+    
+    // Test basic indexing
+    index.addIndex("event_id")
+    index.update
+    assert(index.unindexedFiles.size === 0)
+    
+    // Print index for debugging
+    index.printIndex(false)
+    
+    // Test file location by event_id
+    val eventFiles = index.locateFiles(Map("event_id" -> Array("evt1", "evt2")))
+    assert(eventFiles.nonEmpty, "Should find files containing event IDs evt1 or evt2")
+    
+    // Verify index stats
+    val stats = index.stats()
+    assert(stats.count() > 0, "Should have index statistics")
+  }
+
+  test("JSON format support - exploded field indexing") {
+    // Define schema for JSON test data (matching array_test.json structure)
+    val jsonTestSchema = StructType(Seq(
+      StructField("event_id", StringType, nullable = true),
+      StructField("event_type", StringType, nullable = true),
+      StructField("users", ArrayType(StructType(Seq(
+        StructField("id", LongType, nullable = true),
+        StructField("name", StringType, nullable = true)
+      ))), nullable = true),
+      StructField("tags", ArrayType(StringType), nullable = true)
+    ))
+
+    // Create index with ONLY exploded field indexing (no regular indexes) and multiLine option
+    val readOptions = Map("multiLine" -> "true")
+    val index = Index("json_test_exploded", jsonTestSchema, "json", readOptions)
+    val jsonPath = resourcePath("/data/array_test.json")
+    index.addFile(jsonPath)
+    
+    // Add ONLY exploded field index to test this specific functionality
+    index.addExplodedFieldIndex("users", "id", "user_id")
+    index.update
+    
+    // Print index for debugging
+    index.printIndex(false)
+    
+    // Verify only the exploded field index is registered
+    assert(index.indexes.contains("user_id"), "user_id should be in indexes")
+    assert(!index.indexes.contains("event_type"), "event_type should NOT be in indexes for this test")
+    
+    // Test locating files by exploded field values - use correct storage column name
+    val userIdFiles = index.locateFiles(Map("users" -> Array(100L, 101L)))
+    assert(userIdFiles.nonEmpty, "Should find files containing user IDs 100 or 101")
+    
+    // Test join with ONLY exploded field (no regular columns)
+    val userQueryData = spark.createDataFrame(
+      spark.sparkContext.parallelize(Seq(
+        Row(100L),
+        Row(101L)
+      )),
+      StructType(Seq(
+        StructField("user_id", LongType, nullable = false)
+      ))
+    )
+    val joinResult = userQueryData.join(index, Seq("user_id"))
+    assert(joinResult.count() > 0, "Should be able to join on user_id from JSON exploded field data")
+  }
+
+  test("JSON format support - computed indexes") {
+    // Simple schema for JSON computed index test
+    val simpleJsonSchema = StructType(Seq(
+      StructField("event_id", StringType, nullable = true),
+      StructField("event_type", StringType, nullable = true)
+    ))
+
+    val readOptions = Map("multiLine" -> "true")
+    val index = Index("json_computed", simpleJsonSchema, "json", readOptions)
+    val jsonPath = resourcePath("/data/array_test.json")
+    index.addFile(jsonPath)
+    
+    // Add computed index
+    index.addComputedIndex("event_prefix", "substring(event_id, 1, 1)")
+    // Don't add regular index - only test computed index
+    index.update
+    
+    // Print index for debugging
+    index.printIndex(false)
+    
+    // Verify only computed index is available
+    assert(index.indexes.contains("event_prefix"), "computed index should be available")
+    assert(!index.indexes.contains("event_type"), "event_type should NOT be in indexes for this test")
+    
+    // Test join with ONLY computed index
+    val prefixQueryData = spark.createDataFrame(
+      spark.sparkContext.parallelize(Seq(
+        Row("e")
+      )),
+      StructType(Seq(
+        StructField("event_prefix", StringType, nullable = false)
+      ))
+    )
+    val computedJoinResult = prefixQueryData.join(index, Seq("event_prefix"))
+    println(s"Computed join result count: ${computedJoinResult.count()}")
+    assert(computedJoinResult.count() > 0, "Should be able to join using computed index from JSON data")
+  }
+
+  test("JSON format validation - requires same format") {
+    val jsonSchema = StructType(Seq(
+      StructField("event_id", StringType, nullable = true)
+    ))
+    
+    val index = Index("json_format_test", jsonSchema, "json")
+    val index2 = Index("json_format_test", jsonSchema, "json")
+    
+    // Should throw exception when trying to change format
+    assertThrows[FormatMismatchException] {
+      val index3 = Index("json_format_test", jsonSchema, "parquet")
+    }
+  }
+
+  test("JSON format support - schema validation") {
+    val jsonSchema = StructType(Seq(
+      StructField("event_id", StringType, nullable = true),
+      StructField("event_type", StringType, nullable = true)
+    ))
+    
+    val index = Index("json_schema_test", jsonSchema, "json")
+    assert(index.storedSchema === jsonSchema)
+    assert(index.format === "json")
+  }
 }

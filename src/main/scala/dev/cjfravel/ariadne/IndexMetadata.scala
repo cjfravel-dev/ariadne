@@ -33,11 +33,12 @@ case class ExplodedFieldMapping(
   * including schema information, indexed columns, and format details.
   * It supports multiple versions for backward compatibility.
   *
-  * @param format The file format of the indexed data (e.g., "parquet", "csv")
+  * @param format The file format of the indexed data (e.g., "parquet", "csv", "json")
   * @param schema The JSON representation of the DataFrame schema
   * @param indexes List of regular column names that are indexed
   * @param computed_indexes Map of computed index aliases to their SQL expressions
   * @param exploded_field_indexes List of exploded field mappings for nested data structures
+  * @param read_options Map of read options for format-specific configuration (e.g., "multiLine" -> "true" for JSON)
   *
   * @note The field names use underscore notation to match JSON serialization format
   */
@@ -49,7 +50,8 @@ case class IndexMetadata(
       String,
       String
     ],
-    var exploded_field_indexes: util.List[ExplodedFieldMapping]
+    var exploded_field_indexes: util.List[ExplodedFieldMapping],
+    var read_options: util.Map[String, String]
 )
 
 /** Factory object for creating IndexMetadata instances from JSON.
@@ -65,6 +67,7 @@ object IndexMetadata {
     * migration to ensure compatibility with older index formats:
     * - v1 → v2: Adds computed_indexes field if missing
     * - v2 → v3: Adds exploded_field_indexes field if missing
+    * - v3 → v4: Adds read_options field if missing
     *
     * @param jsonString The JSON representation of the metadata
     * @return A fully initialized IndexMetadata instance
@@ -86,6 +89,10 @@ object IndexMetadata {
     // v2 -> v3
     if (indexMetadata.exploded_field_indexes == null) {
       indexMetadata.exploded_field_indexes = new util.ArrayList[ExplodedFieldMapping]()
+    }
+    // v3 -> v4
+    if (indexMetadata.read_options == null) {
+      indexMetadata.read_options = new util.HashMap[String, String]()
     }
     indexMetadata
   }
