@@ -1,0 +1,28 @@
+[
+  {
+    "event_id": "e1",
+    "event_type": "login",
+    "users": [
+      {"id": 100, "name": "Alice"},
+      {"id": 101, "name": "Bob"}
+    ],
+    "tags": ["security", "authentication"]
+  },
+  {
+    "event_id": "e2", 
+    "event_type": "purchase",
+    "users": [
+      {"id": 101, "name": "Bob"},
+      {"id": 102, "name": "Charlie"}
+    ],
+    "tags": ["commerce", "payment"]
+  },
+  {
+    "event_id": "e3",
+    "event_type": "logout", 
+    "users": [
+      {"id": 100, "name": "Alice"}
+    ],
+    "tags": ["security"]
+  }
+]

@@ -11,7 +11,10 @@ Ariadne enables you to create simple indexes, allowing you to efficiently locate
 ### How It Works  
 
 1. **Define an index** – Provide a name, schema, and file format.  
-2. **Specify indexed columns** – Choose the columns you want to index.  
+2. **Specify indexed columns** – Choose the columns you want to index:
+   - **Regular indexes** – Index standard columns directly (`addIndex("column_name")`)
+   - **Computed indexes** – Index derived values using SQL expressions (`addComputedIndex("alias", "expression")`)
+   - **Exploded field indexes** – Index elements within array columns (`addExplodedFieldIndex("array_column", "field_path", "alias")`)
 3. **Add files** – Register files with the index.  
 4. **Update the index** – Run updates whenever you add new files or indexed columns.  
 5. **Use the index in joins** – Leverage the index to load only the relevant files based on your DataFrame’s join conditions.  
@@ -23,7 +26,7 @@ Ariadne enables you to create simple indexes, allowing you to efficiently locate
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne</artifactId>
-    <version>0.0.1-alpha-17</version>
+    <version>0.0.1-alpha-18</version>
 </dependency>
 ```
 
@@ -55,4 +58,12 @@ val indexJoinedAgainstDf = index.join(otherDf, Seq("version", "id"), "left_semi"
 // you can add computed indexes using standard Column types
 index.addComputedIndex("category", "substring(Id, 1, 4)")
 index.update
+
+// you can add exploded field indexes for nested data
+index.addExplodedFieldIndex("users", "id", "user_id")    // index users[].id as "user_id"
+index.addExplodedFieldIndex("tags", "name", "tag_name")  // index tags[].name as "tag_name"
+index.update
+
+val userQueryDf = // spark.read ....
+val joinedOnExplodedField = userQueryDf.join(index, Seq("user_id"), "left_semi")
 ```
