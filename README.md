@@ -4,29 +4,38 @@ Like [Ariadne](https://en.wikipedia.org/wiki/Ariadne) from Greek mythology, this
 
 But in the meantime, if your data lake is more of a data swamp and you lack a way to generate simple indexes for your files, Ariadne can help.  
 
-## Overview  
+## Overview
 
-Ariadne enables you to create simple indexes, allowing you to efficiently locate the files needed for your joins. To persist indexes across runs, set the configuration value `spark.ariadne.storagePath`, making sure it is accessible via `spark.sparkContext.hadoopConfiguration`.  
+Ariadne enables you to create simple indexes, allowing you to efficiently locate the files needed for your joins. To persist indexes across runs, set the configuration value `spark.ariadne.storagePath`, making sure it is accessible via `spark.sparkContext.hadoopConfiguration`.
 
-### How It Works  
+### Supported Formats
 
-1. **Define an index** – Provide a name, schema, and file format.  
+Ariadne supports three data formats:
+- **Parquet** - Columnar format (default)
+- **CSV** - Comma-separated values
+- **JSON** - JavaScript Object Notation
+
+Additional format-specific options can be provided via `readOptions` when creating an index.
+
+### How It Works
+
+1. **Define an index** – Provide a name, schema, file format, and optional read options.
 2. **Specify indexed columns** – Choose the columns you want to index:
    - **Regular indexes** – Index standard columns directly (`addIndex("column_name")`)
    - **Computed indexes** – Index derived values using SQL expressions (`addComputedIndex("alias", "expression")`)
    - **Exploded field indexes** – Index elements within array columns (`addExplodedFieldIndex("array_column", "field_path", "alias")`)
-3. **Add files** – Register files with the index.  
-4. **Update the index** – Run updates whenever you add new files or indexed columns.  
-5. **Use the index in joins** – Leverage the index to load only the relevant files based on your DataFrame’s join conditions.  
+3. **Add files** – Register files with the index.
+4. **Update the index** – Run updates whenever you add new files or indexed columns.
+5. **Use the index in joins** – Leverage the index to load only the relevant files based on your DataFrame's join conditions.
 
-> **Note:** When using an index in a join, it is no longer a "narrow" transformation. The index must first retrieve matching values from its records, load the appropriate data, and then perform the narrow transformation on the resulting DataFrame.  
+> **Note:** When using an index in a join, it is no longer a "narrow" transformation. The index must first retrieve matching values from its records, load the appropriate data, and then perform the narrow transformation on the resulting DataFrame.
 
 ### Example Usage  
 ```xml
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne</artifactId>
-    <version>0.0.1-alpha-18</version>
+    <version>0.0.1-alpha-19</version>
 </dependency>
 ```
 
@@ -66,4 +75,18 @@ index.update
 
 val userQueryDf = // spark.read ....
 val joinedOnExplodedField = userQueryDf.join(index, Seq("user_id"), "left_semi")
+```
+
+### JSON Format Example
+
+```scala
+// JSON with read options (e.g., for multi-line JSON arrays)
+val readOptions = Map("multiLine" -> "true")
+val jsonIndex = Index("events", jsonSchema, "json", readOptions)
+jsonIndex.addExplodedFieldIndex("users", "id", "user_id")  // index users[].id as "user_id"
+jsonIndex.addFile("events.json")
+jsonIndex.update
+
+val queryDf = // spark.read ....
+val result = queryDf.join(jsonIndex, Seq("user_id"), "left_semi")
 ```

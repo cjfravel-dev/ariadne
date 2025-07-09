@@ -289,12 +289,22 @@ case class Index private (
     val baseDf = metadata.computed_indexes.asScala
       .foldLeft(format match {
         case "csv" =>
-          spark.read
-            .option("header", "true")
-            .schema(storedSchema)
-            .csv(files.toList: _*)
+          val reader = spark.read.option("header", "true").schema(storedSchema)
+          metadata.read_options.asScala.foldLeft(reader) { case (r, (key, value)) =>
+            r.option(key, value)
+          }.csv(files.toList: _*)
         case "parquet" =>
-          spark.read.schema(storedSchema).parquet(files.toList: _*)
+          val reader = spark.read.schema(storedSchema)
+          metadata.read_options.asScala.foldLeft(reader) { case (r, (key, value)) =>
+            r.option(key, value)
+          }.parquet(files.toList: _*)
+        case "json" =>
+          val reader = spark.read.schema(storedSchema)
+          metadata.read_options.asScala.foldLeft(reader) { case (r, (key, value)) =>
+            r.option(key, value)
+          }.json(files.toList: _*)
+        case _ =>
+          throw new IllegalArgumentException(s"Unsupported format: $format")
       }) { case (tempDf, (colName, exprStr)) =>
         tempDf.withColumn(colName, expr(exprStr))
       }
@@ -326,12 +336,22 @@ case class Index private (
       val baseDf = metadata.computed_indexes.asScala
         .foldLeft(format match {
           case "csv" =>
-            spark.read
-              .option("header", "true")
-              .schema(storedSchema)
-              .csv(unindexed.toList: _*)
+            val reader = spark.read.option("header", "true").schema(storedSchema)
+            metadata.read_options.asScala.foldLeft(reader) { case (r, (key, value)) =>
+              r.option(key, value)
+            }.csv(unindexed.toList: _*)
           case "parquet" =>
-            spark.read.schema(storedSchema).parquet(unindexed.toList: _*)
+            val reader = spark.read.schema(storedSchema)
+            metadata.read_options.asScala.foldLeft(reader) { case (r, (key, value)) =>
+              r.option(key, value)
+            }.parquet(unindexed.toList: _*)
+          case "json" =>
+            val reader = spark.read.schema(storedSchema)
+            metadata.read_options.asScala.foldLeft(reader) { case (r, (key, value)) =>
+              r.option(key, value)
+            }.json(unindexed.toList: _*)
+          case _ =>
+            throw new IllegalArgumentException(s"Unsupported format: $format")
         }) { case (tempDf, (colName, exprStr)) =>
           tempDf.withColumn(colName, expr(exprStr))
         }
@@ -667,6 +687,47 @@ object Index extends AriadneContextUser {
       allowSchemaMismatch: Boolean
   ): Index = apply(name, Some(schema), Some(format), allowSchemaMismatch)
 
+  /** Factory method to create an Index instance with read options.
+    * @param name
+    *   The name of the index.
+    * @param schema
+    *   The schema.
+    * @param format
+    *   The format.
+    * @param readOptions
+    *   Map of read options for format-specific configuration.
+    * @return
+    *   An Index instance.
+    */
+  def apply(
+      name: String,
+      schema: StructType,
+      format: String,
+      readOptions: Map[String, String]
+  ): Index = apply(name, Some(schema), Some(format), false, Some(readOptions))
+
+  /** Factory method to create an Index instance with read options.
+    * @param name
+    *   The name of the index.
+    * @param schema
+    *   The schema.
+    * @param format
+    *   The format.
+    * @param allowSchemaMismatch
+    *   The allows schema to be a mismatch.
+    * @param readOptions
+    *   Map of read options for format-specific configuration.
+    * @return
+    *   An Index instance.
+    */
+  def apply(
+      name: String,
+      schema: StructType,
+      format: String,
+      allowSchemaMismatch: Boolean,
+      readOptions: Map[String, String]
+  ): Index = apply(name, Some(schema), Some(format), allowSchemaMismatch, Some(readOptions))
+
   /** Factory method to create an Index instance.
     * @param name
     *   The name of the index.
@@ -676,6 +737,8 @@ object Index extends AriadneContextUser {
     *   The optional format.
     * @param allowSchemaMismatch
     *   The optional flag to allow new schema.
+    * @param readOptions
+    *   Optional map of read options for format-specific configuration.
     * @return
     *   An Index instance.
     */
@@ -683,7 +746,8 @@ object Index extends AriadneContextUser {
       name: String,
       schema: Option[StructType] = None,
       format: Option[String] = None,
-      allowSchemaMismatch: Boolean = false
+      allowSchemaMismatch: Boolean = false,
+      readOptions: Option[Map[String, String]] = None
   ): Index = {
     val index = Index(name, schema)
 
@@ -696,7 +760,8 @@ object Index extends AriadneContextUser {
         null,
         new util.ArrayList[String](),
         new util.HashMap[String, String](),
-        new util.ArrayList[ExplodedFieldMapping]()
+        new util.ArrayList[ExplodedFieldMapping](),
+        new util.HashMap[String, String]()
       )
     }
 
@@ -737,6 +802,26 @@ object Index extends AriadneContextUser {
           throw new MissingFormatException()
         }
     }
+    
+    // Handle read options
+    readOptions match {
+      case Some(options) =>
+        if (metadataExists) {
+          // Merge with existing options, with new options taking precedence
+          import collection.JavaConverters._
+          options.foreach { case (key, value) =>
+            metadata.read_options.put(key, value)
+          }
+        } else {
+          // Set initial options
+          import collection.JavaConverters._
+          options.foreach { case (key, value) =>
+            metadata.read_options.put(key, value)
+          }
+        }
+      case None => // Keep existing options
+    }
+    
     index.writeMetadata(metadata)
     index
   }
