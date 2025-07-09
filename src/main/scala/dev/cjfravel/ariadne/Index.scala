@@ -1,7 +1,7 @@
 package dev.cjfravel.ariadne
 
 import dev.cjfravel.ariadne.exceptions._
-import org.apache.spark.sql.{SparkSession, DataFrame}
+import org.apache.spark.sql.{SparkSession, DataFrame, Column}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import scala.io.Source
@@ -168,13 +168,42 @@ case class Index private (
     writeMetadata(metadata)
   }
 
-  /** Helper function to get the indexes
+  /** Adds an exploded field index entry.
+    * @param arrayColumn
+    *   The array column to index.
+    * @param fieldPath
+    *   The field path to extract from array elements (e.g., "id" or "profile.user_id").
+    * @param asColumn
+    *   The column name to use in joins.
+    */
+  def addExplodedFieldIndex(arrayColumn: String, fieldPath: String, asColumn: String): Unit = {
+    // Check if this asColumn is already used
+    if (indexes.contains(asColumn)) return
+    
+    val explodedFieldMapping = ExplodedFieldMapping(arrayColumn, fieldPath, asColumn)
+    metadata.exploded_field_indexes.add(explodedFieldMapping)
+    writeMetadata(metadata)
+  }
+
+  /** Helper function to get all index column names that can be used in joins.
     *
     * @return
-    *   Set of column names to be indexed
+    *   Set of all column names that can be used in joins
     */
   def indexes: Set[String] =
-    metadata.indexes.asScala.toSet ++ metadata.computed_indexes.keySet().asScala
+    metadata.indexes.asScala.toSet ++ 
+    metadata.computed_indexes.keySet().asScala ++
+    metadata.exploded_field_indexes.asScala.map(_.as_column).toSet
+
+  /** Helper function to get the storage column names for internal use.
+    *
+    * @return
+    *   Set of column names used for internal storage
+    */
+  private def storageColumns: Set[String] =
+    metadata.indexes.asScala.toSet ++ 
+    metadata.computed_indexes.keySet().asScala ++
+    metadata.exploded_field_indexes.asScala.map(_.array_column).toSet
 
   def addComputedIndex(name: String, sql_expression: String): Unit = {
     if (metadata.computed_indexes.containsKey(name)) return
@@ -257,7 +286,7 @@ case class Index private (
     *   A DataFrame containing the contents of the specified files.
     */
   private def readFiles(files: Set[String]): DataFrame = {
-    metadata.computed_indexes.asScala
+    val baseDf = metadata.computed_indexes.asScala
       .foldLeft(format match {
         case "csv" =>
           spark.read
@@ -269,6 +298,15 @@ case class Index private (
       }) { case (tempDf, (colName, exprStr)) =>
         tempDf.withColumn(colName, expr(exprStr))
       }
+    
+    // Add exploded field columns
+    metadata.exploded_field_indexes.asScala.foldLeft(baseDf) { 
+      case (tempDf, explodedField) =>
+        tempDf.withColumn(
+          explodedField.as_column,
+          explode(col(s"${explodedField.array_column}.${explodedField.field_path}"))
+        )
+    }
   }
 
   private def cleanFileName(fileName: String): String = {
@@ -280,43 +318,82 @@ case class Index private (
 
   /** Updates the index with new files. */
   def update: Unit = {
-    val columns = indexes + "filename"
     val unindexed = unindexedFiles
     if (unindexed.nonEmpty) {
       logger.trace(s"Updating index for ${unindexed.size} files")
 
-      val df: DataFrame =
-        readFiles(unindexed)
-          .withColumn("filename", input_file_name)
-          .select(columns.toList.map(col): _*)
-          .distinct
+      // Read base data
+      val baseDf = metadata.computed_indexes.asScala
+        .foldLeft(format match {
+          case "csv" =>
+            spark.read
+              .option("header", "true")
+              .schema(storedSchema)
+              .csv(unindexed.toList: _*)
+          case "parquet" =>
+            spark.read.schema(storedSchema).parquet(unindexed.toList: _*)
+        }) { case (tempDf, (colName, exprStr)) =>
+          tempDf.withColumn(colName, expr(exprStr))
+        }
+        .withColumn("filename", input_file_name)
 
-      val aggExprs =
-        indexes.toList.map(colName => collect_set(col(colName)).alias(colName))
-      val groupedDf =
-        df.groupBy("filename").agg(aggExprs.head, aggExprs.tail: _*)
+      // Handle regular and exploded field indexes separately, then combine
+      val regularIndexes = metadata.indexes.asScala.toSet ++ metadata.computed_indexes.keySet().asScala
+      val explodedFieldMappings = metadata.exploded_field_indexes.asScala.toSeq
 
-      // determine the large indexes that need to be exploded into separate files
-      val largeGroupedDf = indexes.foldLeft(groupedDf) {
-        case (accumDf, colName) =>
-          accumDf.withColumn(
-            colName,
-            when(size(col(colName)) < largeIndexLimit, null)
-              .otherwise(col(colName))
-          )
+      // Start with base DataFrame for regular indexes
+      var resultDf = if (regularIndexes.nonEmpty) {
+        val regularCols = (regularIndexes + "filename").toList
+        val selectedDf = baseDf.select(regularCols.map(col): _*).distinct
+        val aggExprs = regularIndexes.toList.map(colName => collect_set(col(colName)).alias(colName))
+        selectedDf.groupBy("filename").agg(aggExprs.head, aggExprs.tail: _*)
+      } else {
+        baseDf.select("filename").distinct
       }
-      val largeFiles = largeGroupedDf
-        .select("filename")
-        .where(indexes.map(colName => col(colName).isNotNull).reduce(_ && _))
-        .distinct()
-        .collect()
-        .map(_.getString(0))
-        .toSet
 
-      // for each file in largeFile and for each index, create a new file in
-      // largeIndexesFilePath/<colName>/<fileName> with the exploded values from the index column
+      // Process each exploded field index and join to the result
+      explodedFieldMappings.foreach { explodedField =>
+        val explodedDf = baseDf
+          .select("filename", explodedField.array_column)
+          .withColumn("temp_exploded", explode(col(s"${explodedField.array_column}.${explodedField.field_path}")))
+          .groupBy("filename")
+          .agg(collect_set(col("temp_exploded")).alias(explodedField.array_column))
+
+        resultDf = resultDf.join(explodedDf, Seq("filename"), "full_outer")
+      }
+
+      val finalDf = resultDf
+
+      // Handle large indexes (existing logic)
+      val allStorageColumns = storageColumns
+      val largeGroupedDf = if (allStorageColumns.nonEmpty) {
+        allStorageColumns.foldLeft(finalDf) {
+          case (accumDf, colName) =>
+            accumDf.withColumn(
+              colName,
+              when(size(col(colName)) < largeIndexLimit, null)
+                .otherwise(col(colName))
+            )
+        }
+      } else {
+        finalDf
+      }
+      
+      val largeFiles = if (allStorageColumns.nonEmpty) {
+        largeGroupedDf
+          .select("filename")
+          .where(allStorageColumns.map(colName => col(colName).isNotNull).reduce(_ && _))
+          .distinct()
+          .collect()
+          .map(_.getString(0))
+          .toSet
+      } else {
+        Set.empty[String]
+      }
+
+      // Handle large files (existing logic)
       largeFiles.foreach { fileName =>
-        indexes.foreach(colName => {
+        allStorageColumns.foreach(colName => {
           val filePath =
             new Path(
               new Path(largeIndexesFilePath, colName),
@@ -327,9 +404,6 @@ case class Index private (
             .select("filename", colName)
             .withColumn(colName, explode(col(colName)))
 
-          // in the case of multiple indexed columns we only do this for the columns that need
-          // to be split to a separate file, if it's still small it'll be written directly
-          // to the index file
           if (indexDf.count() > 0) {
             indexDf.write
               .format("delta")
@@ -339,38 +413,49 @@ case class Index private (
         })
       }
 
-      // for each index replace with null if the array is larger than 500k elements as
-      // they are already exploded into separate files, we do not remove the filename if
-      // the all indexes are null because we want to flag the file as indexed
-      val smallGroupedDf = indexes.foldLeft(groupedDf) {
-        case (accumDf, colName) =>
-          accumDf.withColumn(
-            colName,
-            when(size(col(colName)) >= largeIndexLimit, null)
-              .otherwise(col(colName))
-          )
+      // Create small grouped DataFrame (existing logic)
+      val smallGroupedDf = if (allStorageColumns.nonEmpty) {
+        allStorageColumns.foldLeft(finalDf) {
+          case (accumDf, colName) =>
+            accumDf.withColumn(
+              colName,
+              when(size(col(colName)) >= largeIndexLimit, null)
+                .otherwise(col(colName))
+            )
+        }
+      } else {
+        finalDf
       }
 
-      delta(indexFilePath) match {
-        case Some(delta) =>
-          delta
-            .as("target")
-            .merge(
-              smallGroupedDf.as("source"),
-              "target.filename = source.filename"
-            )
-            .whenMatched()
-            .updateExpr(
-              indexes.map(colName => colName -> s"source.$colName").toMap
-            )
-            .whenNotMatched()
-            .insertAll()
-            .execute()
-        case None =>
-          smallGroupedDf.write
-            .format("delta")
-            .mode("overwrite")
-            .save(indexFilePath.toString)
+      // Write to Delta (existing logic)
+      if (allStorageColumns.nonEmpty) {
+        delta(indexFilePath) match {
+          case Some(delta) =>
+            delta
+              .as("target")
+              .merge(
+                smallGroupedDf.as("source"),
+                "target.filename = source.filename"
+              )
+              .whenMatched()
+              .updateExpr(
+                allStorageColumns.map(colName => colName -> s"source.$colName").toMap
+              )
+              .whenNotMatched()
+              .insertAll()
+              .execute()
+          case None =>
+            smallGroupedDf.write
+              .format("delta")
+              .mode("overwrite")
+              .save(indexFilePath.toString)
+        }
+      } else {
+        // If no storage columns, just ensure the filename tracking works
+        smallGroupedDf.write
+          .format("delta")
+          .mode("overwrite")
+          .save(indexFilePath.toString)
       }
     }
   }
@@ -429,23 +514,39 @@ case class Index private (
     *   DataFrame.
     */
   private def joinDf(df: DataFrame, usingColumns: Seq[String]): DataFrame = {
-    val indexesToUse = this.indexes.intersect(usingColumns.toSet).toSeq
-    logger.trace(s"Found indexes for ${indexesToUse.mkString(",")}")
-    val filtered = df.select(indexesToUse.map(col): _*)
-    val indexes = indexesToUse.map { column =>
-      val distinctValues =
-        filtered.select(column).distinct.collect.map(_.get(0))
-      column -> distinctValues
+    // Map join columns to storage columns
+    val columnMappings = usingColumns.map { joinCol =>
+      // Check if this is an exploded field column
+      val explodedMapping = metadata.exploded_field_indexes.asScala.find(_.as_column == joinCol)
+      explodedMapping match {
+        case Some(mapping) => joinCol -> mapping.array_column
+        case None => joinCol -> joinCol
+      }
+    }.toMap
+    
+    val storageColumnsToUse = columnMappings.values.toSet.intersect(this.storageColumns)
+    logger.trace(s"Found indexes for ${storageColumnsToUse.mkString(",")}")
+    
+    // Get values from the user DataFrame using join column names
+    val joinColumnsToUse = usingColumns.filter(col => columnMappings.contains(col) && storageColumnsToUse.contains(columnMappings(col)))
+    val filtered = df.select(joinColumnsToUse.map(col): _*)
+    
+    val indexes = joinColumnsToUse.map { joinColumn =>
+      val distinctValues = filtered.select(joinColumn).distinct.collect.map(_.get(0))
+      columnMappings(joinColumn) -> distinctValues
     }.toMap
 
     val files = locateFiles(indexes)
     logger.trace(s"Found ${files.size} files in index")
     val readIndex = readFiles(files)
-    val filters =
-      indexes.collect {
-        case (column, values) if values.nonEmpty =>
-          col(column).isin(values: _*)
-      }
+    
+    // Create filters using storage column names but values from join columns
+    val filters = joinColumnsToUse.collect {
+      case joinColumn if indexes.get(columnMappings(joinColumn)).exists(_.nonEmpty) =>
+        val storageColumn = columnMappings(joinColumn)
+        val values = indexes(storageColumn)
+        col(joinColumn).isin(values: _*)
+    }
 
     val filteredReadIndex =
       if (filters.nonEmpty) {
@@ -488,7 +589,7 @@ case class Index private (
         val fileCountAgg = df.select(countDistinct("filename").as("FileCount"))
 
         // For each index, compute stats as a struct column
-        val statCols = indexes.toSeq.map { colName =>
+        val statCols = storageColumns.toSeq.map { colName =>
           val lenCol = size(col(colName))
           struct(
             min(lenCol).as("min"),
@@ -594,7 +695,8 @@ object Index extends AriadneContextUser {
         null,
         null,
         new util.ArrayList[String](),
-        new util.HashMap[String, String]()
+        new util.HashMap[String, String](),
+        new util.ArrayList[ExplodedFieldMapping]()
       )
     }
 

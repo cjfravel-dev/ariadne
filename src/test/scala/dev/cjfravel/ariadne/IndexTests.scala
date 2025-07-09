@@ -3,6 +3,7 @@ package dev.cjfravel.ariadne
 import dev.cjfravel.ariadne.exceptions._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.Row
 import dev.cjfravel.ariadne.Index.DataFrameOps
 import java.nio.file.Files
 
@@ -326,5 +327,91 @@ class IndexTests extends SparkTests {
         .join(joinTestIdGuid, Seq("Id", "Guid"), "left_semi")
         .count() === 100
     )
+  }
+
+  test("Array indexing") {
+    // Define schema for array test data
+    val arrayTestSchema = StructType(Seq(
+      StructField("event_id", StringType, nullable = false),
+      StructField("event_type", StringType, nullable = false),
+      StructField("users", ArrayType(StructType(Seq(
+        StructField("id", IntegerType, nullable = false),
+        StructField("name", StringType, nullable = false)
+      ))), nullable = false),
+      StructField("tags", ArrayType(StructType(Seq(
+        StructField("name", StringType, nullable = false),
+        StructField("category", StringType, nullable = false)
+      ))), nullable = false)
+    ))
+
+    // Create test data using Row objects
+    val testData = spark.createDataFrame(
+      spark.sparkContext.parallelize(Seq(
+        Row("e1", "login", 
+          Array(Row(100, "Alice"), Row(101, "Bob")), 
+          Array(Row("security", "auth"), Row("monitoring", "system"))),
+        Row("e2", "purchase", 
+          Array(Row(101, "Bob"), Row(102, "Charlie")),
+          Array(Row("commerce", "sales"), Row("payment", "billing"))),
+        Row("e3", "logout", 
+          Array(Row(100, "Alice")), 
+          Array(Row("security", "auth")))
+      )),
+      arrayTestSchema
+    )
+
+    // Write test data to temporary location
+    val tempPath = s"${System.getProperty("java.io.tmpdir")}/array_test_${System.currentTimeMillis()}"
+    testData.write.mode("overwrite").parquet(tempPath)
+
+    // Create index with array indexing
+    val index = Index("array_test", arrayTestSchema, "parquet")
+    index.addFile(tempPath)
+    index.addIndex("event_type")  // regular index
+    index.addExplodedFieldIndex("users", "id", "user_id")  // exploded field index: users[].id as "user_id"
+    index.addExplodedFieldIndex("tags", "name", "tag_name")  // exploded field index: tags[].name as "tag_name"
+    index.update
+
+    // Test that we can find files by user_id
+    val userFiles = index.locateFiles(Map("users" -> Array(100, 101)))
+    assert(userFiles.nonEmpty, "Should find files containing user IDs 100 or 101")
+
+    // Test that we can find files by tag
+    val tagFiles = index.locateFiles(Map("tags" -> Array("security")))
+    assert(tagFiles.nonEmpty, "Should find files containing security tag")
+
+    // Test join with user_id
+    val userQueryData = spark.createDataFrame(
+      spark.sparkContext.parallelize(Seq(
+        Row(100, "login"),
+        Row(101, "purchase")
+      )),
+      StructType(Seq(
+        StructField("user_id", IntegerType, nullable = false),
+        StructField("event_type", StringType, nullable = false)
+      ))
+    )
+    val userJoinResult = userQueryData.join(index, Seq("user_id", "event_type"))
+    assert(userJoinResult.count() > 0, "Should be able to join on user_id and event_type")
+
+    // Test join with tag_name
+    val tagQueryData = spark.createDataFrame(
+      spark.sparkContext.parallelize(Seq(
+        Row("security"),
+        Row("commerce")
+      )),
+      StructType(Seq(StructField("tag_name", StringType, nullable = false)))
+    )
+    val tagJoinResult = tagQueryData.join(index, Seq("tag_name"))
+    assert(tagJoinResult.count() > 0, "Should be able to join on tag_name")
+
+    // Test that array-derived columns appear in indexes
+    assert(index.indexes.contains("user_id"), "user_id should be in indexes")
+    assert(index.indexes.contains("tag_name"), "tag_name should be in indexes")
+    assert(index.indexes.contains("event_type"), "event_type should be in indexes")
+
+    // Clean up
+    val fs = org.apache.hadoop.fs.FileSystem.get(spark.sparkContext.hadoopConfiguration)
+    fs.delete(new org.apache.hadoop.fs.Path(tempPath), true)
   }
 }

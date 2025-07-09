@@ -1,0 +1,34 @@
+[
+  {
+    "event_id": "evt1",
+    "participants": [
+      {"user_id": 1, "role": "organizer"},
+      {"user_id": 2, "role": "attendee"}
+    ],
+    "tags": [
+      {"name": "meeting", "category": "work"},
+      {"name": "planning", "category": "project"}
+    ]
+  },
+  {
+    "event_id": "evt2", 
+    "participants": [
+      {"user_id": 2, "role": "organizer"},
+      {"user_id": 3, "role": "attendee"},
+      {"user_id": 4, "role": "attendee"}
+    ],
+    "tags": [
+      {"name": "retrospective", "category": "work"}
+    ]
+  },
+  {
+    "event_id": "evt3",
+    "participants": [
+      {"user_id": 1, "role": "attendee"}
+    ],
+    "tags": [
+      {"name": "social", "category": "fun"},
+      {"name": "team-building", "category": "fun"}
+    ]
+  }
+]
