@@ -44,47 +44,53 @@ class IndexTests extends SparkTests {
   }
 
   test("Requires same schema") {
-    val index = Index("schema", table1Schema, "csv")
-    val index2 = Index("schema", table1Schema, "csv")
+    val csvOptions = Map("header" -> "true")
+    val index = Index("schema", table1Schema, "csv", csvOptions)
+    val index2 = Index("schema", table1Schema, "csv", csvOptions)
     assertThrows[SchemaMismatchException] {
-      val index3 = Index("schema", table2Schema, "csv")
+      val index3 = Index("schema", table2Schema, "csv", csvOptions)
     }
   }
 
   test("Can specify new schema") {
-    val index = Index("schemachange", table1Schema, "csv")
+    val csvOptions = Map("header" -> "true")
+    val index = Index("schemachange", table1Schema, "csv", csvOptions)
     index.addIndex("Id")
-    val index2 = Index("schemachange", table2Schema, "csv", true)
+    val index2 = Index("schemachange", table2Schema, "csv", true, csvOptions)
     assertThrows[IndexNotFoundInNewSchemaException] {
-      val index3 = Index("schemachange2", table1Schema, "csv")
+      val index3 = Index("schemachange2", table1Schema, "csv", csvOptions)
       index3.addIndex("Value")
-      val index4 = Index("schemachange2", table2Schema, "csv", true)
+      val index4 = Index("schemachange2", table2Schema, "csv", true, csvOptions)
     }
   }
 
   test("Requires same format") {
-    val index = Index("format", table1Schema, "csv")
-    val index2 = Index("format", table1Schema, "csv")
+    val csvOptions = Map("header" -> "true")
+    val index = Index("format", table1Schema, "csv", csvOptions)
+    val index2 = Index("format", table1Schema, "csv", csvOptions)
     assertThrows[FormatMismatchException] {
       val index3 = Index("format", table1Schema, "parquet")
     }
   }
 
   test("Only requires schema first time") {
+    val csvOptions = Map("header" -> "true")
     assertThrows[SchemaNotProvidedException] {
       val index = Index("noschema")
     }
-    val index = Index("schema", table1Schema, "csv")
+    val index = Index("schema", table1Schema, "csv", csvOptions)
     val index2 = Index("schema")
   }
 
   test("Can retrieve same schema") {
-    val index = Index("sameschema", table1Schema, "csv")
+    val csvOptions = Map("header" -> "true")
+    val index = Index("sameschema", table1Schema, "csv", csvOptions)
     assert(index.storedSchema === table1Schema)
   }
 
   test("Index addFile") {
-    val index = Index("test", table1Schema, "csv")
+    val csvOptions = Map("header" -> "true")
+    val index = Index("test", table1Schema, "csv", csvOptions)
     val path = resourcePath("/data/table1_part0.csv")
     assert(index.hasFile(path) === false)
     index.addFile(path)
@@ -92,7 +98,8 @@ class IndexTests extends SparkTests {
   }
 
   test("Index addFiles") {
-    val index = Index("test2", table1Schema, "csv")
+    val csvOptions = Map("header" -> "true")
+    val index = Index("test2", table1Schema, "csv", csvOptions)
     val paths = Array(
       resourcePath("/data/table1_part0.csv"),
       resourcePath("/data/table1_part1.csv")
@@ -136,7 +143,8 @@ class IndexTests extends SparkTests {
   }
 
   test("Update index") {
-    val index = Index("update", table1Schema, "csv")
+    val csvOptions = Map("header" -> "true")
+    val index = Index("update", table1Schema, "csv", csvOptions)
     val paths = Array(
       resourcePath("/data/table1_part0.csv"),
       resourcePath("/data/table1_part1.csv")
@@ -167,7 +175,8 @@ class IndexTests extends SparkTests {
   )
 
   test("Join") {
-    val index = Index("join", table1Schema, "csv")
+    val csvOptions = Map("header" -> "true")
+    val index = Index("join", table1Schema, "csv", csvOptions)
     val paths = Array(
       resourcePath("/data/table1_part0.csv"),
       resourcePath("/data/table1_part1.csv")
@@ -202,7 +211,8 @@ class IndexTests extends SparkTests {
   }
 
   test("index exists") {
-    val index = Index("exists", table1Schema, "csv")
+    val csvOptions = Map("header" -> "true")
+    val index = Index("exists", table1Schema, "csv", csvOptions)
     val path = resourcePath("/data/table1_part0.csv")
     index.addFile(path)
     assert(Index.exists("exists") === true)
@@ -211,7 +221,8 @@ class IndexTests extends SparkTests {
   }
 
   test("remove index") {
-    val index = Index("toremove", table1Schema, "csv")
+    val csvOptions = Map("header" -> "true")
+    val index = Index("toremove", table1Schema, "csv", csvOptions)
     val path = resourcePath("/data/table1_part0.csv")
     index.addFile(path)
     assert(Index.exists("toremove") === true)
@@ -220,7 +231,8 @@ class IndexTests extends SparkTests {
   }
 
   test("computed_index") {
-    val index = Index("computed", table3Schema, "csv")
+    val csvOptions = Map("header" -> "true")
+    val index = Index("computed", table3Schema, "csv", csvOptions)
     val paths = Array(
       resourcePath("/data/table3_part0.csv"),
       resourcePath("/data/table3_part1.csv")
@@ -291,7 +303,8 @@ class IndexTests extends SparkTests {
       .get()
       .toString
 
-    val index = Index("large_index", df.schema, "csv")
+    val csvOptions = Map("header" -> "true")
+    val index = Index("large_index", df.schema, "csv", csvOptions)
     index.addFile(fileName)
     index.addIndex("Id")
     index.addIndex("Guid")
