@@ -1,23 +1,16 @@
 package dev.cjfravel.ariadne
 
 import dev.cjfravel.ariadne.exceptions._
-import org.apache.spark.sql.{SparkSession, DataFrame, Column}
+import org.apache.spark.sql.{SparkSession, DataFrame}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
-import scala.io.Source
-import io.delta.tables.DeltaTable
-import org.apache.spark.sql.Row
-import org.apache.hadoop.fs.{Path, FileSystem}
-import org.apache.hadoop.conf.Configuration
-import java.nio.charset.StandardCharsets
-import scala.collection.mutable
-import collection.JavaConverters._
-import java.util
-import java.util.Collections
+import org.apache.hadoop.fs.Path
 import org.apache.logging.log4j.{Logger, LogManager}
 import dev.cjfravel.ariadne.Index.DataFrameOps
-import org.apache.spark.SparkConf
 import com.google.gson.Gson
+import scala.collection.JavaConverters._
+import java.util
+import java.util.Collections
 
 /** Represents an Index for managing metadata and file-based indexes in Apache
   * Spark.
@@ -38,97 +31,12 @@ import com.google.gson.Gson
 case class Index private (
     name: String,
     schema: Option[StructType]
-) extends AriadneContextUser {
-  val logger = LogManager.getLogger("ariadne")
+) extends IndexQueryOperations {
 
-  private def fileList: FileList = FileList(Index.fileListName(name))
+  private def fileList: FileList = FileList(IndexPathUtils.fileListName(name))
 
   /** Path to the storage location of the index. */
-  override def storagePath: Path = new Path(Index.storagePath, name)
-
-  /** Hadoop path for the index delta table */
-  private def indexFilePath: Path = new Path(storagePath, "index")
-
-  /** Hadoop root path for large index delta tables */
-  private def largeIndexesFilePath: Path =
-    new Path(storagePath, "large_indexes")
-
-  /** Hadoop path for the index delta table */
-  private def metadataFilePath: Path = new Path(storagePath, "metadata.json")
-
-  /** Returns the format of the stored data. */
-  def format: String = metadata.format
-
-  /** Updates the format of the stored data.
-    * @param newFormat
-    *   The new format to set.
-    */
-  private def format_=(newFormat: String): Unit = {
-    val currentMetadata = metadata
-    currentMetadata.format = newFormat
-    writeMetadata(currentMetadata)
-  }
-
-  /** Checks if metadata exists in the storage location.
-    * @return
-    *   True if metadata exists, otherwise false.
-    */
-  private def metadataExists: Boolean =
-    exists(metadataFilePath)
-
-  private var _metadata: IndexMetadata = _
-
-  /** Forces a reload of metadata from disk. */
-  def refreshMetadata(): Unit = {
-    _metadata = if (metadataExists) {
-      try {
-        val inputStream = open(metadataFilePath)
-        val jsonString =
-          Source.fromInputStream(inputStream)(StandardCharsets.UTF_8).mkString
-        IndexMetadata(jsonString)
-      } catch {
-        case _: Exception => throw new MetadataMissingOrCorruptException()
-      }
-    } else {
-      throw new MetadataMissingOrCorruptException()
-    }
-    logger.trace(s"Read metadata from ${metadataFilePath.toString}")
-  }
-
-  /** Retrieves the stored metadata for the index.
-    *
-    * @return
-    *   IndexMetadata associated with the index.
-    * @throws MetadataMissingOrCorruptException
-    *   if metadata is missing or cannot be parsed.
-    */
-  private def metadata: IndexMetadata = {
-    if (_metadata == null) {
-      refreshMetadata()
-    }
-    _metadata
-  }
-
-  /** Writes metadata to the storage location.
-    * @param metadata
-    *   The metadata to write.
-    */
-  private def writeMetadata(metadata: IndexMetadata): Unit = {
-    val directoryPath = metadataFilePath.getParent
-    if (!exists(directoryPath)) fs.mkdirs(directoryPath)
-
-    val jsonString = new Gson().toJson(metadata)
-    val outputStream = fs.create(metadataFilePath)
-    outputStream.write(jsonString.getBytes(StandardCharsets.UTF_8))
-    outputStream.flush()
-    outputStream.close()
-    _metadata = metadata // Update in-memory cache
-    logger.trace(s"Wrote metadata to ${metadataFilePath.toString}")
-  }
-
-  /** Returns the stored schema of the index. */
-  def storedSchema: StructType =
-    DataType.fromJson(metadata.schema).asInstanceOf[StructType]
+  override def storagePath: Path = new Path(IndexPathUtils.storagePath, name)
 
   def hasFile(fileName: String): Boolean = fileList.hasFile(fileName)
 
@@ -172,15 +80,21 @@ case class Index private (
     * @param arrayColumn
     *   The array column to index.
     * @param fieldPath
-    *   The field path to extract from array elements (e.g., "id" or "profile.user_id").
+    *   The field path to extract from array elements (e.g., "id" or
+    *   "profile.user_id").
     * @param asColumn
     *   The column name to use in joins.
     */
-  def addExplodedFieldIndex(arrayColumn: String, fieldPath: String, asColumn: String): Unit = {
+  def addExplodedFieldIndex(
+      arrayColumn: String,
+      fieldPath: String,
+      asColumn: String
+  ): Unit = {
     // Check if this asColumn is already used
     if (indexes.contains(asColumn)) return
-    
-    val explodedFieldMapping = ExplodedFieldMapping(arrayColumn, fieldPath, asColumn)
+
+    val explodedFieldMapping =
+      ExplodedFieldMapping(arrayColumn, fieldPath, asColumn)
     metadata.exploded_field_indexes.add(explodedFieldMapping)
     writeMetadata(metadata)
   }
@@ -191,139 +105,14 @@ case class Index private (
     *   Set of all column names that can be used in joins
     */
   def indexes: Set[String] =
-    metadata.indexes.asScala.toSet ++ 
-    metadata.computed_indexes.keySet().asScala ++
-    metadata.exploded_field_indexes.asScala.map(_.as_column).toSet
-
-  /** Helper function to get the storage column names for internal use.
-    *
-    * @return
-    *   Set of column names used for internal storage
-    */
-  private def storageColumns: Set[String] =
-    metadata.indexes.asScala.toSet ++ 
-    metadata.computed_indexes.keySet().asScala ++
-    metadata.exploded_field_indexes.asScala.map(_.array_column).toSet
+    metadata.indexes.asScala.toSet ++
+      metadata.computed_indexes.keySet().asScala ++
+      metadata.exploded_field_indexes.asScala.map(_.as_column).toSet
 
   def addComputedIndex(name: String, sql_expression: String): Unit = {
     if (metadata.computed_indexes.containsKey(name)) return
     metadata.computed_indexes.put(name, sql_expression)
     writeMetadata(metadata)
-  }
-
-  /** Helper function to load the index
-    *
-    * @return
-    *   DataFrame containing latest version of the index
-    */
-  private def index: Option[DataFrame] = {
-    delta(indexFilePath) match {
-      case Some(delta) => {
-        val index = delta.toDF
-        // search largeIndexesFilePath for files to merge into the index
-        if (!exists(largeIndexesFilePath)) {
-          return Some(index)
-        }
-        
-        val largeIndexesFiles = fs
-          .listStatus(largeIndexesFilePath)
-          .filter(_.isDirectory)
-          .flatMap { dir =>
-            fs.listStatus(dir.getPath).map(_.getPath.toString)
-          }
-          .toSet
-
-        // for each file in largeIndexesFiles, read the file and merge it into the index
-        val combined = largeIndexesFiles.foldLeft(index) {
-          (accumDf, fileName) =>
-            val colName = fileName.split("/").reverse(1)
-            val safeColName = s"ariadne_large_index_$colName"
-            val largeIndex = spark.read
-              .format("delta")
-              .load(fileName)
-              .groupBy("filename")
-              .agg(collect_set(colName).alias(safeColName))
-              .select("filename", safeColName)
-
-            accumDf
-              .join(largeIndex, Seq("filename"), "left")
-              .withColumn(colName, coalesce(col(colName), col(safeColName)))
-              .drop(safeColName)
-        }
-
-        Some(combined)
-      }
-      case None => None
-    }
-  }
-
-  /** Prints the index DataFrame to the console, including its schema.
-    *
-    * This method retrieves the latest version of the index stored in Delta
-    * Lake, displays its contents, and prints its schema.
-    */
-  private[ariadne] def printIndex(truncate: Boolean = false): Unit = {
-    index match {
-      case Some(df) =>
-        df.show(truncate)
-        df.printSchema()
-      case None =>
-    }
-  }
-
-  /** Prints the metadata associated with the index to the console.
-    *
-    * This metadata contains details about the index, including its schema,
-    * format, and tracked files.
-    */
-  private[ariadne] def printMetadata: Unit = println(metadata)
-
-  /** Reads a set of files into a DataFrame based on the specified format.
-    *
-    * @param files
-    *   A set of file paths to read.
-    * @return
-    *   A DataFrame containing the contents of the specified files.
-    */
-  private def readFiles(files: Set[String]): DataFrame = {
-    val baseDf = metadata.computed_indexes.asScala
-      .foldLeft(format match {
-        case "csv" =>
-          val reader = spark.read.option("header", "true").schema(storedSchema)
-          metadata.read_options.asScala.foldLeft(reader) { case (r, (key, value)) =>
-            r.option(key, value)
-          }.csv(files.toList: _*)
-        case "parquet" =>
-          val reader = spark.read.schema(storedSchema)
-          metadata.read_options.asScala.foldLeft(reader) { case (r, (key, value)) =>
-            r.option(key, value)
-          }.parquet(files.toList: _*)
-        case "json" =>
-          val reader = spark.read.schema(storedSchema)
-          metadata.read_options.asScala.foldLeft(reader) { case (r, (key, value)) =>
-            r.option(key, value)
-          }.json(files.toList: _*)
-        case _ =>
-          throw new IllegalArgumentException(s"Unsupported format: $format")
-      }) { case (tempDf, (colName, exprStr)) =>
-        tempDf.withColumn(colName, expr(exprStr))
-      }
-    
-    // Add exploded field columns
-    metadata.exploded_field_indexes.asScala.foldLeft(baseDf) { 
-      case (tempDf, explodedField) =>
-        tempDf.withColumn(
-          explodedField.as_column,
-          explode(col(s"${explodedField.array_column}.${explodedField.field_path}"))
-        )
-    }
-  }
-
-  private def cleanFileName(fileName: String): String = {
-    fileName
-      .replaceAll("[^a-zA-Z0-9]", "_")
-      .replaceAll("__+", "_")
-      .replaceAll("^_|_$", "")
   }
 
   /** Updates the index with new files. */
@@ -333,324 +122,30 @@ case class Index private (
       logger.trace(s"Updating index for ${unindexed.size} files")
 
       // Read base data
-      val baseDf = metadata.computed_indexes.asScala
-        .foldLeft(format match {
-          case "csv" =>
-            val reader = spark.read.option("header", "true").schema(storedSchema)
-            metadata.read_options.asScala.foldLeft(reader) { case (r, (key, value)) =>
-              r.option(key, value)
-            }.csv(unindexed.toList: _*)
-          case "parquet" =>
-            val reader = spark.read.schema(storedSchema)
-            metadata.read_options.asScala.foldLeft(reader) { case (r, (key, value)) =>
-              r.option(key, value)
-            }.parquet(unindexed.toList: _*)
-          case "json" =>
-            val reader = spark.read.schema(storedSchema)
-            metadata.read_options.asScala.foldLeft(reader) { case (r, (key, value)) =>
-              r.option(key, value)
-            }.json(unindexed.toList: _*)
-          case _ =>
-            throw new IllegalArgumentException(s"Unsupported format: $format")
-        }) { case (tempDf, (colName, exprStr)) =>
-          tempDf.withColumn(colName, expr(exprStr))
-        }
-        .withColumn("filename", input_file_name)
+      val baseDf = createBaseDataFrame(unindexed)
+      val withComputedIndexes = applyComputedIndexes(baseDf)
+      val withFilename =
+        withComputedIndexes.withColumn("filename", input_file_name)
 
-      // Handle regular and exploded field indexes separately, then combine
-      val regularIndexes = metadata.indexes.asScala.toSet ++ metadata.computed_indexes.keySet().asScala
-      val explodedFieldMappings = metadata.exploded_field_indexes.asScala.toSeq
+      // Build indexes using the extracted methods
+      val regularIndexesDf = buildRegularIndexes(withFilename)
+      val finalDf = buildExplodedFieldIndexes(withFilename, regularIndexesDf)
 
-      // Start with base DataFrame for regular indexes
-      var resultDf = if (regularIndexes.nonEmpty) {
-        val regularCols = (regularIndexes + "filename").toList
-        val selectedDf = baseDf.select(regularCols.map(col): _*).distinct
-        val aggExprs = regularIndexes.toList.map(colName => collect_set(col(colName)).alias(colName))
-        selectedDf.groupBy("filename").agg(aggExprs.head, aggExprs.tail: _*)
-      } else {
-        baseDf.select("filename").distinct
-      }
-
-      // Process each exploded field index and join to the result
-      explodedFieldMappings.foreach { explodedField =>
-        val explodedDf = baseDf
-          .select("filename", explodedField.array_column)
-          .withColumn("temp_exploded", explode(col(s"${explodedField.array_column}.${explodedField.field_path}")))
-          .groupBy("filename")
-          .agg(collect_set(col("temp_exploded")).alias(explodedField.array_column))
-
-        resultDf = resultDf.join(explodedDf, Seq("filename"), "full_outer")
-      }
-
-      val finalDf = resultDf
-
-      // Handle large indexes (existing logic)
-      val allStorageColumns = storageColumns
-      val largeGroupedDf = if (allStorageColumns.nonEmpty) {
-        allStorageColumns.foldLeft(finalDf) {
-          case (accumDf, colName) =>
-            accumDf.withColumn(
-              colName,
-              when(size(col(colName)) < largeIndexLimit, null)
-                .otherwise(col(colName))
-            )
-        }
-      } else {
-        finalDf
-      }
-      
-      val largeFiles = if (allStorageColumns.nonEmpty) {
-        largeGroupedDf
-          .select("filename")
-          .where(allStorageColumns.map(colName => col(colName).isNotNull).reduce(_ && _))
-          .distinct()
-          .collect()
-          .map(_.getString(0))
-          .toSet
-      } else {
-        Set.empty[String]
-      }
-
-      // Handle large files (existing logic)
-      largeFiles.foreach { fileName =>
-        allStorageColumns.foreach(colName => {
-          val filePath =
-            new Path(
-              new Path(largeIndexesFilePath, colName),
-              cleanFileName(fileName)
-            )
-          val indexDf = largeGroupedDf
-            .where(col("filename") === fileName)
-            .select("filename", colName)
-            .withColumn(colName, explode(col(colName)))
-
-          if (indexDf.count() > 0) {
-            indexDf.write
-              .format("delta")
-              .mode("overwrite")
-              .save(filePath.toString)
-          }
-        })
-      }
-
-      // Create small grouped DataFrame (existing logic)
-      val smallGroupedDf = if (allStorageColumns.nonEmpty) {
-        allStorageColumns.foldLeft(finalDf) {
-          case (accumDf, colName) =>
-            accumDf.withColumn(
-              colName,
-              when(size(col(colName)) >= largeIndexLimit, null)
-                .otherwise(col(colName))
-            )
-        }
-      } else {
-        finalDf
-      }
-
-      // Write to Delta (existing logic)
-      if (allStorageColumns.nonEmpty) {
-        delta(indexFilePath) match {
-          case Some(delta) =>
-            delta
-              .as("target")
-              .merge(
-                smallGroupedDf.as("source"),
-                "target.filename = source.filename"
-              )
-              .whenMatched()
-              .updateExpr(
-                allStorageColumns.map(colName => colName -> s"source.$colName").toMap
-              )
-              .whenNotMatched()
-              .insertAll()
-              .execute()
-          case None =>
-            smallGroupedDf.write
-              .format("delta")
-              .mode("overwrite")
-              .save(indexFilePath.toString)
-        }
-      } else {
-        // If no storage columns, just ensure the filename tracking works
-        smallGroupedDf.write
-          .format("delta")
-          .mode("overwrite")
-          .save(indexFilePath.toString)
-      }
-    }
-  }
-
-  /** Locates files based on index values.
-    * @param indexes
-    *   A map of index column names to their values.
-    * @return
-    *   A set of file names matching the criteria.
-    */
-  def locateFiles(indexes: Map[String, Array[Any]]): Set[String] = {
-    index match {
-      case Some(df) =>
-        val schema = StructType(
-          Array(StructField("filename", StringType, nullable = false))
-        )
-        val emptyDF =
-          spark.createDataFrame(
-            spark.sparkContext.emptyRDD[Row],
-            schema
-          )
-
-        val resultDF = indexes.foldLeft(emptyDF) {
-          case (accumDF, (column, values)) =>
-            val filteredDF = df
-              .select("filename", column)
-              .withColumn("value", explode(col(column)))
-              .where(col("value").isin(values: _*))
-              .select("filename")
-              .distinct
-
-            accumDF.union(filteredDF)
-        }
-
-        resultDF.distinct.collect.map(_.getString(0)).toSet
-      case None => Set()
-    }
-  }
-
-  private val joinCache =
-    mutable.Map[(Set[String], Map[String, Seq[Any]]), DataFrame]()
-
-  /** Retrieves and caches a DataFrame containing indexed data relevant to the
-    * given DataFrame.
-    *
-    * This method determines which index columns exist in the provided
-    * DataFrame, retrieves the relevant indexed files, and loads them into a
-    * DataFrame.
-    *
-    * @param df
-    *   The DataFrame to match against the index.
-    * @param usingColumns
-    *   The columns used for the join.
-    * @return
-    *   A DataFrame containing data from indexed files that match the provided
-    *   DataFrame.
-    */
-  private def joinDf(df: DataFrame, usingColumns: Seq[String]): DataFrame = {
-    // Map join columns to storage columns
-    val columnMappings = usingColumns.map { joinCol =>
-      // Check if this is an exploded field column
-      val explodedMapping = metadata.exploded_field_indexes.asScala.find(_.as_column == joinCol)
-      explodedMapping match {
-        case Some(mapping) => joinCol -> mapping.array_column
-        case None => joinCol -> joinCol
-      }
-    }.toMap
-    
-    val storageColumnsToUse = columnMappings.values.toSet.intersect(this.storageColumns)
-    logger.trace(s"Found indexes for ${storageColumnsToUse.mkString(",")}")
-    
-    // Get values from the user DataFrame using join column names
-    val joinColumnsToUse = usingColumns.filter(col => columnMappings.contains(col) && storageColumnsToUse.contains(columnMappings(col)))
-    val filtered = df.select(joinColumnsToUse.map(col): _*)
-    
-    val indexes = joinColumnsToUse.map { joinColumn =>
-      val distinctValues = filtered.select(joinColumn).distinct.collect.map(_.get(0))
-      columnMappings(joinColumn) -> distinctValues
-    }.toMap
-
-    val files = locateFiles(indexes)
-    logger.trace(s"Found ${files.size} files in index")
-    val readIndex = readFiles(files)
-    
-    // Create filters using storage column names but values from join columns
-    val filters = joinColumnsToUse.collect {
-      case joinColumn if indexes.get(columnMappings(joinColumn)).exists(_.nonEmpty) =>
-        val storageColumn = columnMappings(joinColumn)
-        val values = indexes(storageColumn)
-        col(joinColumn).isin(values: _*)
-    }
-
-    val filteredReadIndex =
-      if (filters.nonEmpty) {
-        readIndex.filter(filters.reduce(_ && _))
-      } else {
-        readIndex
-      }
-
-    val cacheKey = (files, indexes.mapValues(_.toSeq))
-
-    joinCache.getOrElseUpdate(cacheKey, filteredReadIndex.cache)
-  }
-
-  /** Joins a DataFrame with the index.
-    * @param df
-    *   The DataFrame to join.
-    * @param usingColumns
-    *   The columns to use for the join.
-    * @param joinType
-    *   The type of join (default is "inner").
-    * @return
-    *   The resulting joined DataFrame.
-    */
-  def join(
-      df: DataFrame,
-      usingColumns: Seq[String],
-      joinType: String = "inner"
-  ): DataFrame = {
-    val indexDf = joinDf(df, usingColumns)
-    indexDf.join(df, usingColumns, joinType)
-  }
-
-  /** Returns a DataFrame of statistics for each indexed column (based on array
-    * length per file) and file count.
-    */
-  def stats(): DataFrame = {
-    index match {
-      case Some(df) =>
-        // File count
-        val fileCountAgg = df.select(countDistinct("filename").as("FileCount"))
-
-        // For each index, compute stats as a struct column
-        val statCols = storageColumns.toSeq.map { colName =>
-          val lenCol = size(col(colName))
-          struct(
-            min(lenCol).as("min"),
-            max(lenCol).as("max"),
-            avg(lenCol).as("avg"),
-            expr("percentile_approx(size(" + colName + "), 0.5)").as("median"),
-            stddev(lenCol).as("stddev")
-          ).as(colName)
-        }
-
-        // Build a single-row DataFrame with all stats
-        val aggExprs =
-          Seq(countDistinct("filename").as("FileCount")) ++ statCols
-        df.agg(aggExprs.head, aggExprs.tail: _*)
-
-      case None =>
-        spark.emptyDataFrame
+      // Handle large indexes and merge to Delta
+      handleLargeIndexes(finalDf)
+      mergeToDelta(finalDf)
     }
   }
 }
 
 /** Companion object for the Index class.
   */
-object Index extends AriadneContextUser {
-  override def storagePath: Path = new Path(super.storagePath, "indexes")
+object Index {
+  def fileListName(name: String): String = IndexPathUtils.fileListName(name)
 
-  def fileListName(name: String): String = s"[ariadne_index] $name"
+  def exists(name: String): Boolean = IndexPathUtils.exists(name)
 
-  def exists(name: String): Boolean =
-    FileList.exists(fileListName(name)) || super.exists(
-      new Path(super.storagePath, name)
-    )
-
-  def remove(name: String): Boolean = {
-    if (!exists(name)) {
-      throw new IndexNotFoundException(name)
-    }
-
-    val fileListRemoved = FileList.remove(fileListName(name))
-    delete(new Path(super.storagePath, name)) || fileListRemoved
-  }
+  def remove(name: String): Boolean = IndexPathUtils.remove(name)
 
   /** Factory method to create an Index instance.
     * @param name
@@ -726,7 +221,13 @@ object Index extends AriadneContextUser {
       format: String,
       allowSchemaMismatch: Boolean,
       readOptions: Map[String, String]
-  ): Index = apply(name, Some(schema), Some(format), allowSchemaMismatch, Some(readOptions))
+  ): Index = apply(
+    name,
+    Some(schema),
+    Some(format),
+    allowSchemaMismatch,
+    Some(readOptions)
+  )
 
   /** Factory method to create an Index instance.
     * @param name
@@ -802,7 +303,7 @@ object Index extends AriadneContextUser {
           throw new MissingFormatException()
         }
     }
-    
+
     // Handle read options
     readOptions match {
       case Some(options) =>
@@ -821,7 +322,7 @@ object Index extends AriadneContextUser {
         }
       case None => // Keep existing options
     }
-    
+
     index.writeMetadata(metadata)
     index
   }
