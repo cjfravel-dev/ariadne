@@ -66,13 +66,16 @@ trait IndexBuildOperations extends IndexFileOperations {
     }
   }
 
-  /** Handles large indexes by splitting and storing them separately.
+  /** Handles large indexes by storing them in consolidated delta tables per column.
     *
     * @param df The DataFrame to process for large indexes
     */
   protected def handleLargeIndexes(df: DataFrame): Unit = {
     val allStorageColumns = storageColumns
     if (allStorageColumns.isEmpty) return
+    
+    // First, migrate any existing old structure to new consolidated format
+    migrateLegacyLargeIndexes()
     
     val largeGroupedDf = allStorageColumns.foldLeft(df) {
       case (accumDf, colName) =>
@@ -83,34 +86,87 @@ trait IndexBuildOperations extends IndexFileOperations {
         )
     }
     
-    val largeFiles = largeGroupedDf
-      .select("filename")
-      .where(allStorageColumns.map(colName => col(colName).isNotNull).reduce(_ && _))
-      .distinct()
-      .collect()
-      .map(_.getString(0))
-      .toSet
+    // Process each column separately for consolidated storage
+    allStorageColumns.foreach { colName =>
+      val columnData = largeGroupedDf
+        .select("filename", colName)
+        .where(col(colName).isNotNull)
+        .withColumn(colName, explode(col(colName)))
+        .filter(col(colName).isNotNull)
+      
+      if (columnData.count() > 0) {
+        val consolidatedPath = new Path(largeIndexesFilePath, colName)
+        
+        // Use Delta merge for efficient upserts
+        delta(consolidatedPath) match {
+          case Some(deltaTable) =>
+            deltaTable
+              .as("target")
+              .merge(
+                columnData.as("source"),
+                s"target.filename = source.filename AND target.$colName = source.$colName"
+              )
+              .whenNotMatched()
+              .insertAll()
+              .execute()
+          case None =>
+            columnData.write
+              .format("delta")
+              .mode("overwrite")
+              .save(consolidatedPath.toString)
+        }
+      }
+    }
+  }
 
-    // Store large files separately
-    largeFiles.foreach { fileName =>
-      allStorageColumns.foreach(colName => {
-        val filePath =
-          new Path(
-            new Path(largeIndexesFilePath, colName),
-            IndexPathUtils.cleanFileName(fileName)
-          )
-        val indexDf = largeGroupedDf
-          .where(col("filename") === fileName)
-          .select("filename", colName)
-          .withColumn(colName, explode(col(colName)))
-
-        if (indexDf.count() > 0) {
-          indexDf.write
+  /** Migrates legacy large index structure to consolidated format.
+    * Converts from large_indexes/{column}/{file}/ to large_indexes/{column}/
+    */
+  private def migrateLegacyLargeIndexes(): Unit = {
+    if (!exists(largeIndexesFilePath)) return
+    
+    val columnDirs = fs.listStatus(largeIndexesFilePath)
+      .filter(_.isDirectory)
+      .map(_.getPath)
+    
+    columnDirs.foreach { columnDir =>
+      val columnName = columnDir.getName
+      val fileDirs = fs.listStatus(columnDir)
+        .filter(_.isDirectory)
+        .map(_.getPath)
+      
+      // If we find file subdirectories, this is legacy structure
+      if (fileDirs.nonEmpty) {
+        val tempPath = new Path(largeIndexesFilePath.getParent, s"tmp_large_indexes_${columnName}")
+        
+        // Union all legacy delta tables for this column
+        val unifiedData = fileDirs.foldLeft(Option.empty[DataFrame]) { (accumOpt, fileDir) =>
+          try {
+            val legacyData = spark.read.format("delta").load(fileDir.toString)
+            accumOpt match {
+              case Some(accum) => Some(accum.union(legacyData))
+              case None => Some(legacyData)
+            }
+          } catch {
+            case _: Exception => accumOpt // Skip corrupted tables
+          }
+        }
+        
+        unifiedData.foreach { data =>
+          // Write to temporary location first
+          data.write
             .format("delta")
             .mode("overwrite")
-            .save(filePath.toString)
+            .save(tempPath.toString)
+          
+          // Remove old structure
+          delete(columnDir)
+          
+          // Move temp to final location
+          val finalPath = new Path(largeIndexesFilePath, columnName)
+          fs.rename(tempPath, finalPath)
         }
-      })
+      }
     }
   }
 

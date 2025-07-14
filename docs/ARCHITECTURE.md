@@ -224,7 +224,24 @@ Additional format-specific options can be provided via `readOptions` when creati
 ## Key Features
 
 ### Large Index Handling
-When indexes become too large (exceeding `largeIndexLimit`), they are automatically split and stored in separate Delta tables under the `large_indexes` directory. This prevents memory issues and maintains performance.
+When indexes become too large (exceeding `largeIndexLimit`), they are automatically stored in consolidated Delta tables under the `large_indexes` directory. The system uses a consolidated approach where each column gets its own Delta table (e.g., `large_indexes/user_id`) containing all filename/value combinations for that column. This provides better performance than the previous approach of creating separate tables per file.
+
+**Consolidated Storage Structure:**
+```
+large_indexes/
+├── user_id/           (Single Delta table: filename, user_id - ALL files)
+├── category/          (Single Delta table: filename, category - ALL files)
+└── ...
+```
+
+**Benefits:**
+- **Better Delta Lake Performance**: Single optimized table per column vs. many small tables
+- **Improved File Management**: Delta can optimize file sizes and compaction more effectively
+- **Enhanced Data Skipping**: Z-ordering and data skipping work better on consolidated data
+- **Simplified Queries**: Direct table scans instead of complex union operations
+- **Automatic Migration**: Legacy large index structures are automatically migrated on first update
+
+The system automatically detects and migrates legacy large index structures (multiple small tables per file) to the new consolidated format during index updates, ensuring backward compatibility.
 
 ### Delta Lake Integration
 All index data is stored using Delta Lake format, providing:
