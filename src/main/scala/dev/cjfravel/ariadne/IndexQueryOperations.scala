@@ -3,6 +3,7 @@ package dev.cjfravel.ariadne
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.types.{StructType, StructField, StringType}
 import org.apache.spark.sql.functions._
+import io.delta.tables.DeltaTable
 import scala.collection.JavaConverters._
 
 /** Trait providing query operations for Index instances.
@@ -19,35 +20,41 @@ trait IndexQueryOperations extends IndexJoinOperations {
     delta(indexFilePath) match {
       case Some(delta) => {
         val index = delta.toDF
-        // search largeIndexesFilePath for files to merge into the index
+        // search largeIndexesFilePath for consolidated column tables to merge into the index
         if (!exists(largeIndexesFilePath)) {
           return Some(index)
         }
 
-        val largeIndexesFiles = fs
+        val consolidatedTables = fs
           .listStatus(largeIndexesFilePath)
           .filter(_.isDirectory)
-          .flatMap { dir =>
-            fs.listStatus(dir.getPath).map(_.getPath.toString)
-          }
-          .toSet
+          .map(_.getPath)
+          .filter(path => exists(path) && DeltaTable.isDeltaTable(spark, path.toString))
+          .toSeq
 
-        // for each file in largeIndexesFiles, read the file and merge it into the index
-        val combined = largeIndexesFiles.foldLeft(index) {
-          (accumDf, fileName) =>
-            val colName = fileName.split("/").reverse(1)
+        // for each consolidated column table, read and merge into the index
+        val combined = consolidatedTables.foldLeft(index) {
+          (accumDf, columnPath) =>
+            val colName = columnPath.getName
             val safeColName = s"ariadne_large_index_$colName"
-            val largeIndex = spark.read
-              .format("delta")
-              .load(fileName)
-              .groupBy("filename")
-              .agg(collect_set(colName).alias(safeColName))
-              .select("filename", safeColName)
+            
+            try {
+              val largeIndex = spark.read
+                .format("delta")
+                .load(columnPath.toString)
+                .groupBy("filename")
+                .agg(collect_set(colName).alias(safeColName))
+                .select("filename", safeColName)
 
-            accumDf
-              .join(largeIndex, Seq("filename"), "left")
-              .withColumn(colName, coalesce(col(colName), col(safeColName)))
-              .drop(safeColName)
+              accumDf
+                .join(largeIndex, Seq("filename"), "left")
+                .withColumn(colName, coalesce(col(colName), col(safeColName)))
+                .drop(safeColName)
+            } catch {
+              case _: Exception =>
+                // If there's an issue reading the large index table, continue without it
+                accumDf
+            }
         }
 
         Some(combined)
