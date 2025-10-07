@@ -31,12 +31,12 @@ import java.util.Collections
 case class Index private (
     name: String,
     schema: Option[StructType]
-) extends IndexQueryOperations {
+)(implicit val spark: SparkSession) extends IndexQueryOperations {
 
   private def fileList: FileList = FileList(IndexPathUtils.fileListName(name))
 
   /** Path to the storage location of the index. */
-  override def storagePath: Path = new Path(IndexPathUtils.storagePath, name)
+  override lazy val storagePath: Path = new Path(IndexPathUtils.storagePath, name)
 
   def hasFile(fileName: String): Boolean = fileList.hasFile(fileName)
 
@@ -143,9 +143,9 @@ case class Index private (
 object Index {
   def fileListName(name: String): String = IndexPathUtils.fileListName(name)
 
-  def exists(name: String): Boolean = IndexPathUtils.exists(name)
+  def exists(name: String)(implicit spark: SparkSession): Boolean = IndexPathUtils.exists(name)
 
-  def remove(name: String): Boolean = IndexPathUtils.remove(name)
+  def remove(name: String)(implicit spark: SparkSession): Boolean = IndexPathUtils.remove(name)
 
   /** Factory method to create an Index instance.
     * @param name
@@ -161,7 +161,7 @@ object Index {
       name: String,
       schema: StructType,
       format: String
-  ): Index = apply(name, Some(schema), Some(format), false)
+  )(implicit spark: SparkSession): Index = apply(name, Some(schema), Some(format), false)
 
   /** Factory method to create an Index instance.
     * @param name
@@ -180,7 +180,7 @@ object Index {
       schema: StructType,
       format: String,
       allowSchemaMismatch: Boolean
-  ): Index = apply(name, Some(schema), Some(format), allowSchemaMismatch)
+  )(implicit spark: SparkSession): Index = apply(name, Some(schema), Some(format), allowSchemaMismatch)
 
   /** Factory method to create an Index instance with read options.
     * @param name
@@ -199,7 +199,7 @@ object Index {
       schema: StructType,
       format: String,
       readOptions: Map[String, String]
-  ): Index = apply(name, Some(schema), Some(format), false, Some(readOptions))
+  )(implicit spark: SparkSession): Index = apply(name, Some(schema), Some(format), false, Some(readOptions))
 
   /** Factory method to create an Index instance with read options.
     * @param name
@@ -221,7 +221,7 @@ object Index {
       format: String,
       allowSchemaMismatch: Boolean,
       readOptions: Map[String, String]
-  ): Index = apply(
+  )(implicit spark: SparkSession): Index = apply(
     name,
     Some(schema),
     Some(format),
@@ -249,8 +249,8 @@ object Index {
       format: Option[String] = None,
       allowSchemaMismatch: Boolean = false,
       readOptions: Option[Map[String, String]] = None
-  ): Index = {
-    val index = Index(name, schema)
+  )(implicit spark: SparkSession): Index = {
+    val index = Index(name, schema)(spark)
 
     val metadataExists = index.metadataExists
     val metadata = if (metadataExists) {

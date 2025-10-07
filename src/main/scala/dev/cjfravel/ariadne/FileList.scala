@@ -26,10 +26,10 @@ case class FileEntry(filename: String, addedAt: java.sql.Timestamp)
 
 case class FileList private (
     name: String
-) extends AriadneContextUser {
-  val logger = LogManager.getLogger("ariadne")
+)(implicit val spark: SparkSession) extends AriadneContextUser {
+  override val logger: Logger = LogManager.getLogger("ariadne")
 
-  override def storagePath: Path = new Path(FileList.storagePath, name)
+  override lazy val storagePath: Path = new Path(FileList.storagePath, name)
 
   private var _files: Dataset[FileEntry] = _
 
@@ -95,17 +95,32 @@ case class FileList private (
 
 }
 
-object FileList extends AriadneContextUser {
-  override def storagePath: Path = new Path(super.storagePath, "filelists")
+object FileList {
+  def storagePath(implicit sparkSession: SparkSession): Path = {
+    val contextUser = new AriadneContextUser {
+      implicit def spark: SparkSession = sparkSession
+    }
+    new Path(contextUser.storagePath, "filelists")
+  }
 
-  def exists(name: String): Boolean =
-    exists(new Path(storagePath, name))
+  def exists(name: String)(implicit sparkSession: SparkSession): Boolean = {
+    val contextUser = new AriadneContextUser {
+      implicit def spark: SparkSession = sparkSession
+    }
+    contextUser.exists(new Path(storagePath(sparkSession), name))
+  }
 
-  def remove(name: String): Boolean = {
-    if (!exists(name)) {
+  def remove(name: String)(implicit sparkSession: SparkSession): Boolean = {
+    if (!exists(name)(sparkSession)) {
       throw new FileListNotFoundException(name)
     }
+    val contextUser = new AriadneContextUser {
+      implicit def spark: SparkSession = sparkSession
+    }
+    contextUser.delete(new Path(storagePath(sparkSession), name))
+  }
 
-    delete(new Path(storagePath, name))
+  def apply(name: String)(implicit spark: SparkSession): FileList = {
+    new FileList(name)(spark)
   }
 }

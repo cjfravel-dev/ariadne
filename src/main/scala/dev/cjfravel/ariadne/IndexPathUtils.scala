@@ -2,26 +2,39 @@ package dev.cjfravel.ariadne
 
 import dev.cjfravel.ariadne.exceptions.IndexNotFoundException
 import org.apache.hadoop.fs.Path
+import org.apache.spark.sql.SparkSession
 
 /** Utility object providing path and utility functions for Index operations.
   */
-object IndexPathUtils extends AriadneContextUser {
-  override def storagePath: Path = new Path(super.storagePath, "indexes")
+object IndexPathUtils {
+  def storagePath(implicit sparkSession: SparkSession): Path = {
+    val contextUser = new AriadneContextUser {
+      implicit def spark: SparkSession = sparkSession
+    }
+    new Path(contextUser.storagePath, "indexes")
+  }
 
   def fileListName(name: String): String = s"[ariadne_index] $name"
 
-  def exists(name: String): Boolean =
-    FileList.exists(fileListName(name)) || super.exists(
-      new Path(super.storagePath, name)
+  def exists(name: String)(implicit sparkSession: SparkSession): Boolean = {
+    val contextUser = new AriadneContextUser {
+      implicit def spark: SparkSession = sparkSession
+    }
+    FileList.exists(fileListName(name))(sparkSession) || contextUser.exists(
+      new Path(contextUser.storagePath, name)
     )
+  }
 
-  def remove(name: String): Boolean = {
-    if (!exists(name)) {
+  def remove(name: String)(implicit sparkSession: SparkSession): Boolean = {
+    if (!exists(name)(sparkSession)) {
       throw new IndexNotFoundException(name)
     }
 
-    val fileListRemoved = FileList.remove(fileListName(name))
-    delete(new Path(super.storagePath, name)) || fileListRemoved
+    val contextUser = new AriadneContextUser {
+      implicit def spark: SparkSession = sparkSession
+    }
+    val fileListRemoved = FileList.remove(fileListName(name))(sparkSession)
+    contextUser.delete(new Path(contextUser.storagePath, name)) || fileListRemoved
   }
 
   /** Cleans a filename for safe storage by replacing special characters.

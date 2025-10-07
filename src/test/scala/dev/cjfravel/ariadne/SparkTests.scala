@@ -9,7 +9,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import java.nio.file.{Files, Path}
 
 trait SparkTests extends AnyFunSuite with BeforeAndAfterAll {
-  var spark: SparkSession = _
+  implicit var spark: SparkSession = _
   var sc: SparkContext = _
   var tempDir: Path = _
 
@@ -28,8 +28,6 @@ trait SparkTests extends AnyFunSuite with BeforeAndAfterAll {
         "org.apache.spark.sql.delta.catalog.DeltaCatalog"
       )
       .getOrCreate()
-
-    AriadneContext.setSparkSession(spark)
   }
 
   override def afterAll(): Unit = {

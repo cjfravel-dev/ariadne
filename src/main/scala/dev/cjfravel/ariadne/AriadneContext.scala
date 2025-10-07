@@ -6,50 +6,59 @@ import org.apache.logging.log4j.{Logger, LogManager}
 import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.FSDataInputStream
 
-/** Represents an Context for tracking
-  *
-  * @param spark
-  *   The SparkSession instance.
+/** Provides context and helper methods for Ariadne operations using an implicit
+  * SparkSession. This trait should be mixed in by classes that need access to
+  * Ariadne resources.
   */
-object AriadneContext {
-  val logger = LogManager.getLogger("ariadne")
+trait AriadneContextUser {
+  val logger: Logger = LogManager.getLogger("ariadne")
 
-  private var _spark: SparkSession = _
-  private var _fs: FileSystem = _
-  private var _storagePath: Path = _
-  private var _largeIndexLimit: Long = _
+  /** Implicit SparkSession that must be provided by the mixing class */
+  implicit def spark: SparkSession
 
-  def setSparkSession(spark: SparkSession): Unit = {
-    logger.trace("spark set")
-    _spark = spark
-    _storagePath = new Path(
-      spark.conf.get("spark.ariadne.storagePath")
-    )
-    _largeIndexLimit = spark.conf
-      .get(
-        "spark.ariadne.largeIndexLimit",
-        "500000"
-      )
-      .toLong
-    _fs = FileSystem.get(
-      _storagePath.getParent.toUri,
-      spark.sparkContext.hadoopConfiguration
-    )
+  /** Path on FileSystem where Ariadne should create files. Reads from
+    * spark.ariadne.storagePath configuration.
+    */
+  lazy val storagePath: Path = {
+    val path = new Path(spark.conf.get("spark.ariadne.storagePath"))
+    logger.trace(s"storagePath initialized: $path")
+    println(s"Ariadne storage path: $path")
+    path
   }
 
-  /** SparkSession associated with the running job */
-  private[ariadne] def spark: SparkSession = _spark
+  /** Maximum number of records before an index is considered "large". Reads
+    * from spark.ariadne.largeIndexLimit configuration (default: 500000).
+    */
+  lazy val largeIndexLimit: Long = {
+    val limit = spark.conf.get("spark.ariadne.largeIndexLimit", "500000").toLong
+    logger.trace(s"largeIndexLimit initialized: $limit")
+    limit
+  }
 
   /** Hadoop FileSystem instance associated with the storage path. */
-  private[ariadne] def fs: FileSystem = _fs
-  private[ariadne] def exists(path: Path): Boolean = fs.exists(path)
-  private[ariadne] def delete(path: Path): Boolean = fs.delete(path, true)
-  private[ariadne] def open(path: Path): FSDataInputStream = fs.open(path)
+  lazy val fs: FileSystem = {
+    val filesystem = FileSystem.get(
+      storagePath.getParent.toUri,
+      spark.sparkContext.hadoopConfiguration
+    )
+    logger.trace(s"FileSystem initialized for: ${storagePath.getParent}")
+    filesystem
+  }
 
-  /** Path on FileSystem where ariadre should create file */
-  private[ariadne] def storagePath: Path = _storagePath
-  private[ariadne] def largeIndexLimit: Long = _largeIndexLimit
-  private[ariadne] def delta(path: Path): Option[DeltaTable] = {
+  /** Checks if a path exists on the filesystem */
+  def exists(path: Path): Boolean = fs.exists(path)
+
+  /** Deletes a path recursively from the filesystem */
+  def delete(path: Path): Boolean = fs.delete(path, true)
+
+  /** Opens an input stream to read from a path */
+  def open(path: Path): FSDataInputStream = fs.open(path)
+
+  /** Returns a DeltaTable if the path exists and is a valid Delta table. If the
+    * path exists but is not a valid Delta table, it will be deleted and None
+    * returned. If the path doesn't exist, None is returned.
+    */
+  def delta(path: Path): Option[DeltaTable] = {
     if (exists(path)) {
       if (DeltaTable.isDeltaTable(spark, path.toString)) {
         Some(DeltaTable.forPath(spark, path.toString))
@@ -61,17 +70,4 @@ object AriadneContext {
       None
     }
   }
-}
-
-private[ariadne] trait AriadneContextUser {
-  def spark: SparkSession = AriadneContext.spark
-
-  def fs: FileSystem = AriadneContext.fs
-  def exists(path: Path): Boolean = AriadneContext.exists(path)
-  def delete(path: Path): Boolean = AriadneContext.delete(path)
-  def open(path: Path): FSDataInputStream = AriadneContext.open(path)
-
-  def storagePath: Path = AriadneContext.storagePath
-  def delta(path: Path): Option[DeltaTable] = AriadneContext.delta(path)
-  def largeIndexLimit: Long = AriadneContext.largeIndexLimit
 }

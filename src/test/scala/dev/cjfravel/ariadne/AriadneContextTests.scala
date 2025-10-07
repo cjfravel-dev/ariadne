@@ -2,6 +2,9 @@ package dev.cjfravel.ariadne
 
 class AriadneContextTests extends SparkTests {
   test("storagePath") {
-    assert(AriadneContext.storagePath.toString === tempDir.toString)
+    val contextUser = new AriadneContextUser {
+      implicit def spark: org.apache.spark.sql.SparkSession = AriadneContextTests.this.spark
+    }
+    assert(contextUser.storagePath.toString === tempDir.toString)
   }
 }
