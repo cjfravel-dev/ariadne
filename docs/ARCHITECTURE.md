@@ -164,6 +164,7 @@ case class Index private (
 - `addComputedIndex(name: String, sql_expression: String): Unit` - Add computed index
 - `addExplodedFieldIndex(arrayColumn: String, fieldPath: String, asColumn: String): Unit` - Add exploded field index
 - `indexes: Set[String]` - Get all available index column names
+- `select(columns: String*): SelectedIndex` - Create column-restricted view
 - `update: Unit` - Update index with new files
 - `storagePath: Path` - Storage location for this index
 
@@ -171,6 +172,27 @@ case class Index private (
 - `Index(name: String, schema: StructType, format: String): Index`
 - `Index(name: String, schema: StructType, format: String, allowSchemaMismatch: Boolean): Index`
 - `Index(name: String, schema: StructType, format: String, readOptions: Map[String, String]): Index`
+
+### 8. SelectedIndex Class
+**Purpose**: Read-only view of an Index with column selection applied for restricted operations.
+
+**Key Responsibilities**:
+- Enforcing column selection restrictions on all operations
+- Preventing modification operations (addFile, addIndex, update, etc.)
+- Filtering join operations to only use selected columns
+- Applying column selection to DataFrame results
+- Validating column selections against available schema and computed columns
+
+**Key Methods**:
+- `select(columns: String*): SelectedIndex` - Further restrict column selection
+- `join(df: DataFrame, usingColumns: Seq[String], joinType: String = "inner"): DataFrame` - Filtered joins
+- `locateFiles(indexes: Map[String, Array[Any]]): Set[String]` - File location with column filtering
+- `stats(): DataFrame` - Statistics for underlying index
+- `selectedColumns: Set[String]` - Currently selected columns
+- `indexes: Set[String]` - Available indexes (intersection of selected and indexed columns)
+
+**Restricted Operations**: All modification operations throw `UnsupportedOperationException`:
+- `addFile()`, `addIndex()`, `addComputedIndex()`, `addExplodedFieldIndex()`, `update()`
 
 ### 8. IndexPathUtils (Object)
 **Purpose**: Provides utility functions for path manipulation and index management.
@@ -212,6 +234,15 @@ case class Index private (
 #### FileList
 **Purpose**: Tracks which files have been added to an index for processing.
 
+#### InvalidColumnSelectionException
+**Purpose**: Exception thrown when attempting to select columns that don't exist or aren't available.
+
+**Constructor Parameters**:
+- `invalidColumns: Set[String]` - Column names that are invalid
+- `availableColumns: Set[String]` - Column names that are available for selection
+
+**Usage**: Thrown by `SelectedIndex` when validation fails during column selection.
+
 ## Supported File Formats
 
 Ariadne supports three data formats with Parquet as the default:
@@ -222,6 +253,47 @@ Ariadne supports three data formats with Parquet as the default:
 Additional format-specific options can be provided via `readOptions` when creating an index.
 
 ## Key Features
+
+### Column Selection and Restricted Views
+Ariadne supports creating column-restricted views of indexes through the `select()` operation. This feature provides:
+
+**Column Selection**:
+- Select specific columns from the original schema, computed indexes, and exploded field indexes
+- Chain multiple `select()` calls to further restrict column sets
+- Validation ensures selected columns exist in the available column set
+
+**Restricted Operations**:
+- SelectedIndex instances prevent modification operations (addFile, addIndex, update)
+- All modification attempts throw `UnsupportedOperationException`
+- Read-only operations (join, locateFiles, stats) remain available
+
+**Filtered Join Operations**:
+- Join operations only use indexes from selected columns
+- Column selection is applied to DataFrame results before joins
+- Maintains same join semantics while restricting scope
+
+**Use Cases**:
+- Creating focused views for specific use cases
+- Implementing access control patterns
+- Optimizing query performance by limiting scope
+- Creating immutable views for downstream processing
+
+```scala
+// Create an index with multiple columns
+val index = Index("my_index", schema, "parquet")
+index.addIndex("user_id")
+index.addIndex("event_type")
+index.addComputedIndex("event_date", "date(timestamp)")
+
+// Create a restricted view with only specific columns
+val userIndex = index.select("user_id", "event_date")
+
+// Further restrict if needed
+val userOnlyIndex = userIndex.select("user_id")
+
+// Join operations automatically filter to selected columns
+val result = userIndex.join(queryDF, Seq("user_id"), "inner")
+```
 
 ### Large Index Handling
 When indexes become too large (exceeding `largeIndexLimit`), they are automatically stored in consolidated Delta tables under the `large_indexes` directory. The system uses a consolidated approach where each column gets its own Delta table (e.g., `large_indexes/user_id`) containing all filename/value combinations for that column. This provides better performance than the previous approach of creating separate tables per file.
@@ -309,6 +381,23 @@ class IndexJoinOperationsTests extends SparkTests {
     // Test implementation...
   }
 }
+
+// Example: Testing column selection operations
+class IndexSelectOperationsTests extends SparkTests {
+  test("should create SelectedIndex with valid columns") {
+    val index = Index("test", schema, "csv")
+    index.addIndex("id")
+    val selected = index.select("id", "name")
+    // Test implementation...
+  }
+  
+  test("should throw exception for invalid column selection") {
+    val index = Index("test", schema, "csv")
+    assertThrows[InvalidColumnSelectionException] {
+      index.select("nonexistent_column")
+    }
+  }
+}
 ```
 
 ### Error Handling
@@ -319,6 +408,7 @@ Each module handles specific error conditions:
 - `FormatMismatchException` - Format validation failures
 - `IndexNotFoundException` - Missing index references
 - `IndexNotFoundInNewSchemaException` - Schema evolution issues
+- `InvalidColumnSelectionException` - Column selection validation failures
 
 ## Implementation Details
 

@@ -109,6 +109,16 @@ case class Index private (
       metadata.computed_indexes.keySet().asScala ++
       metadata.exploded_field_indexes.asScala.map(_.as_column).toSet
 
+  /** Creates a SelectedIndex with the specified columns.
+    *
+    * @param columns The column names to select
+    * @return A new SelectedIndex restricted to the specified columns
+    * @throws InvalidColumnSelectionException if any column doesn't exist in the schema
+    */
+  def select(columns: String*): SelectedIndex = {
+    SelectedIndex(this, columns.toSet)
+  }
+
   def addComputedIndex(name: String, sql_expression: String): Unit = {
     if (metadata.computed_indexes.containsKey(name)) return
     metadata.computed_indexes.put(name, sql_expression)
