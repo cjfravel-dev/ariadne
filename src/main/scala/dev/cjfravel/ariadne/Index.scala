@@ -107,11 +107,38 @@ case class Index private (
   def indexes: Set[String] =
     metadata.indexes.asScala.toSet ++
       metadata.computed_indexes.keySet().asScala ++
-      metadata.exploded_field_indexes.asScala.map(_.as_column).toSet
+      metadata.exploded_field_indexes.asScala.map(_.as_column).toSet ++
+      metadata.latest_indexes.asScala.map(_.index_column).toSet
 
   def addComputedIndex(name: String, sql_expression: String): Unit = {
     if (metadata.computed_indexes.containsKey(name)) return
     metadata.computed_indexes.put(name, sql_expression)
+    writeMetadata(metadata)
+  }
+
+  /** Adds a latest index entry that keeps only the latest record per indexed value.
+    *
+    * This creates an index that automatically purges older entries based on a date column,
+    * keeping only the most recent entry for each unique value in the index column.
+    *
+    * @param indexColumn
+    *   The column to index (e.g., "user_id")
+    * @param dateColumn
+    *   The column used for temporal ordering (e.g., "created_date")
+    * @param descOrder
+    *   Whether to sort in descending order (true = latest first, false = earliest first).
+    *   Defaults to true for most recent entries.
+    */
+  def addLatestIndex(
+      indexColumn: String,
+      dateColumn: String,
+      descOrder: Boolean = true
+  ): Unit = {
+    // Check if this index column is already used
+    if (indexes.contains(indexColumn)) return
+
+    val latestIndexMapping = LatestIndexMapping(indexColumn, dateColumn, descOrder)
+    metadata.latest_indexes.add(latestIndexMapping)
     writeMetadata(metadata)
   }
 
@@ -129,7 +156,8 @@ case class Index private (
 
       // Build indexes using the extracted methods
       val regularIndexesDf = buildRegularIndexes(withFilename)
-      val finalDf = buildExplodedFieldIndexes(withFilename, regularIndexesDf)
+      val withExplodedFieldsDf = buildExplodedFieldIndexes(withFilename, regularIndexesDf)
+      val finalDf = buildLatestIndexes(withFilename).join(withExplodedFieldsDf, Seq("filename"), "full_outer")
 
       // Handle large indexes and merge to Delta
       handleLargeIndexes(finalDf)
@@ -262,6 +290,7 @@ object Index {
         new util.ArrayList[String](),
         new util.HashMap[String, String](),
         new util.ArrayList[ExplodedFieldMapping](),
+        new util.ArrayList[LatestIndexMapping](),
         new util.HashMap[String, String]()
       )
     }

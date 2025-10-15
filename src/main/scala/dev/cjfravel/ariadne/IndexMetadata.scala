@@ -27,6 +27,28 @@ case class ExplodedFieldMapping(
     var as_column: String
 )
 
+/** Represents a mapping for latest index configuration.
+  *
+  * This case class defines how to create indexes that automatically purge older entries
+  * based on a date column, keeping only the latest entry per indexed value.
+  *
+  * @param index_column The column to index (e.g., "user_id")
+  * @param date_column The column used for temporal ordering (e.g., "created_date")
+  * @param desc_order Whether to sort in descending order (true = latest first, false = earliest first)
+  *
+  * @example
+  * {{{
+  * // For a table with multiple user events, keep only the latest event per user
+  * val mapping = LatestIndexMapping("user_id", "created_date", true)
+  * // This keeps only the most recent entry for each user_id based on created_date
+  * }}}
+  */
+case class LatestIndexMapping(
+    var index_column: String,
+    var date_column: String,
+    var desc_order: Boolean
+)
+
 /** Metadata container for Ariadne index configuration and state.
   *
   * This case class stores all metadata required to manage an Ariadne index,
@@ -38,6 +60,7 @@ case class ExplodedFieldMapping(
   * @param indexes List of regular column names that are indexed
   * @param computed_indexes Map of computed index aliases to their SQL expressions
   * @param exploded_field_indexes List of exploded field mappings for nested data structures
+  * @param latest_indexes List of latest index mappings for temporal deduplication
   * @param read_options Map of read options for format-specific configuration (e.g., "multiLine" -> "true" for JSON)
   *
   * @note The field names use underscore notation to match JSON serialization format
@@ -51,6 +74,7 @@ case class IndexMetadata(
       String
     ],
     var exploded_field_indexes: util.List[ExplodedFieldMapping],
+    var latest_indexes: util.List[LatestIndexMapping],
     var read_options: util.Map[String, String]
 )
 
@@ -68,6 +92,7 @@ object IndexMetadata {
     * - v1 → v2: Adds computed_indexes field if missing
     * - v2 → v3: Adds exploded_field_indexes field if missing
     * - v3 → v4: Adds read_options field if missing
+    * - v4 → v5: Adds latest_indexes field if missing
     *
     * @param jsonString The JSON representation of the metadata
     * @return A fully initialized IndexMetadata instance
@@ -93,6 +118,10 @@ object IndexMetadata {
     // v3 -> v4
     if (indexMetadata.read_options == null) {
       indexMetadata.read_options = new util.HashMap[String, String]()
+    }
+    // v4 -> v5
+    if (indexMetadata.latest_indexes == null) {
+      indexMetadata.latest_indexes = new util.ArrayList[LatestIndexMapping]()
     }
     indexMetadata
   }

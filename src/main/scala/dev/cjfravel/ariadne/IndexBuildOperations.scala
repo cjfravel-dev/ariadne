@@ -2,6 +2,7 @@ package dev.cjfravel.ariadne
 
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.expressions.Window
 import org.apache.hadoop.fs.Path
 import io.delta.tables.DeltaTable
 import scala.collection.JavaConverters._
@@ -26,7 +27,8 @@ trait IndexBuildOperations extends IndexFileOperations {
   protected def storageColumns: Set[String] =
     metadata.indexes.asScala.toSet ++
       metadata.computed_indexes.keySet().asScala ++
-      metadata.exploded_field_indexes.asScala.map(_.array_column).toSet
+      metadata.exploded_field_indexes.asScala.map(_.array_column).toSet ++
+      metadata.latest_indexes.asScala.map(_.index_column).toSet
 
   /** Builds regular indexes DataFrame from the base data.
     *
@@ -41,6 +43,48 @@ trait IndexBuildOperations extends IndexFileOperations {
       val selectedDf = df.select(regularCols.map(col): _*).distinct
       val aggExprs = regularIndexes.toList.map(colName => collect_set(col(colName)).alias(colName))
       selectedDf.groupBy("filename").agg(aggExprs.head, aggExprs.tail: _*)
+    } else {
+      df.select("filename").distinct
+    }
+  }
+
+  /** Builds latest indexes DataFrame from the base data using window functions.
+    *
+    * Latest indexes keep only the most recent value per indexed column based on a date column.
+    * This method uses window functions with row_number() to identify the latest records.
+    *
+    * @param df The base DataFrame with filename column
+    * @return DataFrame with latest indexes aggregated by filename
+    */
+  protected def buildLatestIndexes(df: DataFrame): DataFrame = {
+    val latestIndexMappings = metadata.latest_indexes.asScala.toSeq
+    
+    if (latestIndexMappings.nonEmpty) {
+      // For each latest index mapping, apply window function to get latest values
+      val latestIndexData = latestIndexMappings.foldLeft(df.select("filename").distinct) {
+        (accumDf, latestMapping) =>
+          val indexCol = latestMapping.index_column
+          val dateCol = latestMapping.date_column
+          val descOrder = latestMapping.desc_order
+          
+          // Create window spec to partition by filename and index column, ordered by date
+          val windowSpec = Window
+            .partitionBy(col("filename"), col(indexCol))
+            .orderBy(if (descOrder) col(dateCol).desc else col(dateCol).asc)
+          
+          // Get latest values for this index column
+          val latestValues = df
+            .select("filename", indexCol, dateCol)
+            .withColumn("row_num", row_number().over(windowSpec))
+            .filter(col("row_num") === 1)
+            .select("filename", indexCol)
+            .groupBy("filename")
+            .agg(collect_set(col(indexCol)).alias(indexCol))
+          
+          // Join with accumulated result
+          accumDf.join(latestValues, Seq("filename"), "full_outer")
+      }
+      latestIndexData
     } else {
       df.select("filename").distinct
     }
