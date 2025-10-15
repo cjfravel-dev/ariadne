@@ -2,6 +2,7 @@ package dev.cjfravel.ariadne
 
 import org.apache.spark.sql.{DataFrame, Column}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types.ArrayType
 import scala.collection.mutable
 import scala.collection.JavaConverters._
 
@@ -68,20 +69,67 @@ trait IndexJoinOperations extends IndexBuildOperations {
       throw new IllegalStateException(s"Index not found for $name")
     )
 
-    val indexExploded = joinColumnsToUse.foldLeft(indexDf) { (accumDf, joinCol) =>
-      val storageCol = columnMappings(joinCol)
-      accumDf.withColumn(s"${storageCol}_exploded", explode(col(storageCol)))
-    }
+    // Use exists with array_contains for efficient membership checking
+    // This avoids exploding large arrays and works with distributed DataFrames
 
-    val joinConditions = joinColumnsToUse.map { joinCol =>
-      val storageCol = columnMappings(joinCol)
-      col(s"${storageCol}_exploded") === distinctValuesDf(joinCol)
-    }
+    // For large indexes stored in consolidated tables, we need a different strategy
+    // We'll use arrays_overlap if available, or fall back to a distributed join approach
 
-    val matchingFilesDf = indexExploded
-      .join(broadcast(distinctValuesDf), joinConditions.reduce(_ && _))
-      .select("filename")
-      .distinct
+    val matchingFilesDf = if (joinColumnsToUse.length == 1) {
+      // Single column case - simpler and more efficient
+      val joinCol = joinColumnsToUse.head
+      val storageCol = columnMappings(joinCol)
+
+      // Check if column exists and is an array type
+      val colSchema = indexDf.schema.fields.find(_.name == storageCol)
+      colSchema match {
+        case Some(field) if field.dataType.isInstanceOf[ArrayType] =>
+          // Use exists to check if any value in distinctValuesDf exists in the index array
+          indexDf.alias("idx")
+            .join(
+              distinctValuesDf.alias("vals"),
+              array_contains(col(s"idx.$storageCol"), col(s"vals.$joinCol"))
+            )
+            .select("idx.filename")
+            .distinct
+        case Some(field) =>
+          // Direct comparison for non-array columns
+          indexDf.alias("idx")
+            .join(
+              distinctValuesDf.alias("vals"),
+              col(s"idx.$storageCol") === col(s"vals.$joinCol")
+            )
+            .select("idx.filename")
+            .distinct
+        case None =>
+          logger.error(s"Column $storageCol not found in index")
+          spark.emptyDataFrame.select(lit("").as("filename")).limit(0)
+      }
+    } else {
+      // Multi-column case - need to check all columns match
+      val joinConditions = joinColumnsToUse.map { joinCol =>
+        val storageCol = columnMappings(joinCol)
+        val colSchema = indexDf.schema.fields.find(_.name == storageCol)
+
+        colSchema match {
+          case Some(field) if field.dataType.isInstanceOf[ArrayType] =>
+            array_contains(col(s"idx.$storageCol"), col(s"vals.$joinCol"))
+          case Some(field) =>
+            col(s"idx.$storageCol") === col(s"vals.$joinCol")
+          case None =>
+            logger.error(s"Column $storageCol not found in index")
+            lit(false)
+        }
+      }
+
+      indexDf.alias("idx")
+        .join(
+          distinctValuesDf.alias("vals"),
+          joinConditions.reduce(_ && _)
+        )
+        .select("idx.filename")
+        .distinct
+    }
 
     val files = matchingFilesDf.collect().map(_.getString(0)).toSet
     val totalFiles = indexDf.select("filename").distinct.count()
