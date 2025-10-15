@@ -69,11 +69,6 @@ trait IndexJoinOperations extends IndexBuildOperations {
       throw new IllegalStateException(s"Index not found for $name")
     )
 
-    // Use exists with array_contains for efficient membership checking
-    // This avoids exploding large arrays and works with distributed DataFrames
-
-    // For large indexes stored in consolidated tables, we need a different strategy
-    // We'll use arrays_overlap if available, or fall back to a distributed join approach
 
     val matchingFilesDf = if (joinColumnsToUse.length == 1) {
       // Single column case - simpler and more efficient
