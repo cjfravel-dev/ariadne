@@ -11,7 +11,7 @@ trait IndexJoinOperations extends IndexBuildOperations {
   self: Index =>
 
   private val joinCache =
-    mutable.Map[(Set[String], Map[String, Seq[Any]]), DataFrame]()
+    mutable.Map[(Set[String], String), DataFrame]()
 
   /** Maps join column names to their corresponding storage column names.
     *
@@ -27,26 +27,6 @@ trait IndexJoinOperations extends IndexBuildOperations {
         case None => joinCol -> joinCol
       }
     }.toMap
-  }
-
-  /** Creates filter conditions for DataFrame joins based on index values.
-    *
-    * @param joinColumnsToUse The columns to create filters for
-    * @param columnMappings Mapping from join columns to storage columns
-    * @param indexes The index values to filter on
-    * @return Sequence of filter conditions
-    */
-  protected def createJoinFilters(
-    joinColumnsToUse: Seq[String],
-    columnMappings: Map[String, String],
-    indexes: Map[String, Array[Any]]
-  ): Seq[Column] = {
-    joinColumnsToUse.collect {
-      case joinColumn if indexes.get(columnMappings(joinColumn)).exists(_.nonEmpty) =>
-        val storageColumn = columnMappings(joinColumn)
-        val values = indexes(storageColumn)
-        col(joinColumn).isin(values: _*)
-    }
   }
 
   /** Retrieves and caches a DataFrame containing indexed data relevant to the
@@ -71,32 +51,54 @@ trait IndexJoinOperations extends IndexBuildOperations {
     val storageColumnsToUse = columnMappings.values.toSet.intersect(this.storageColumns)
     logger.trace(s"Found indexes for ${storageColumnsToUse.mkString(",")}")
 
-    // Get values from the user DataFrame using join column names
+    // Get columns to use for join
     val joinColumnsToUse = usingColumns.filter(col =>
       columnMappings.contains(col) && storageColumnsToUse.contains(columnMappings(col))
     )
-    val filtered = df.select(joinColumnsToUse.map(col): _*)
 
-    val indexes = joinColumnsToUse.map { joinColumn =>
-      val distinctValues = filtered.select(joinColumn).distinct.collect.map(_.get(0))
-      columnMappings(joinColumn) -> distinctValues
-    }.toMap
-
-    val files = locateFiles(indexes)
-    logger.trace(s"Found ${files.size} files in index")
-    val readIndex = readFiles(files)
-
-    // Create filters using the extracted helper method
-    val filters = createJoinFilters(joinColumnsToUse, columnMappings, indexes)
-
-    val filteredReadIndex = if (filters.nonEmpty) {
-      readIndex.filter(filters.reduce(_ && _))
-    } else {
-      readIndex
+    if (joinColumnsToUse.isEmpty) {
+      logger.warn(s"No join columns found in index")
+      return spark.emptyDataFrame
     }
 
-    val cacheKey = (files, indexes.mapValues(_.toSeq))
-    joinCache.getOrElseUpdate(cacheKey, filteredReadIndex.cache)
+    val distinctValuesDf = df.select(joinColumnsToUse.map(col): _*).distinct
+
+    // Get the full index DataFrame
+    val indexDf = index.getOrElse(
+      throw new IllegalStateException(s"Index not found for $name")
+    )
+
+    val indexExploded = joinColumnsToUse.foldLeft(indexDf) { (accumDf, joinCol) =>
+      val storageCol = columnMappings(joinCol)
+      accumDf.withColumn(s"${storageCol}_exploded", explode(col(storageCol)))
+    }
+
+    val joinConditions = joinColumnsToUse.map { joinCol =>
+      val storageCol = columnMappings(joinCol)
+      col(s"${storageCol}_exploded") === distinctValuesDf(joinCol)
+    }
+
+    val matchingFilesDf = indexExploded
+      .join(broadcast(distinctValuesDf), joinConditions.reduce(_ && _))
+      .select("filename")
+      .distinct
+
+    val files = matchingFilesDf.collect().map(_.getString(0)).toSet
+    val totalFiles = indexDf.select("filename").distinct.count()
+    logger.info(s"Found ${files.size} matching files from $totalFiles total files")
+
+    if (files.isEmpty) {
+      logger.warn(s"No files found matching join criteria")
+      // Return empty DataFrame with the correct schema from distinctValuesDf
+      return distinctValuesDf.limit(0)
+    }
+
+    val readIndex = readFiles(files)
+
+    val cacheKey = (files, joinColumnsToUse.mkString(","))
+    joinCache.getOrElseUpdate(cacheKey, {
+      readIndex.join(distinctValuesDf, joinColumnsToUse, "inner").cache
+    })
   }
 
   /** Joins a DataFrame with the index.
