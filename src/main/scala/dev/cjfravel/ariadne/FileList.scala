@@ -64,7 +64,7 @@ case class FileList private (
 
     _files = _files.union(newFiles)
     write
-    logger.trace(s"Added ${toAdd.size} files")
+    logger.warn(s"Added ${toAdd.size} files")
   }
 
   def addFile(fileNames: String*): Unit = addFile(spark, fileNames: _*)
@@ -90,7 +90,7 @@ case class FileList private (
           .save(storagePath.toString)
     }
     _files = null
-    logger.trace(s"Wrote out FileList $name")
+    logger.warn(s"Wrote out FileList $name")
   }
 
 }

@@ -49,7 +49,7 @@ trait IndexJoinOperations extends IndexBuildOperations {
     val columnMappings = mapJoinColumnsToStorage(usingColumns)
 
     val storageColumnsToUse = columnMappings.values.toSet.intersect(this.storageColumns)
-    logger.trace(s"Found indexes for ${storageColumnsToUse.mkString(",")}")
+    logger.warn(s"Found indexes for ${storageColumnsToUse.mkString(",")}")
 
     // Get columns to use for join
     val joinColumnsToUse = usingColumns.filter(col =>
@@ -85,7 +85,7 @@ trait IndexJoinOperations extends IndexBuildOperations {
 
     val files = matchingFilesDf.collect().map(_.getString(0)).toSet
     val totalFiles = indexDf.select("filename").distinct.count()
-    logger.info(s"Found ${files.size} matching files from $totalFiles total files")
+    logger.warn(s"Found ${files.size} matching files from $totalFiles total files")
 
     if (files.isEmpty) {
       logger.warn(s"No files found matching join criteria")
