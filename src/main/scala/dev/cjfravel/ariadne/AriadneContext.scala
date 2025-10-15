@@ -21,7 +21,7 @@ trait AriadneContextUser {
     */
   lazy val storagePath: Path = {
     val path = new Path(spark.conf.get("spark.ariadne.storagePath"))
-    logger.trace(s"storagePath initialized: $path")
+    logger.warn(s"storagePath initialized: $path")
     println(s"Ariadne storage path: $path")
     path
   }
@@ -31,7 +31,7 @@ trait AriadneContextUser {
     */
   lazy val largeIndexLimit: Long = {
     val limit = spark.conf.get("spark.ariadne.largeIndexLimit", "500000").toLong
-    logger.trace(s"largeIndexLimit initialized: $limit")
+    logger.warn(s"largeIndexLimit initialized: $limit")
     limit
   }
 
@@ -41,7 +41,7 @@ trait AriadneContextUser {
       storagePath.getParent.toUri,
       spark.sparkContext.hadoopConfiguration
     )
-    logger.trace(s"FileSystem initialized for: ${storagePath.getParent}")
+    logger.warn(s"FileSystem initialized for: ${storagePath.getParent}")
     filesystem
   }
 

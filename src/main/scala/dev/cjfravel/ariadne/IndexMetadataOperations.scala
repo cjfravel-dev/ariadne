@@ -40,7 +40,7 @@ trait IndexMetadataOperations extends AriadneContextUser {
     } else {
       throw new MetadataMissingOrCorruptException()
     }
-    logger.trace(s"Read metadata from ${metadataFilePath.toString}")
+    logger.warn(s"Read metadata from ${metadataFilePath.toString}")
   }
 
   /** Retrieves the stored metadata for the index.
@@ -71,7 +71,7 @@ trait IndexMetadataOperations extends AriadneContextUser {
     outputStream.flush()
     outputStream.close()
     _metadata = metadata // Update in-memory cache
-    logger.trace(s"Wrote metadata to ${metadataFilePath.toString}")
+    logger.warn(s"Wrote metadata to ${metadataFilePath.toString}")
   }
 
   /** Returns the format of the stored data. */

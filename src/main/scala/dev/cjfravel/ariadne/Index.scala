@@ -119,7 +119,7 @@ case class Index private (
   def update: Unit = {
     val unindexed = unindexedFiles
     if (unindexed.nonEmpty) {
-      logger.trace(s"Updating index for ${unindexed.size} files")
+      logger.warn(s"Updating index for ${unindexed.size} files")
 
       // Read base data
       val baseDf = createBaseDataFrame(unindexed)
