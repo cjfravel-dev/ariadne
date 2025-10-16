@@ -24,7 +24,26 @@ trait IndexFileOperations extends IndexMetadataOperations {
   protected def readFiles(files: Set[String]): DataFrame = {
     val baseDf = createBaseDataFrame(files)
     val withComputedIndexes = applyComputedIndexes(baseDf)
-    applyExplodedFields(withComputedIndexes)
+    val withExplodedFields = applyExplodedFields(withComputedIndexes)
+    
+    // Apply column selection if specified
+    applyColumnSelection(withExplodedFields)
+  }
+
+  /** Applies column selection if columns have been specified via select().
+    * Only reads the explicitly selected columns.
+    *
+    * @param df The DataFrame to apply column selection to
+    * @return DataFrame with selected columns or original DataFrame if no selection
+    */
+  protected def applyColumnSelection(df: DataFrame): DataFrame = {
+    getSelectedColumns match {
+      case Some(selectedCols) =>
+        logger.debug(s"Selecting columns: ${selectedCols.mkString(", ")}")
+        df.select(selectedCols.map(col): _*)
+      case None =>
+        df // No column selection specified, return full DataFrame
+    }
   }
 
   /** Creates a base DataFrame from the provided files using the stored format

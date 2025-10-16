@@ -33,10 +33,37 @@ case class Index private (
     schema: Option[StructType]
 )(implicit val spark: SparkSession) extends IndexQueryOperations {
 
+  /** Selected columns for optimized reading. When set, only these columns plus join columns will be read. */
+  private var selectedColumns: Option[Seq[String]] = None
+
   private def fileList: FileList = FileList(IndexPathUtils.fileListName(name))
 
   /** Path to the storage location of the index. */
   override lazy val storagePath: Path = new Path(IndexPathUtils.storagePath, name)
+
+  /** Selects specific columns for optimized reading.
+    *
+    *
+    * @param columns The column names to select
+    * @return This Index instance for method chaining
+    * @throws ColumnNotFoundException if any specified column doesn't exist in the schema
+    */
+  def select(columns: String*): Index = {
+    // Validate that all specified columns exist in the schema
+    val invalidColumns = columns.filterNot { colName =>
+      SchemaHelper.fieldExists(storedSchema, colName)
+    }
+    
+    if (invalidColumns.nonEmpty) {
+      throw new ColumnNotFoundException(s"Columns not found in schema: ${invalidColumns.mkString(", ")}")
+    }
+    
+    selectedColumns = Some(columns)
+    this
+  }
+
+  /** Gets the currently selected columns for reading. */
+  private[ariadne] def getSelectedColumns: Option[Seq[String]] = selectedColumns
 
   def hasFile(fileName: String): Boolean = fileList.hasFile(fileName)
 

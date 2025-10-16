@@ -1,5 +1,6 @@
 package dev.cjfravel.ariadne
 
+import dev.cjfravel.ariadne.exceptions.ColumnNotFoundException
 import org.apache.spark.sql.{DataFrame, Column}
 import org.apache.spark.sql.functions._
 import scala.collection.mutable
@@ -65,6 +66,24 @@ trait IndexJoinOperations extends IndexBuildOperations {
     *   DataFrame.
     */
   protected def joinDf(df: DataFrame, usingColumns: Seq[String]): DataFrame = {
+    // Validate that join columns are included in selected columns (if selection is active)
+    // or exist in the schema (if no selection)
+    getSelectedColumns match {
+      case Some(selectedCols) =>
+        val missingJoinCols = usingColumns.filterNot(selectedCols.contains)
+        if (missingJoinCols.nonEmpty) {
+          throw new ColumnNotFoundException(s"Join columns must be included in selected columns. Missing: ${missingJoinCols.mkString(", ")}")
+        }
+      case None =>
+        // No selection active, but still validate columns exist in schema or are available indexes
+        val invalidJoinCols = usingColumns.filterNot { colName =>
+          SchemaHelper.fieldExists(storedSchema, colName) || this.indexes.contains(colName)
+        }
+        if (invalidJoinCols.nonEmpty) {
+          throw new ColumnNotFoundException(s"Join columns not found in schema or indexes: ${invalidJoinCols.mkString(", ")}")
+        }
+    }
+    
     // Map join columns to storage columns
     val columnMappings = mapJoinColumnsToStorage(usingColumns)
 
