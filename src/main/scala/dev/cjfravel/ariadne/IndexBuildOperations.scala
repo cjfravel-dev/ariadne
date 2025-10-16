@@ -84,6 +84,7 @@ trait IndexBuildOperations extends IndexFileOperations {
   }
 
   /** Groups files into batches based on their distinct value counts to stay under largeIndexLimit.
+    * Uses simplified sequential batching based on maxDistinctCount sum for performance.
     *
     * @param fileAnalyses Sequence of FileAnalysis objects
     * @return Sequence of file batches, where each batch is a set of filenames
@@ -107,37 +108,35 @@ trait IndexBuildOperations extends IndexFileOperations {
     
     val batches = scala.collection.mutable.ListBuffer[Set[String]]()
     
-    // Sort files by maxDistinctCount (largest first for better bin-packing)
+    // Sort files by maxDistinctCount (largest first for better packing)
     val sortedFiles = regularFiles.sortBy(-_.maxDistinctCount)
+    
+    // Simple sequential batching - group files until sum of maxDistinctCount reaches largeIndexLimit
+    var currentBatch = scala.collection.mutable.Set[String]()
+    var currentBatchTotal = 0L
     
     for (fileAnalysis <- sortedFiles) {
       val filename = fileAnalysis.filename
-      var addedToBatch = false
+      val fileMaxDistinct = fileAnalysis.maxDistinctCount
       
-      // Try to add to an existing batch without exceeding largeIndexLimit
-      for (i <- batches.indices if !addedToBatch) {
-        val currentBatch = batches(i)
-        
-        // Calculate what the new totals would be if we add this file
-        val wouldExceedLimit = allStorageColumns.exists { colName =>
-          val currentBatchTotal = fileAnalyses
-            .filter(fa => currentBatch.contains(fa.filename))
-            .map(_.distinctCounts.getOrElse(colName, 0L))
-            .sum
-          val newTotal = currentBatchTotal + fileAnalysis.distinctCounts.getOrElse(colName, 0L)
-          newTotal >= largeIndexLimit
-        }
-        
-        if (!wouldExceedLimit) {
-          batches(i) = currentBatch + filename
-          addedToBatch = true
+      // Check if adding this file would exceed the limit
+      if (currentBatchTotal + fileMaxDistinct >= largeIndexLimit) {
+        // Start a new batch if current batch is not empty
+        if (currentBatch.nonEmpty) {
+          batches += currentBatch.toSet
+          currentBatch = scala.collection.mutable.Set[String]()
+          currentBatchTotal = 0L
         }
       }
       
-      // If couldn't add to existing batch, create new one
-      if (!addedToBatch) {
-        batches += Set(filename)
-      }
+      // Add file to current batch
+      currentBatch += filename
+      currentBatchTotal += fileMaxDistinct
+    }
+    
+    // Add the final batch if it's not empty
+    if (currentBatch.nonEmpty) {
+      batches += currentBatch.toSet
     }
     
     // Add individual large files as single-file batches
