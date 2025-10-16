@@ -35,7 +35,7 @@ Additional format-specific options can be provided via `readOptions` when creati
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne</artifactId>
-    <version>0.0.1-alpha-24</version>
+    <version>0.0.1-alpha-25</version>
 </dependency>
 ```
 

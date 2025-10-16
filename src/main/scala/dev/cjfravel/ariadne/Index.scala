@@ -147,21 +147,48 @@ case class Index private (
     val unindexed = unindexedFiles
     if (unindexed.nonEmpty) {
       logger.warn(s"Updating index for ${unindexed.size} files")
-
-      // Read base data
-      val baseDf = createBaseDataFrame(unindexed)
-      val withComputedIndexes = applyComputedIndexes(baseDf)
-      val withFilename =
-        withComputedIndexes.withColumn("filename", input_file_name)
-
-      // Build indexes using the extracted methods
-      val regularIndexesDf = buildRegularIndexes(withFilename)
-      val finalDf = buildExplodedFieldIndexes(withFilename, regularIndexesDf)
-
-      // Handle large indexes and merge to Delta
-      handleLargeIndexes(finalDf)
-      mergeToDelta(finalDf)
+      updateBatched(unindexed)
     }
+  }
+
+  /** Updates the index using intelligent batching based on pre-flight analysis.
+    *
+    * @param files Set of files to process
+    */
+  private def updateBatched(files: Set[String]): Unit = {
+    logger.warn(s"Using intelligent batched update for ${files.size} files")
+    
+    // Perform pre-flight analysis to determine optimal batching
+    val fileAnalyses = analyzeFiles(files)
+    val batches = createOptimalBatches(fileAnalyses)
+    
+    logger.warn(s"Processing ${batches.size} batches")
+    
+    batches.zipWithIndex.foreach { case (batch, index) =>
+      logger.warn(s"Processing batch ${index + 1}/${batches.size} with ${batch.size} files")
+      updateSingleBatch(batch)
+    }
+    
+    logger.warn(s"Completed batched update of ${files.size} files in ${batches.size} batches")
+  }
+
+  /** Updates the index with a single batch of files (original update logic).
+    *
+    * @param files Set of files to process in this batch
+    */
+  private def updateSingleBatch(files: Set[String]): Unit = {
+    // Read base data
+    val baseDf = createBaseDataFrame(files)
+    val withComputedIndexes = applyComputedIndexes(baseDf)
+    val withFilename = withComputedIndexes.withColumn("filename", input_file_name)
+
+    // Build indexes using the extracted methods
+    val regularIndexesDf = buildRegularIndexes(withFilename)
+    val finalDf = buildExplodedFieldIndexes(withFilename, regularIndexesDf)
+
+    // Handle large indexes and merge to Delta
+    handleLargeIndexes(finalDf)
+    mergeToDelta(finalDf)
   }
 }
 
