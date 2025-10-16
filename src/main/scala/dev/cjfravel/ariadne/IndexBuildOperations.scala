@@ -28,6 +28,127 @@ trait IndexBuildOperations extends IndexFileOperations {
       metadata.computed_indexes.keySet().asScala ++
       metadata.exploded_field_indexes.asScala.map(_.array_column).toSet
 
+  /** Case class to hold file analysis results for batching decisions.
+    *
+    * @param filename The name of the file
+    * @param distinctCounts Map of column name to distinct value count for that file
+    * @param maxDistinctCount Maximum distinct count across all indexed columns
+    */
+  case class FileAnalysis(
+    filename: String,
+    distinctCounts: Map[String, Long],
+    maxDistinctCount: Long
+  )
+
+  /** Performs pre-flight analysis on unindexed files to determine optimal batching strategy.
+    *
+    * @param files Set of file names to analyze
+    * @return Sequence of FileAnalysis objects with distinct count information
+    */
+  protected def analyzeFiles(files: Set[String]): Seq[FileAnalysis] = {
+    if (files.isEmpty) return Seq.empty
+    
+    logger.warn(s"Performing pre-flight analysis on ${files.size} files")
+    
+    val allStorageColumns = storageColumns
+    if (allStorageColumns.isEmpty) {
+      return files.map(f => FileAnalysis(f, Map.empty, 0L)).toSeq
+    }
+    
+    // Read files with just indexed columns + filename
+    val baseDf = createBaseDataFrame(files)
+    val withComputedIndexes = applyComputedIndexes(baseDf)
+    val withFilename = withComputedIndexes.withColumn("filename", input_file_name())
+    
+    // For each file, count distinct values per indexed column
+    val analysisColumns = allStorageColumns.toSeq
+    val distinctCountExprs = analysisColumns.map { colName =>
+      countDistinct(col(colName)).alias(s"${colName}_distinct")
+    }
+    
+    val fileAnalysisDf = withFilename
+      .groupBy("filename")
+      .agg(distinctCountExprs.head, distinctCountExprs.tail: _*)
+    
+    val analysisResults = fileAnalysisDf.collect()
+    
+    analysisResults.map { row =>
+      val filename = row.getAs[String]("filename")
+      val distinctCounts = analysisColumns.map { colName =>
+        colName -> row.getAs[Long](s"${colName}_distinct")
+      }.toMap
+      val maxCount = if (distinctCounts.nonEmpty) distinctCounts.values.max else 0L
+      
+      FileAnalysis(filename, distinctCounts, maxCount)
+    }.toSeq
+  }
+
+  /** Groups files into batches based on their distinct value counts to stay under largeIndexLimit.
+    *
+    * @param fileAnalyses Sequence of FileAnalysis objects
+    * @return Sequence of file batches, where each batch is a set of filenames
+    */
+  protected def createOptimalBatches(fileAnalyses: Seq[FileAnalysis]): Seq[Set[String]] = {
+    if (fileAnalyses.isEmpty) return Seq.empty
+    
+    val allStorageColumns = storageColumns
+    if (allStorageColumns.isEmpty) {
+      return Seq(fileAnalyses.map(_.filename).toSet)
+    }
+    
+    logger.warn(s"Creating optimal batches for ${fileAnalyses.size} files with largeIndexLimit=$largeIndexLimit")
+    
+    // Separate files that individually exceed the limit (will be processed individually)
+    val (largeFiles, regularFiles) = fileAnalyses.partition(_.maxDistinctCount >= largeIndexLimit)
+    
+    if (largeFiles.nonEmpty) {
+      logger.warn(s"Found ${largeFiles.size} files that individually exceed largeIndexLimit and will be processed separately")
+    }
+    
+    val batches = scala.collection.mutable.ListBuffer[Set[String]]()
+    
+    // Sort files by maxDistinctCount (largest first for better bin-packing)
+    val sortedFiles = regularFiles.sortBy(-_.maxDistinctCount)
+    
+    for (fileAnalysis <- sortedFiles) {
+      val filename = fileAnalysis.filename
+      var addedToBatch = false
+      
+      // Try to add to an existing batch without exceeding largeIndexLimit
+      for (i <- batches.indices if !addedToBatch) {
+        val currentBatch = batches(i)
+        
+        // Calculate what the new totals would be if we add this file
+        val wouldExceedLimit = allStorageColumns.exists { colName =>
+          val currentBatchTotal = fileAnalyses
+            .filter(fa => currentBatch.contains(fa.filename))
+            .map(_.distinctCounts.getOrElse(colName, 0L))
+            .sum
+          val newTotal = currentBatchTotal + fileAnalysis.distinctCounts.getOrElse(colName, 0L)
+          newTotal >= largeIndexLimit
+        }
+        
+        if (!wouldExceedLimit) {
+          batches(i) = currentBatch + filename
+          addedToBatch = true
+        }
+      }
+      
+      // If couldn't add to existing batch, create new one
+      if (!addedToBatch) {
+        batches += Set(filename)
+      }
+    }
+    
+    // Add individual large files as single-file batches
+    val largeBatches = largeFiles.map(fa => Set(fa.filename))
+    
+    val allBatches = batches.toSeq ++ largeBatches
+    logger.warn(s"Created ${allBatches.size} batches: ${batches.size} regular batches + ${largeBatches.size} large file batches")
+    
+    allBatches
+  }
+
   /** Builds regular indexes DataFrame from the base data.
     *
     * @param df The base DataFrame with filename column
