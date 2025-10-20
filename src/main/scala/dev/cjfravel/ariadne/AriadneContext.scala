@@ -35,6 +35,16 @@ trait AriadneContextUser {
     limit
   }
 
+  /** Threshold for using broadcast join filtering instead of isin() predicates.
+    * When the number of distinct values exceeds this threshold, we use broadcast joins.
+    * Reads from spark.ariadne.broadcastJoinThreshold configuration (default: 10000).
+    */
+  lazy val broadcastJoinThreshold: Long = {
+    val threshold = spark.conf.get("spark.ariadne.broadcastJoinThreshold", "10000").toLong
+    logger.warn(s"broadcastJoinThreshold initialized: $threshold")
+    threshold
+  }
+
   /** Hadoop FileSystem instance associated with the storage path. */
   lazy val fs: FileSystem = {
     val filesystem = FileSystem.get(
