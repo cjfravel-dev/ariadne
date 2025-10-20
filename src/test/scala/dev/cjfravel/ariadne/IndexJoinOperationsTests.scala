@@ -300,4 +300,30 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
     count1 should equal(count2)
     count1 should be > 0L
   }
+
+  test("should use broadcast join when threshold is exceeded") {
+    // Set a very low broadcast join threshold to trigger broadcast joins
+    spark.conf.set("spark.ariadne.broadcastJoinThreshold", "5")
+    
+    val index = Index("join_broadcast_test", indexSchema, "csv", Map("header" -> "true"))
+    
+    val csvPath = resourcePath("/data/table1_part0.csv")
+    index.addFile(csvPath)
+    index.addIndex("Id")
+    index.update
+    
+    // Create query data that exceeds the broadcast threshold (5)
+    val largeQueryData = spark.createDataFrame(
+      spark.sparkContext.parallelize((1 to 10).map(i => Row(i, i))),
+      querySchema
+    )
+    
+    // This should trigger broadcast join filtering due to having more than 5 distinct values
+    val result = largeQueryData.join(index, Seq("Id"), "inner")
+    result.count() should be > 0L
+    result.columns should contain allOf("Id", "Version", "Value")
+    
+    // Reset the configuration
+    spark.conf.unset("spark.ariadne.broadcastJoinThreshold")
+  }
 }

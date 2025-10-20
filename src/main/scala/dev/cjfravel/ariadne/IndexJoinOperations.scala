@@ -30,23 +30,89 @@ trait IndexJoinOperations extends IndexBuildOperations {
     }.toMap
   }
 
+  /** Threshold for using broadcast join filtering instead of isin() predicates.
+    * When the number of distinct values exceeds this threshold, we use a broadcast join approach.
+    * Uses the broadcastJoinThreshold from AriadneContextUser.
+    */
+  protected def largeFilterThreshold: Long = broadcastJoinThreshold
+
   /** Creates filter conditions for DataFrame joins based on index values.
+    * For large value sets, uses a join-based approach instead of isin() predicates.
     *
+    * @param readIndex The DataFrame to filter
     * @param joinColumnsToUse The columns to create filters for
     * @param columnMappings Mapping from join columns to storage columns
     * @param indexes The index values to filter on
-    * @return Sequence of filter conditions
+    * @return Filtered DataFrame
     */
-  protected def createJoinFilters(
+  protected def applyJoinFilters(
+    readIndex: DataFrame,
     joinColumnsToUse: Seq[String],
     columnMappings: Map[String, String],
     indexes: Map[String, Array[Any]]
-  ): Seq[Column] = {
-    joinColumnsToUse.collect {
-      case joinColumn if indexes.get(columnMappings(joinColumn)).exists(_.nonEmpty) =>
+  ): DataFrame = {
+    val filtersToApply = joinColumnsToUse.filter { joinColumn =>
+      indexes.get(columnMappings(joinColumn)).exists(_.nonEmpty)
+    }
+    
+    if (filtersToApply.isEmpty) {
+      return readIndex
+    }
+    
+    // Check if any filter has a large number of values
+    val hasLargeFilter = filtersToApply.exists { joinColumn =>
+      val storageColumn = columnMappings(joinColumn)
+      indexes(storageColumn).length > largeFilterThreshold
+    }
+    
+    if (hasLargeFilter) {
+      // Use broadcast join filtering for large value sets
+      applyBroadcastJoinFiltering(readIndex, filtersToApply, columnMappings, indexes)
+    } else {
+      // Use traditional isin() filters for small value sets
+      val filters = filtersToApply.map { joinColumn =>
         val storageColumn = columnMappings(joinColumn)
         val values = indexes(storageColumn)
         col(joinColumn).isin(values: _*)
+      }
+      readIndex.filter(filters.reduce(_ && _))
+    }
+  }
+  
+  /** Applies filtering using broadcast join approach for large value sets.
+    *
+    * @param readIndex The DataFrame to filter
+    * @param joinColumnsToUse The columns to filter on
+    * @param columnMappings Mapping from join columns to storage columns
+    * @param indexes The index values to filter on
+    * @return Filtered DataFrame using broadcast join approach
+    */
+  protected def applyBroadcastJoinFiltering(
+    readIndex: DataFrame,
+    joinColumnsToUse: Seq[String],
+    columnMappings: Map[String, String],
+    indexes: Map[String, Array[Any]]
+  ): DataFrame = {
+    import spark.implicits._
+    import org.apache.spark.sql.types._
+    import org.apache.spark.sql.Row
+    import org.apache.spark.sql.functions.broadcast
+    
+    logger.warn(s"Using broadcast join filtering for large value sets with ${joinColumnsToUse.size} columns")
+    
+    // Apply broadcast joins for each filter column
+    joinColumnsToUse.foldLeft(readIndex) { (accumDf, joinColumn) =>
+      val storageColumn = columnMappings(joinColumn)
+      val values = indexes(storageColumn)
+      logger.warn(s"Creating broadcast filter DataFrame for column $joinColumn with ${values.length} values")
+      
+      // Create DataFrame with the filter values
+      val schema = StructType(Array(StructField(joinColumn, StringType, true)))
+      val rows = values.map(v => Row(v.toString))
+      val filterDf = spark.createDataFrame(spark.sparkContext.parallelize(rows), schema)
+      
+      // Use broadcast semi join to filter - more efficient for large sets by avoiding shuffle
+      accumDf.join(broadcast(filterDf), Seq(joinColumn), "leftsemi")
     }
   }
 
@@ -88,7 +154,7 @@ trait IndexJoinOperations extends IndexBuildOperations {
     val columnMappings = mapJoinColumnsToStorage(usingColumns)
 
     val storageColumnsToUse = columnMappings.values.toSet.intersect(this.storageColumns)
-    logger.trace(s"Found indexes for ${storageColumnsToUse.mkString(",")}")
+    logger.warn(s"Found indexes for ${storageColumnsToUse.mkString(",")}")
 
     // Get values from the user DataFrame using join column names
     val joinColumnsToUse = usingColumns.filter(col =>
@@ -102,17 +168,11 @@ trait IndexJoinOperations extends IndexBuildOperations {
     }.toMap
 
     val files = locateFiles(indexes)
-    logger.trace(s"Found ${files.size} files in index")
+    logger.warn(s"Found ${files.size} files in index")
     val readIndex = readFiles(files)
 
-    // Create filters using the extracted helper method
-    val filters = createJoinFilters(joinColumnsToUse, columnMappings, indexes)
-
-    val filteredReadIndex = if (filters.nonEmpty) {
-      readIndex.filter(filters.reduce(_ && _))
-    } else {
-      readIndex
-    }
+    // Apply filters using the new approach that handles large value sets efficiently
+    val filteredReadIndex = applyJoinFilters(readIndex, joinColumnsToUse, columnMappings, indexes)
 
     val cacheKey = (files, indexes.mapValues(_.toSeq))
     joinCache.getOrElseUpdate(cacheKey, filteredReadIndex.cache)
