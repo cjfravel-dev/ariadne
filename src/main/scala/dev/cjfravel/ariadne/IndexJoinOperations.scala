@@ -104,15 +104,30 @@ trait IndexJoinOperations extends IndexBuildOperations {
     joinColumnsToUse.foldLeft(readIndex) { (accumDf, joinColumn) =>
       val storageColumn = columnMappings(joinColumn)
       val values = indexes(storageColumn)
-      logger.warn(s"Creating broadcast filter DataFrame for column $joinColumn with ${values.length} values")
       
-      // Create DataFrame with the filter values
-      val schema = StructType(Array(StructField(joinColumn, StringType, true)))
-      val rows = values.map(v => Row(v.toString))
-      val filterDf = spark.createDataFrame(spark.sparkContext.parallelize(rows), schema)
+      // Filter out null values to prevent NullPointerException
+      val nonNullValues = values.filter(_ != null)
+      logger.warn(s"Creating broadcast filter DataFrame for column $joinColumn with ${nonNullValues.length} non-null values (filtered from ${values.length} total)")
       
-      // Use broadcast semi join to filter - more efficient for large sets by avoiding shuffle
-      accumDf.join(broadcast(filterDf), Seq(joinColumn), "leftsemi")
+      if (nonNullValues.isEmpty) {
+        // If all values are null, return empty result since null values won't match in joins
+        logger.warn(s"All values for column $joinColumn are null, returning empty DataFrame")
+        accumDf.filter(lit(false))
+      } else {
+        // Get the actual data type from the DataFrame schema
+        val columnDataType = accumDf.schema.fields.find(_.name == joinColumn) match {
+          case Some(field) => field.dataType
+          case None => StringType // fallback to StringType
+        }
+        
+        // Create DataFrame with the filter values using proper data type
+        val schema = StructType(Array(StructField(joinColumn, columnDataType, nullable = false)))
+        val rows = nonNullValues.map(v => Row(v))
+        val filterDf = spark.createDataFrame(spark.sparkContext.parallelize(rows), schema)
+        
+        // Use broadcast semi join to filter - more efficient for large sets by avoiding shuffle
+        accumDf.join(broadcast(filterDf), Seq(joinColumn), "leftsemi")
+      }
     }
   }
 
