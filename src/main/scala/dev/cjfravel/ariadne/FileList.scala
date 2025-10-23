@@ -22,8 +22,6 @@ import org.apache.spark.sql.Dataset
 import java.time.Instant
 import java.sql.Timestamp
 
-case class FileEntry(filename: String, addedAt: java.sql.Timestamp)
-
 case class FileList private (
     name: String
 )(implicit val spark: SparkSession) extends AriadneContextUser {
@@ -31,25 +29,28 @@ case class FileList private (
 
   override lazy val storagePath: Path = new Path(FileList.storagePath, name)
 
-  private var _files: Dataset[FileEntry] = _
+  private var _files: DataFrame = _
 
-  private def files(spark: SparkSession): Dataset[FileEntry] = {
+  private def files(spark: SparkSession): DataFrame = {
     if (_files == null) {
-      import spark.implicits._
       _files = delta(storagePath) match {
-        case Some(delta) => delta.toDF.as[FileEntry]
-        case None        => spark.emptyDataset[FileEntry]
+        case Some(delta) => delta.toDF
+        case None        => spark.createDataFrame(spark.sparkContext.emptyRDD[Row],
+                              StructType(Seq(
+                                StructField("filename", StringType, nullable = false),
+                                StructField("addedAt", TimestampType, nullable = false)
+                              )))
       }
     }
 
     _files
   }
 
-  def files: Dataset[FileEntry] = files(spark)
+  def files: DataFrame = files(spark)
 
   private def addFile(spark: SparkSession, fileNames: String*): Unit = {
     import spark.implicits._
-    val existing = files.map(_.filename).collect().toSet
+    val existing = files.select("filename").as[String].collect().toSet
     val toAdd = fileNames.toSet.diff(existing)
     if (toAdd.isEmpty) {
       logger.warn("All files were already added")
@@ -57,10 +58,14 @@ case class FileList private (
     }
 
     val ts = Timestamp.from(Instant.now())
-    val newFiles =
-      toAdd.toList
-        .map { FileEntry(_, ts) }
-        .toDS()
+    val newFilesData = toAdd.toList.map(filename => Row(filename, ts))
+    val newFiles = spark.createDataFrame(
+      spark.sparkContext.parallelize(newFilesData),
+      StructType(Seq(
+        StructField("filename", StringType, nullable = false),
+        StructField("addedAt", TimestampType, nullable = false)
+      ))
+    )
 
     _files = _files.union(newFiles)
     write
@@ -77,7 +82,7 @@ case class FileList private (
       case Some(delta) =>
         delta
           .as("target")
-          .merge(files.toDF.as("source"), "target.filename = source.filename")
+          .merge(files.as("source"), "target.filename = source.filename")
           .whenMatched()
           .updateExpr(Map("addedAt" -> "target.addedAt"))
           .whenNotMatched()
