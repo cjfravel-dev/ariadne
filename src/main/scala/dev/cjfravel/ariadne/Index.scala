@@ -53,11 +53,11 @@ case class Index private (
     val invalidColumns = columns.filterNot { colName =>
       SchemaHelper.fieldExists(storedSchema, colName)
     }
-    
+
     if (invalidColumns.nonEmpty) {
       throw new ColumnNotFoundException(s"Columns not found in schema: ${invalidColumns.mkString(", ")}")
     }
-    
+
     selectedColumns = Some(columns)
     this
   }
@@ -89,7 +89,7 @@ case class Index private (
           .as[String]
           .collect()
           .toSet
-      case None => files.map(_.filename).collect().toSet
+      case None => files.select("filename").as[String].collect().toSet
     }
   }
 
@@ -157,18 +157,18 @@ case class Index private (
     */
   private def updateBatched(files: Set[String]): Unit = {
     logger.warn(s"Using intelligent batched update for ${files.size} files")
-    
+
     // Perform pre-flight analysis to determine optimal batching
     val fileAnalyses = analyzeFiles(files)
     val batches = createOptimalBatches(fileAnalyses)
-    
+
     logger.warn(s"Processing ${batches.size} batches")
-    
+
     batches.zipWithIndex.foreach { case (batch, index) =>
       logger.warn(s"Processing batch ${index + 1}/${batches.size} with ${batch.size} files")
       updateSingleBatch(batch)
     }
-    
+
     logger.warn(s"Completed batched update of ${files.size} files in ${batches.size} batches")
   }
 
