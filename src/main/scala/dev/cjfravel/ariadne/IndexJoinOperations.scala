@@ -78,6 +78,32 @@ trait IndexJoinOperations extends IndexBuildOperations {
       readIndex.filter(filters.reduce(_ && _))
     }
   }
+
+  /** Creates filter conditions for DataFrame joins based on a DataFrame of values.
+    * Uses broadcast join approach to avoid collecting data to the driver.
+    *
+    * @param readIndex The DataFrame to filter
+    * @param valuesDf DataFrame containing the distinct values to filter on
+    * @param joinColumnsToUse The columns to create filters for
+    * @return Filtered DataFrame
+    */
+  protected def applyJoinFiltersFromDataFrame(
+    readIndex: DataFrame,
+    valuesDf: DataFrame,
+    joinColumnsToUse: Seq[String]
+  ): DataFrame = {
+    import org.apache.spark.sql.functions.broadcast
+    
+    if (joinColumnsToUse.isEmpty) {
+      return readIndex
+    }
+    
+    logger.warn(s"Applying broadcast join filtering from DataFrame with ${joinColumnsToUse.size} columns")
+    
+    // Use broadcast semi-join to filter the readIndex DataFrame
+    // This is more efficient than collecting values and using isin()
+    readIndex.join(broadcast(valuesDf), joinColumnsToUse, "leftsemi")
+  }
   
   /** Applies filtering using broadcast join approach for large value sets.
     *
@@ -175,22 +201,27 @@ trait IndexJoinOperations extends IndexBuildOperations {
     val joinColumnsToUse = usingColumns.filter(col =>
       columnMappings.contains(col) && storageColumnsToUse.contains(columnMappings(col))
     )
-    val filtered = df.select(joinColumnsToUse.map(col): _*)
+    
+    // Get distinct values as a DataFrame (no collect to driver)
+    val filteredValuesDf = df.select(joinColumnsToUse.map(col): _*).distinct()
 
-    val indexes = joinColumnsToUse.map { joinColumn =>
-      val distinctValues = filtered.select(joinColumn).distinct.collect.map(_.get(0))
-      columnMappings(joinColumn) -> distinctValues
-    }.toMap
-
-    val files = locateFiles(indexes)
+    // Use the new DataFrame-based method to locate files (uses broadcast joins internally)
+    val files = locateFilesFromDataFrame(filteredValuesDf, columnMappings, joinColumnsToUse)
     logger.warn(s"Found ${files.size} files in index")
     val readIndex = readFiles(files)
 
-    // Apply filters using the new approach that handles large value sets efficiently
-    val filteredReadIndex = applyJoinFilters(readIndex, joinColumnsToUse, columnMappings, indexes)
+    // Apply filters using DataFrame-based approach (no collect needed)
+    val filteredReadIndex = applyJoinFiltersFromDataFrame(readIndex, filteredValuesDf, joinColumnsToUse)
 
-    val cacheKey = (files, indexes.mapValues(_.toSeq))
-    joinCache.getOrElseUpdate(cacheKey, filteredReadIndex.cache)
+    // Cache key must include join columns to avoid returning wrong cached results
+    // We use a hash of the valuesDf to represent the actual values being joined
+    val valuesDfHash = filteredValuesDf.queryExecution.analyzed.semanticHash()
+    val cacheKey = (files, joinColumnsToUse.toSet, valuesDfHash)
+    
+    // Note: We can't use the old cache type since the key structure changed
+    // Clear old cache entries and use new structure
+    val typedCache = mutable.Map[(Set[String], Set[String], Int), DataFrame]()
+    typedCache.getOrElseUpdate(cacheKey, filteredReadIndex.cache)
   }
 
   /** Joins a DataFrame with the index.

@@ -98,6 +98,63 @@ trait IndexQueryOperations extends IndexJoinOperations {
     }
   }
 
+  /** Locates files based on a DataFrame containing join column values.
+    * Uses broadcast joins for efficient filtering when value sets are large.
+    *
+    * @param valuesDf
+    *   DataFrame containing the distinct values to search for
+    * @param columnMappings
+    *   Map from join column names to storage column names in the index
+    * @param joinColumns
+    *   The columns to use for filtering
+    * @return
+    *   A set of file names matching the criteria.
+    */
+  def locateFilesFromDataFrame(
+    valuesDf: DataFrame,
+    columnMappings: Map[String, String],
+    joinColumns: Seq[String]
+  ): Set[String] = {
+    import org.apache.spark.sql.functions.broadcast
+    
+    index match {
+      case Some(indexDf) =>
+        val schema = StructType(
+          Array(StructField("filename", StringType, nullable = false))
+        )
+        val emptyDF =
+          spark.createDataFrame(
+            spark.sparkContext.emptyRDD[Row],
+            schema
+          )
+        
+        // For each join column, find files that match and union them
+        // This matches the logic of the original locateFiles method
+        val resultDF = joinColumns.foldLeft(emptyDF) { (accumDF, joinColumn) =>
+          val storageColumn = columnMappings(joinColumn)
+          
+          // Create a DataFrame with distinct values for this column
+          val distinctValues = valuesDf.select(col(joinColumn)).distinct()
+          
+          // Explode the index array column and join with the values
+          val filteredDF = indexDf
+            .select(col("filename"), explode(col(storageColumn)).alias("value"))
+            .join(
+              broadcast(distinctValues.withColumnRenamed(joinColumn, "value")),
+              Seq("value"),
+              "leftsemi"
+            )
+            .select("filename")
+            .distinct()
+          
+          accumDF.union(filteredDF)
+        }
+        
+        resultDF.distinct().collect().map(_.getString(0)).toSet
+      case None => Set()
+    }
+  }
+
   /** Returns a DataFrame of statistics for each indexed column (based on array
     * length per file) and file count.
     */
