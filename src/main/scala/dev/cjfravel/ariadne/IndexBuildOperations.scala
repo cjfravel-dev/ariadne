@@ -18,6 +18,9 @@ trait IndexBuildOperations extends IndexFileOperations {
   /** Hadoop path for the index delta table */
   protected def indexFilePath: Path = new Path(storagePath, "index")
 
+  /** Hadoop path for the staging delta table (used during batch processing) */
+  protected def stagingFilePath: Path = new Path(storagePath, "staging")
+
   /** Helper function to get the storage column names for internal use.
     *
     * @return
@@ -186,7 +189,7 @@ trait IndexBuildOperations extends IndexFileOperations {
     }
   }
 
-  /** Handles large indexes by storing them in consolidated delta tables per column.
+  /** Handles large indexes by appending directly to large_indexes/{column}.
     *
     * @param df The DataFrame to process for large indexes
     */
@@ -194,107 +197,14 @@ trait IndexBuildOperations extends IndexFileOperations {
     val allStorageColumns = storageColumns
     if (allStorageColumns.isEmpty) return
     
-    // First, migrate any existing old structure to new consolidated format
-    migrateLegacyLargeIndexes()
-    
-    val largeGroupedDf = allStorageColumns.foldLeft(df) {
-      case (accumDf, colName) =>
-        accumDf.withColumn(
-          colName,
-          when(size(col(colName)) < largeIndexLimit, null)
-            .otherwise(col(colName))
-        )
-    }
-    
-    // Process each column separately for consolidated storage
-    allStorageColumns.foreach { colName =>
-      val columnData = largeGroupedDf
-        .select("filename", colName)
-        .where(col(colName).isNotNull)
-        .withColumn(colName, explode(col(colName)))
-        .filter(col(colName).isNotNull)
-      
-      if (columnData.count() > 0) {
-        val consolidatedPath = new Path(largeIndexesFilePath, colName)
-        
-        // Use Delta merge for efficient upserts
-        delta(consolidatedPath) match {
-          case Some(deltaTable) =>
-            deltaTable
-              .as("target")
-              .merge(
-                columnData.as("source"),
-                s"target.filename = source.filename AND target.$colName = source.$colName"
-              )
-              .whenNotMatched()
-              .insertAll()
-              .execute()
-          case None =>
-            columnData.write
-              .format("delta")
-              .mode("overwrite")
-              .save(consolidatedPath.toString)
-        }
-      }
-    }
+    appendToLargeIndex(df)
   }
 
-  /** Migrates legacy large index structure to consolidated format.
-    * Converts from large_indexes/{column}/{file}/ to large_indexes/{column}/
-    */
-  private def migrateLegacyLargeIndexes(): Unit = {
-    if (!exists(largeIndexesFilePath)) return
-    
-    val columnDirs = fs.listStatus(largeIndexesFilePath)
-      .filter(_.isDirectory)
-      .map(_.getPath)
-    
-    columnDirs.foreach { columnDir =>
-      val columnName = columnDir.getName
-      val fileDirs = fs.listStatus(columnDir)
-        .filter(_.isDirectory)
-        .map(_.getPath)
-      
-      // If we find file subdirectories, this is legacy structure
-      if (fileDirs.nonEmpty) {
-        val tempPath = new Path(largeIndexesFilePath.getParent, s"tmp_large_indexes_${columnName}")
-        
-        // Union all legacy delta tables for this column
-        val unifiedData = fileDirs.foldLeft(Option.empty[DataFrame]) { (accumOpt, fileDir) =>
-          try {
-            val legacyData = spark.read.format("delta").load(fileDir.toString)
-            accumOpt match {
-              case Some(accum) => Some(accum.union(legacyData))
-              case None => Some(legacyData)
-            }
-          } catch {
-            case _: Exception => accumOpt // Skip corrupted tables
-          }
-        }
-        
-        unifiedData.foreach { data =>
-          // Write to temporary location first
-          data.write
-            .format("delta")
-            .mode("overwrite")
-            .save(tempPath.toString)
-          
-          // Remove old structure
-          delete(columnDir)
-          
-          // Move temp to final location
-          val finalPath = new Path(largeIndexesFilePath, columnName)
-          fs.rename(tempPath, finalPath)
-        }
-      }
-    }
-  }
-
-  /** Merges the processed DataFrame to Delta table storage.
+  /** Appends the processed DataFrame to the staging Delta table.
     *
-    * @param df The DataFrame to merge/write to Delta
+    * @param df The DataFrame to append to staging
     */
-  protected def mergeToDelta(df: DataFrame): Unit = {
+  protected def appendToStaging(df: DataFrame): Unit = {
     val allStorageColumns = storageColumns
     
     // Create small grouped DataFrame (filter out large indexes)
@@ -311,14 +221,74 @@ trait IndexBuildOperations extends IndexFileOperations {
       df
     }
 
-    // Write to Delta
+    smallGroupedDf.write
+      .format("delta")
+      .mode("append")
+      .save(stagingFilePath.toString)
+  }
+
+  /** Appends large index data directly to large_indexes/{column} Delta tables.
+    *
+    * @param df The DataFrame with large index data to append
+    */
+  protected def appendToLargeIndex(df: DataFrame): Unit = {
+    val allStorageColumns = storageColumns
+    if (allStorageColumns.isEmpty) return
+    
+    val largeGroupedDf = allStorageColumns.foldLeft(df) {
+      case (accumDf, colName) =>
+        accumDf.withColumn(
+          colName,
+          when(size(col(colName)) < largeIndexLimit, null)
+            .otherwise(col(colName))
+        )
+    }
+    
+    allStorageColumns.foreach { colName =>
+      val columnData = largeGroupedDf
+        .select("filename", colName)
+        .where(col(colName).isNotNull)
+        .withColumn(colName, explode(col(colName)))
+        .filter(col(colName).isNotNull)
+        .distinct()
+      
+      if (!columnData.isEmpty) {
+        val columnPath = new Path(largeIndexesFilePath, colName)
+        logger.warn(s"Appending large index data for column $colName to ${columnPath}")
+        columnData.write
+          .format("delta")
+          .mode("append")
+          .save(columnPath.toString)
+      }
+    }
+  }
+
+  /** Consolidates staged data into the main index table. */
+  protected def consolidateStaging(): Unit = {
+    logger.warn("Starting consolidation of staged data")
+    consolidateMainStaging()
+    
+    logger.warn("Consolidation complete")
+  }
+
+  /** Consolidates the main staging table into the main index. */
+  private def consolidateMainStaging(): Unit = {
+    if (!exists(stagingFilePath)) {
+      logger.warn("No staging data to consolidate for main index")
+      return
+    }
+    
+    val allStorageColumns = storageColumns
+    val stagingDf = spark.read.format("delta").load(stagingFilePath.toString)
+    
     if (allStorageColumns.nonEmpty) {
       delta(indexFilePath) match {
-        case Some(delta) =>
-          delta
+        case Some(deltaTable) =>
+          logger.warn(s"Merging staging data into main index at ${indexFilePath}")
+          deltaTable
             .as("target")
             .merge(
-              smallGroupedDf.as("source"),
+              stagingDf.as("source"),
               "target.filename = source.filename"
             )
             .whenMatched()
@@ -329,19 +299,22 @@ trait IndexBuildOperations extends IndexFileOperations {
             .insertAll()
             .execute()
         case None =>
-          smallGroupedDf.write
+          logger.warn(s"Creating new main index from staging at ${indexFilePath}")
+          stagingDf.write
             .format("delta")
             .mode("overwrite")
             .save(indexFilePath.toString)
       }
     } else {
-      // If no storage columns, just ensure the filename tracking works
-      smallGroupedDf.write
+      stagingDf.write
         .format("delta")
         .mode("overwrite")
         .save(indexFilePath.toString)
     }
+    
+    // Delete staging after successful consolidation
+    delete(stagingFilePath)
+    logger.warn("Deleted main staging table after consolidation")
   }
 
-  
 }

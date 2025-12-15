@@ -45,6 +45,17 @@ trait AriadneContextUser {
     threshold
   }
 
+  /** Number of batches to process before consolidating staged data into the main index.
+    * This provides fault tolerance for large index builds - if a job fails, work is preserved
+    * up to the last consolidation point. Reads from spark.ariadne.stagingConsolidationThreshold
+    * configuration (default: 50).
+    */
+  lazy val stagingConsolidationThreshold: Int = {
+    val threshold = spark.conf.get("spark.ariadne.stagingConsolidationThreshold", "50").toInt
+    logger.warn(s"stagingConsolidationThreshold initialized: $threshold")
+    threshold
+  }
+
   /** Hadoop FileSystem instance associated with the storage path. */
   lazy val fs: FileSystem = {
     val filesystem = FileSystem.get(

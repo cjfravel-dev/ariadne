@@ -239,9 +239,41 @@ large_indexes/
 - **Improved File Management**: Delta can optimize file sizes and compaction more effectively
 - **Enhanced Data Skipping**: Z-ordering and data skipping work better on consolidated data
 - **Simplified Queries**: Direct table scans instead of complex union operations
-- **Automatic Migration**: Legacy large index structures are automatically migrated on first update
 
-The system automatically detects and migrates legacy large index structures (multiple small tables per file) to the new consolidated format during index updates, ensuring backward compatibility.
+### Staged Append + Consolidation Strategy
+When processing large numbers of files, the system uses a staged append strategy to improve performance by reducing the number of expensive merge operations.
+
+**Storage Structure:**
+```
+index_name/
+├── index/            (Main consolidated index table)
+├── staging/          (Temporary staging table during batch processing)
+└── large_indexes/    (Large index tables - direct append, no staging)
+```
+
+**Main Index Flow (uses staging):**
+1. **Batch Processing**: Each batch appends to `staging/`
+2. **Periodic Consolidation**: Every N batches (configurable via `spark.ariadne.stagingConsolidationThreshold`, default: 50), staging is merged to main index
+3. **Final Consolidation**: At the end of `update()`, any remaining staged data is consolidated and staging is deleted
+
+**Large Index Flow (no staging):**
+- Large indexes write directly to `large_indexes/{column}` via append
+- Data is deduplicated within each batch before writing
+
+**Configuration:**
+- `spark.ariadne.stagingConsolidationThreshold`: Number of batches before consolidation (default: 50)
+
+**Benefits:**
+- **Reduced Merge Operations**: Batches are appended quickly, with merges only at consolidation points
+- **Fault Tolerance**: Periodic consolidation preserves work in case of job failure
+- **Memory Efficient**: Avoids accumulating large in-memory structures
+
+**Performance Comparison:**
+| Batches | Without Staging | With Staging |
+|---------|-----------------|--------------|
+| 50      | ~1,275 merges   | 1 merge      |
+| 100     | ~5,050 merges   | 2 merges     |
+| 180     | ~16,290 merges  | 4 merges     |
 
 ### Delta Lake Integration
 All index data is stored using Delta Lake format, providing:
