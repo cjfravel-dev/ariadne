@@ -22,6 +22,7 @@ Additional format-specific options can be provided via `readOptions` when creati
 1. **Define an index** – Provide a name, schema, file format, and optional read options.
 2. **Specify indexed columns** – Choose the columns you want to index:
    - **Regular indexes** – Index standard columns directly (`addIndex("column_name")`)
+   - **Bloom filter indexes** – Space-efficient probabilistic indexes for high-cardinality columns (`addBloomIndex("column_name", fpr)`)
    - **Computed indexes** – Index derived values using SQL expressions (`addComputedIndex("alias", "expression")`)
    - **Exploded field indexes** – Index elements within array columns (`addExplodedFieldIndex("array_column", "field_path", "alias")`)
 3. **Add files** – Register files with the index.
@@ -35,7 +36,7 @@ Additional format-specific options can be provided via `readOptions` when creati
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne</artifactId>
-    <version>0.0.1-alpha-31</version>
+    <version>0.0.1-alpha-32</version>
 </dependency>
 ```
 
@@ -89,3 +90,26 @@ jsonIndex.update
 val queryDf = // spark.read ....
 val result = queryDf.join(jsonIndex, Seq("user_id"), "left_semi")
 ```
+
+### Bloom Filter Index Example
+
+Bloom filters are ideal for high-cardinality columns (like user IDs) where storing all distinct values would be expensive:
+
+```scala
+// Create an index with bloom filter for high-cardinality ID columns
+val index = Index("events", eventSchema, "parquet")
+index.addBloomIndex("user_id", fpr = 0.01)  // 1% false positive rate
+index.addBloomIndex("session_id", fpr = 0.001)  // 0.1% FPR for more accuracy
+index.addFile(eventFiles: _*)
+index.update
+
+// Query works the same as regular indexes
+val userQueryDf = // spark.read ....
+val result = index.join(userQueryDf, Seq("user_id"), "inner")
+```
+
+**Key points about bloom filter indexes:**
+- **Space efficient**: ~10 bits per element at 1% FPR vs. storing actual values
+- **Probabilistic**: May return files that don't contain the value (false positives), but never misses files that do contain it (no false negatives)
+- **Mutually exclusive**: A column can have either a regular index OR a bloom index, not both
+- **Best for**: High-cardinality columns across large datasets where exact value storage would be prohibitive

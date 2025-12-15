@@ -4,6 +4,21 @@ import com.google.gson.annotations.SerializedName
 import java.util
 import com.google.gson.Gson
 
+/** Configuration for a bloom filter index.
+  *
+  * Bloom filters are probabilistic data structures that provide:
+  * - Guaranteed NO false negatives (if filter says "no", value definitely absent)
+  * - Configurable false positive rate (if filter says "yes", value MIGHT be present)
+  * - Space-efficient storage (approximately 10 bits per element at 1% FPR)
+  *
+  * @param column The column name to create a bloom filter for
+  * @param fpr False positive rate (0.0 to 1.0, default 0.01 = 1%)
+  */
+case class BloomIndexConfig(
+    var column: String,
+    var fpr: Double = 0.01
+)
+
 /** Represents a mapping for exploded field index configuration.
   *
   * This case class defines how to extract and index fields from array elements.
@@ -38,6 +53,7 @@ case class ExplodedFieldMapping(
   * @param indexes List of regular column names that are indexed
   * @param computed_indexes Map of computed index aliases to their SQL expressions
   * @param exploded_field_indexes List of exploded field mappings for nested data structures
+  * @param bloom_indexes List of bloom filter index configurations for probabilistic indexing
   * @param read_options Map of read options for format-specific configuration (e.g., "multiLine" -> "true" for JSON)
   *
   * @note The field names use underscore notation to match JSON serialization format
@@ -51,6 +67,7 @@ case class IndexMetadata(
       String
     ],
     var exploded_field_indexes: util.List[ExplodedFieldMapping],
+    var bloom_indexes: util.List[BloomIndexConfig],
     var read_options: util.Map[String, String]
 )
 
@@ -93,6 +110,10 @@ object IndexMetadata {
     // v3 -> v4
     if (indexMetadata.read_options == null) {
       indexMetadata.read_options = new util.HashMap[String, String]()
+    }
+    // v4 -> v5
+    if (indexMetadata.bloom_indexes == null) {
+      indexMetadata.bloom_indexes = new util.ArrayList[BloomIndexConfig]()
     }
     indexMetadata
   }

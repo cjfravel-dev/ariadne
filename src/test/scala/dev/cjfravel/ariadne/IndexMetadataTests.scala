@@ -106,4 +106,86 @@ class IndexMetadataTests extends AnyFunSuite {
     assert(tagNameIndex.field_path === "name")
     assert(tagNameIndex.as_column === "tag_name")
   }
+
+  test("v3 -> v4") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v3.json")
+    require(stream != null, "Resource not found: /index_metadata/v3.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 2)
+    assert(metadata.exploded_field_indexes.size() === 2)
+    assert(metadata.read_options.size() === 0)
+    assert(metadata.bloom_indexes.size() === 0)
+  }
+
+  test("v4") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v4.json")
+    require(stream != null, "Resource not found: /index_metadata/v4.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 2)
+    assert(metadata.exploded_field_indexes.size() === 2)
+    assert(metadata.read_options.size() === 2)
+    assert(metadata.read_options.get("header") === "true")
+    assert(metadata.read_options.get("multiLine") === "true")
+    assert(metadata.bloom_indexes.size() === 0)
+  }
+
+  test("v4 -> v5") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v4.json")
+    require(stream != null, "Resource not found: /index_metadata/v4.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 2)
+    assert(metadata.exploded_field_indexes.size() === 2)
+    assert(metadata.read_options.size() === 2)
+    // v4 -> v5 migration should add empty bloom_indexes
+    assert(metadata.bloom_indexes.size() === 0)
+  }
+
+  test("v5") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v5.json")
+    require(stream != null, "Resource not found: /index_metadata/v5.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 2)
+    assert(metadata.exploded_field_indexes.size() === 2)
+    assert(metadata.read_options.size() === 2)
+    assert(metadata.bloom_indexes.size() === 2)
+    
+    val bloomIndexes = metadata.bloom_indexes.asScala.toSeq
+    val transactionIdIndex = bloomIndexes.find(_.column == "transaction_id").get
+    assert(transactionIdIndex.column === "transaction_id")
+    assert(transactionIdIndex.fpr === 0.01)
+    
+    val sessionIdIndex = bloomIndexes.find(_.column == "session_id").get
+    assert(sessionIdIndex.column === "session_id")
+    assert(sessionIdIndex.fpr === 0.001)
+  }
+
+  test("v1 -> v5 full migration") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v1.json")
+    require(stream != null, "Resource not found: /index_metadata/v1.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 0)
+    assert(metadata.exploded_field_indexes.size() === 0)
+    assert(metadata.read_options.size() === 0)
+    assert(metadata.bloom_indexes.size() === 0)
+  }
 }

@@ -64,6 +64,8 @@ trait IndexQueryOperations extends IndexJoinOperations {
   }
 
   /** Locates files based on index values.
+    * Handles both regular indexes (using explode) and bloom filter indexes (using probabilistic matching).
+    *
     * @param indexes
     *   A map of index column names to their values.
     * @return
@@ -72,34 +74,80 @@ trait IndexQueryOperations extends IndexJoinOperations {
   def locateFiles(indexes: Map[String, Array[Any]]): Set[String] = {
     index match {
       case Some(df) =>
-        val schema = StructType(
-          Array(StructField("filename", StringType, nullable = false))
-        )
-        val emptyDF =
-          spark.createDataFrame(
-            spark.sparkContext.emptyRDD[Row],
-            schema
-          )
-
-        val resultDF = indexes.foldLeft(emptyDF) {
-          case (accumDF, (column, values)) =>
-            val filteredDF = df
-              .select("filename", column)
-              .withColumn("value", explode(col(column)))
-              .where(col("value").isin(values: _*))
-              .select("filename")
-              .distinct
-
-            accumDF.union(filteredDF)
+        // Separate bloom and regular index queries
+        val bloomColumnSet = bloomColumns
+        val (bloomQueries, regularQueries) = indexes.partition {
+          case (col, _) => bloomColumnSet.contains(col)
         }
 
-        resultDF.distinct.collect.map(_.getString(0)).toSet
+        // Get files from bloom filters
+        val bloomFiles = if (bloomQueries.nonEmpty) {
+          bloomQueries.flatMap { case (col, values) =>
+            locateFilesWithBloom(col, values, df)
+          }.toSet
+        } else {
+          Set.empty[String]
+        }
+
+        // Get files from regular indexes
+        val regularFiles = if (regularQueries.nonEmpty) {
+          locateFilesRegular(regularQueries, df)
+        } else {
+          Set.empty[String]
+        }
+
+        // Combine results
+        if (bloomFiles.isEmpty && regularFiles.isEmpty) {
+          Set.empty
+        } else if (bloomFiles.isEmpty) {
+          regularFiles
+        } else if (regularFiles.isEmpty) {
+          bloomFiles
+        } else {
+          // Both have results - use union (OR semantics) to match existing behavior
+          bloomFiles.union(regularFiles)
+        }
       case None => Set()
     }
   }
 
+  /** Locates files using regular (non-bloom) indexes.
+    *
+    * @param indexes
+    *   A map of index column names to their values.
+    * @param df
+    *   The index DataFrame.
+    * @return
+    *   A set of file names matching the criteria.
+    */
+  private def locateFilesRegular(indexes: Map[String, Array[Any]], df: DataFrame): Set[String] = {
+    val schema = StructType(
+      Array(StructField("filename", StringType, nullable = false))
+    )
+    val emptyDF =
+      spark.createDataFrame(
+        spark.sparkContext.emptyRDD[Row],
+        schema
+      )
+
+    val resultDF = indexes.foldLeft(emptyDF) {
+      case (accumDF, (column, values)) =>
+        val filteredDF = df
+          .select("filename", column)
+          .withColumn("value", explode(col(column)))
+          .where(col("value").isin(values: _*))
+          .select("filename")
+          .distinct
+
+        accumDF.union(filteredDF)
+    }
+
+    resultDF.distinct.collect.map(_.getString(0)).toSet
+  }
+
   /** Locates files based on a DataFrame containing join column values.
     * Uses broadcast joins for efficient filtering when value sets are large.
+    * Handles both regular indexes and bloom filter indexes.
     *
     * @param valuesDf
     *   DataFrame containing the distinct values to search for
@@ -119,38 +167,68 @@ trait IndexQueryOperations extends IndexJoinOperations {
     
     index match {
       case Some(indexDf) =>
-        val schema = StructType(
-          Array(StructField("filename", StringType, nullable = false))
-        )
-        val emptyDF =
-          spark.createDataFrame(
-            spark.sparkContext.emptyRDD[Row],
-            schema
-          )
+        val bloomColumnSet = bloomColumns
         
-        // For each join column, find files that match and union them
-        // This matches the logic of the original locateFiles method
-        val resultDF = joinColumns.foldLeft(emptyDF) { (accumDF, joinColumn) =>
-          val storageColumn = columnMappings(joinColumn)
-          
-          // Create a DataFrame with distinct values for this column
-          val distinctValues = valuesDf.select(col(joinColumn)).distinct()
-          
-          // Explode the index array column and join with the values
-          val filteredDF = indexDf
-            .select(col("filename"), explode(col(storageColumn)).alias("value"))
-            .join(
-              broadcast(distinctValues.withColumnRenamed(joinColumn, "value")),
-              Seq("value"),
-              "leftsemi"
-            )
-            .select("filename")
-            .distinct()
-          
-          accumDF.union(filteredDF)
+        // Separate bloom and regular columns
+        val (bloomJoinColumns, regularJoinColumns) = joinColumns.partition { joinColumn =>
+          bloomColumnSet.contains(joinColumn)
         }
         
-        resultDF.distinct().collect().map(_.getString(0)).toSet
+        // Get files from bloom filters
+        val bloomFiles = if (bloomJoinColumns.nonEmpty) {
+          bloomJoinColumns.flatMap { joinColumn =>
+            locateFilesWithBloomFromDataFrame(joinColumn, valuesDf, indexDf)
+          }.toSet
+        } else {
+          Set.empty[String]
+        }
+        
+        // Get files from regular indexes
+        val regularFiles = if (regularJoinColumns.nonEmpty) {
+          val schema = StructType(
+            Array(StructField("filename", StringType, nullable = false))
+          )
+          val emptyDF =
+            spark.createDataFrame(
+              spark.sparkContext.emptyRDD[Row],
+              schema
+            )
+          
+          val resultDF = regularJoinColumns.foldLeft(emptyDF) { (accumDF, joinColumn) =>
+            val storageColumn = columnMappings(joinColumn)
+            
+            // Create a DataFrame with distinct values for this column
+            val distinctValues = valuesDf.select(col(joinColumn)).distinct()
+            
+            // Explode the index array column and join with the values
+            val filteredDF = indexDf
+              .select(col("filename"), explode(col(storageColumn)).alias("value"))
+              .join(
+                broadcast(distinctValues.withColumnRenamed(joinColumn, "value")),
+                Seq("value"),
+                "leftsemi"
+              )
+              .select("filename")
+              .distinct()
+            
+            accumDF.union(filteredDF)
+          }
+          
+          resultDF.distinct().collect().map(_.getString(0)).toSet
+        } else {
+          Set.empty[String]
+        }
+        
+        // Combine results
+        if (bloomFiles.isEmpty && regularFiles.isEmpty) {
+          Set.empty
+        } else if (bloomFiles.isEmpty) {
+          regularFiles
+        } else if (regularFiles.isEmpty) {
+          bloomFiles
+        } else {
+          bloomFiles.union(regularFiles)
+        }
       case None => Set()
     }
   }

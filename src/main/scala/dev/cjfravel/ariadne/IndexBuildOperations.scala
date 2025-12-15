@@ -8,7 +8,7 @@ import scala.collection.JavaConverters._
 
 /** Trait providing index building operations for Index instances.
   */
-trait IndexBuildOperations extends IndexFileOperations {
+trait IndexBuildOperations extends BloomFilterOperations {
   self: Index =>
 
   /** Hadoop root path for large index delta tables */
