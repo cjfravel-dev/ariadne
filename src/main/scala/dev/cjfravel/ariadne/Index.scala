@@ -162,33 +162,46 @@ case class Index private (
     val fileAnalyses = analyzeFiles(files)
     val batches = createOptimalBatches(fileAnalyses)
 
-    logger.warn(s"Processing ${batches.size} batches")
+    logger.warn(s"Processing ${batches.size} batches with consolidation threshold of $stagingConsolidationThreshold")
 
-    batches.zipWithIndex.foreach { case (batch, index) =>
-      logger.warn(s"Processing batch ${index + 1}/${batches.size} with ${batch.size} files")
+    var batchesSinceConsolidation = 0
+
+    batches.zipWithIndex.foreach { case (batch, idx) =>
+      logger.warn(s"Processing batch ${idx + 1}/${batches.size} with ${batch.size} files")
       updateSingleBatch(batch)
+      batchesSinceConsolidation += 1
+
+      // Periodic consolidation for fault tolerance
+      if (batchesSinceConsolidation >= stagingConsolidationThreshold) {
+        logger.warn(s"Reached consolidation threshold ($stagingConsolidationThreshold batches), consolidating...")
+        consolidateStaging()
+        batchesSinceConsolidation = 0
+      }
+    }
+
+    // Always consolidate at the end to finalize all staged data
+    if (batchesSinceConsolidation > 0) {
+      logger.warn("Consolidating remaining staged data...")
+      consolidateStaging()
     }
 
     logger.warn(s"Completed batched update of ${files.size} files in ${batches.size} batches")
   }
 
-  /** Updates the index with a single batch of files (original update logic).
+  /** Updates the index with a single batch of files.
     *
     * @param files Set of files to process in this batch
     */
   private def updateSingleBatch(files: Set[String]): Unit = {
-    // Read base data
     val baseDf = createBaseDataFrame(files)
     val withComputedIndexes = applyComputedIndexes(baseDf)
     val withFilename = withComputedIndexes.withColumn("filename", input_file_name)
 
-    // Build indexes using the extracted methods
     val regularIndexesDf = buildRegularIndexes(withFilename)
     val finalDf = buildExplodedFieldIndexes(withFilename, regularIndexesDf)
 
-    // Handle large indexes and merge to Delta
     handleLargeIndexes(finalDf)
-    mergeToDelta(finalDf)
+    appendToStaging(finalDf)
   }
 }
 
