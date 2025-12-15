@@ -20,12 +20,19 @@ trait IndexJoinOperations extends IndexBuildOperations {
     * @return Map from join column to storage column
     */
   protected def mapJoinColumnsToStorage(joinColumns: Seq[String]): Map[String, String] = {
+    val bloomColumnSet = bloomColumns
+    
     joinColumns.map { joinCol =>
-      // Check if this is an exploded field column
-      val explodedMapping = metadata.exploded_field_indexes.asScala.find(_.as_column == joinCol)
-      explodedMapping match {
-        case Some(mapping) => joinCol -> mapping.array_column
-        case None => joinCol -> joinCol
+      // Check if this is a bloom filter column
+      if (bloomColumnSet.contains(joinCol)) {
+        joinCol -> (bloomColumnPrefix + joinCol)
+      } else {
+        // Check if this is an exploded field column
+        val explodedMapping = metadata.exploded_field_indexes.asScala.find(_.as_column == joinCol)
+        explodedMapping match {
+          case Some(mapping) => joinCol -> mapping.array_column
+          case None => joinCol -> joinCol
+        }
       }
     }.toMap
   }
@@ -194,7 +201,9 @@ trait IndexJoinOperations extends IndexBuildOperations {
     // Map join columns to storage columns
     val columnMappings = mapJoinColumnsToStorage(usingColumns)
 
-    val storageColumnsToUse = columnMappings.values.toSet.intersect(this.storageColumns)
+    // Include both regular storage columns and bloom storage columns
+    val allStorageColumns = this.storageColumns ++ this.bloomStorageColumns
+    val storageColumnsToUse = columnMappings.values.toSet.intersect(allStorageColumns)
     logger.warn(s"Found indexes for ${storageColumnsToUse.mkString(",")}")
 
     // Get values from the user DataFrame using join column names
@@ -210,8 +219,17 @@ trait IndexJoinOperations extends IndexBuildOperations {
     logger.warn(s"Found ${files.size} files in index")
     val readIndex = readFiles(files)
 
-    // Apply filters using DataFrame-based approach (no collect needed)
-    val filteredReadIndex = applyJoinFiltersFromDataFrame(readIndex, filteredValuesDf, joinColumnsToUse)
+    // For bloom columns, we don't need to apply additional filters on the actual data
+    // (the bloom filter already did the filtering at the file level)
+    // For regular columns, apply filters using DataFrame-based approach
+    val bloomColumnSet = bloomColumns
+    val nonBloomJoinColumns = joinColumnsToUse.filterNot(bloomColumnSet.contains)
+    
+    val filteredReadIndex = if (nonBloomJoinColumns.nonEmpty) {
+      applyJoinFiltersFromDataFrame(readIndex, filteredValuesDf, nonBloomJoinColumns)
+    } else {
+      readIndex
+    }
 
     // Cache key must include join columns to avoid returning wrong cached results
     // We use a hash of the valuesDf to represent the actual values being joined

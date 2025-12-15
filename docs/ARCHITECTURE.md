@@ -18,9 +18,10 @@ The Ariadne Index system provides a modular architecture for managing file-based
 │  IndexQueryOperations                                           │
 │    ↳ IndexJoinOperations                                        │
 │        ↳ IndexBuildOperations                                   │
-│            ↳ IndexFileOperations                                │
-│                ↳ IndexMetadataOperations                        │
-│                    ↳ AriadneContextUser                         │
+│            ↳ BloomFilterOperations                              │
+│                ↳ IndexFileOperations                            │
+│                    ↳ IndexMetadataOperations                    │
+│                        ↳ AriadneContextUser                     │
 └─────────────────────────────────────────────────────────────────┘
                                │
                                │ uses
@@ -89,7 +90,29 @@ The Ariadne Index system provides a modular architecture for managing file-based
 - `applyComputedIndexes(df: DataFrame): DataFrame` - Adds computed columns
 - `applyExplodedFields(df: DataFrame): DataFrame` - Adds exploded field columns
 
-### 4. IndexBuildOperations
+### 4. BloomFilterOperations
+**Purpose**: Provides bloom filter operations for space-efficient probabilistic indexing of high-cardinality columns.
+
+**Key Responsibilities**:
+- Building bloom filters during index updates
+- Serializing/deserializing bloom filters to/from binary format
+- Querying bloom filters for file location
+- Managing bloom filter configurations (column, FPR)
+
+**Key Concepts**:
+- **No false negatives**: If the filter says "no", the value is definitely not present
+- **Configurable false positives**: If the filter says "yes", the value MIGHT be present (controlled by FPR)
+- **Space efficiency**: Approximately 10 bits per element at 1% false positive rate
+
+**Protected Methods**:
+- `buildBloomFilterIndexes(df: DataFrame): DataFrame` - Creates binary bloom filter columns
+- `locateFilesWithBloom(column: String, values: Array[Any], indexDf: DataFrame): Set[String]` - Finds files using bloom filter
+- `bloomMightContain(bloomBytes: Array[Byte], value: Any): Boolean` - Checks if value might be in filter
+- `deserializeBloomFilter(bytes: Array[Byte]): BloomFilter[CharSequence]` - Deserializes bloom filter
+- `bloomColumns: Set[String]` - Returns columns with bloom indexes
+- `bloomStorageColumns: Set[String]` - Returns storage column names (with `bloom_` prefix)
+
+### 5. IndexBuildOperations
 **Purpose**: Handles the core index building logic and Delta table operations.
 
 **Key Responsibilities**:
@@ -109,7 +132,7 @@ The Ariadne Index system provides a modular architecture for managing file-based
 - `indexFilePath: Path` - Path to main index Delta table
 - `largeIndexesFilePath: Path` - Path to large indexes storage
 
-### 5. IndexJoinOperations
+### 6. IndexJoinOperations
 **Purpose**: Provides DataFrame join functionality using the index for optimization with caching support.
 
 **Key Responsibilities**:
@@ -117,17 +140,17 @@ The Ariadne Index system provides a modular architecture for managing file-based
 - Supporting different join types (inner, left_semi, full_outer)
 - Join result caching for performance
 - Multi-column join support
-- Column mapping for exploded fields
+- Column mapping for exploded fields and bloom filter columns
 
 **Key Methods**:
 - `join(df: DataFrame, usingColumns: Seq[String], joinType: String = "inner"): DataFrame`
 
 **Protected Methods**:
 - `joinDf(df: DataFrame, usingColumns: Seq[String]): DataFrame` - Creates optimized join DataFrame
-- `mapJoinColumnsToStorage(joinColumns: Seq[String]): Map[String, String]` - Maps join to storage columns
-- `createJoinFilters(joinColumnsToUse: Seq[String], columnMappings: Map[String, String], indexes: Map[String, Array[Any]]): Seq[Column]` - Creates filter conditions
+- `mapJoinColumnsToStorage(joinColumns: Seq[String]): Map[String, String]` - Maps join to storage columns (including bloom columns with `bloom_` prefix)
+- `applyJoinFilters(...)` - Creates filter conditions (skips bloom columns since filtering is done at file level)
 
-### 6. IndexQueryOperations
+### 7. IndexQueryOperations
 **Purpose**: Handles file location queries, statistics generation, and index introspection.
 
 **Key Responsibilities**:
@@ -146,7 +169,7 @@ The Ariadne Index system provides a modular architecture for managing file-based
 **Protected Methods**:
 - `index: Option[DataFrame]` - Access to complete index DataFrame with large index integration
 
-### 7. Index Class (Main API)
+### 8. Index Class (Main API)
 **Purpose**: Main public interface that combines all functionality through trait composition.
 
 **Constructor**:
@@ -161,9 +184,10 @@ case class Index private (
 - `hasFile(fileName: String): Boolean` - Check if file is tracked
 - `addFile(fileNames: String*): Unit` - Add files to tracking
 - `addIndex(index: String): Unit` - Add regular column index
+- `addBloomIndex(column: String, fpr: Double = 0.01): Unit` - Add bloom filter index (mutually exclusive with regular index)
 - `addComputedIndex(name: String, sql_expression: String): Unit` - Add computed index
 - `addExplodedFieldIndex(arrayColumn: String, fieldPath: String, asColumn: String): Unit` - Add exploded field index
-- `indexes: Set[String]` - Get all available index column names
+- `indexes: Set[String]` - Get all available index column names (includes both regular and bloom indexes)
 - `update: Unit` - Update index with new files
 - `storagePath: Path` - Storage location for this index
 
@@ -172,7 +196,7 @@ case class Index private (
 - `Index(name: String, schema: StructType, format: String, allowSchemaMismatch: Boolean): Index`
 - `Index(name: String, schema: StructType, format: String, readOptions: Map[String, String]): Index`
 
-### 8. IndexPathUtils (Object)
+### 9. IndexPathUtils (Object)
 **Purpose**: Provides utility functions for path manipulation and index management.
 
 **Key Responsibilities**:
@@ -188,7 +212,7 @@ case class Index private (
 - `remove(name: String): Boolean` - Removes an index
 - `storagePath: Path` - Overrides base storage path for indexes
 
-### 9. Supporting Classes
+### 10. Supporting Classes
 
 #### IndexMetadata
 **Purpose**: Data container for index configuration and state with version migration support.
@@ -200,6 +224,14 @@ case class Index private (
 - `computed_indexes: util.Map[String, String]` - Computed index expressions
 - `exploded_field_indexes: util.List[ExplodedFieldMapping]` - Exploded field configurations
 - `read_options: util.Map[String, String]` - Format-specific read options
+- `bloom_indexes: util.List[BloomIndexConfig]` - Bloom filter index configurations
+
+#### BloomIndexConfig
+**Purpose**: Configuration for bloom filter indexes on high-cardinality columns.
+
+**Fields**:
+- `column: String` - Column name to index
+- `fpr: Double` - False positive rate (default: 0.01 = 1%)
 
 #### ExplodedFieldMapping
 **Purpose**: Configuration for indexing fields within array columns.
@@ -282,11 +314,35 @@ All index data is stored using Delta Lake format, providing:
 - Schema evolution
 - Efficient upserts and merges
 
+### Bloom Filter Indexes
+Bloom filters provide space-efficient probabilistic indexing for high-cardinality columns (like user IDs, transaction IDs). They are ideal for columns where:
+- The number of distinct values per file is very large
+- Regular indexes would consume too much storage
+- Some false positives are acceptable in exchange for significant space savings
+
+**Storage:**
+- Bloom filters are stored as binary columns in the main index Delta table with `bloom_` prefix
+- Example: A bloom index on `user_id` creates a `bloom_user_id` column containing serialized Guava BloomFilter bytes
+
+**Query Behavior:**
+- File location uses probabilistic matching (may return files that don't actually contain the value)
+- No additional row-level filtering is applied since only the bloom filter exists (not the actual values)
+- False positives result in reading slightly more files than strictly necessary
+
+**Configuration:**
+- `fpr` (false positive rate): Controls accuracy vs. size tradeoff (default: 0.01 = 1%)
+- Lower FPR = more accurate but larger storage; Higher FPR = smaller but more false positives
+
+**Mutual Exclusivity:**
+- A column can have either a regular index OR a bloom index, not both
+- This is enforced at the API level with clear error messages
+
 ### Metadata Versioning
 The system supports automatic migration between metadata versions:
 - v1 → v2: Adds computed_indexes support
-- v2 → v3: Adds exploded_field_indexes support  
+- v2 → v3: Adds exploded_field_indexes support
 - v3 → v4: Adds read_options support
+- v4 → v5: Adds bloom_indexes support
 
 ### Caching Strategy
 Join operations utilize intelligent caching to avoid recomputing expensive operations when the same files and filter criteria are used repeatedly.
@@ -304,12 +360,14 @@ Each trait can be tested independently with focused test suites:
 - `IndexJoinOperationsTests` - Tests join functionality
 - `IndexQueryOperationsTests` - Tests querying and statistics
 - `IndexPathUtilsTests` - Tests utility functions
+- `BloomFilterOperationsTests` - Tests bloom filter functionality
 
 ### 3. **Performance Optimization**
 - Large index handling prevents memory overflow
 - Join caching reduces repeated computations
 - Delta Lake provides efficient storage and querying
 - Exploded field indexing enables efficient nested data joins
+- Bloom filter indexes provide space-efficient probabilistic matching for high-cardinality columns
 
 ### 4. **Extensibility**
 New functionality can be added by extending existing traits or creating new ones in the inheritance chain.
@@ -322,11 +380,12 @@ Supports schema changes with configurable validation and automatic metadata migr
 ### Adding New Functionality
 
 1. **For metadata operations**: Extend `IndexMetadataOperations`
-2. **For file operations**: Extend `IndexFileOperations`  
-3. **For index building**: Extend `IndexBuildOperations`
-4. **For join operations**: Extend `IndexJoinOperations`
-5. **For query operations**: Extend `IndexQueryOperations`
-6. **For utilities**: Add to `IndexPathUtils` object
+2. **For file operations**: Extend `IndexFileOperations`
+3. **For bloom filter operations**: Extend `BloomFilterOperations`
+4. **For index building**: Extend `IndexBuildOperations`
+5. **For join operations**: Extend `IndexJoinOperations`
+6. **For query operations**: Extend `IndexQueryOperations`
+7. **For utilities**: Add to `IndexPathUtils` object
 
 ### Testing Strategy
 
@@ -363,8 +422,9 @@ case class Index private (
   schema: Option[StructType]
 ) extends IndexQueryOperations {
   // IndexQueryOperations extends IndexJoinOperations
-  // IndexJoinOperations extends IndexBuildOperations  
-  // IndexBuildOperations extends IndexFileOperations
+  // IndexJoinOperations extends IndexBuildOperations
+  // IndexBuildOperations extends BloomFilterOperations
+  // BloomFilterOperations extends IndexFileOperations
   // IndexFileOperations extends IndexMetadataOperations
   // IndexMetadataOperations extends AriadneContextUser
 }

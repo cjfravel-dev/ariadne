@@ -1,0 +1,38 @@
+{
+    "format": "parquet",
+    "schema": "not a real schema",
+    "indexes": [
+        "Test",
+        "Test2"
+    ],
+    "computed_indexes": {
+        "test": "expr1",
+        "test2": "expr2"
+    },
+    "exploded_field_indexes": [
+        {
+            "array_column": "users",
+            "field_path": "id",
+            "as_column": "user_id"
+        },
+        {
+            "array_column": "tags", 
+            "field_path": "name",
+            "as_column": "tag_name"
+        }
+    ],
+    "read_options": {
+        "header": "true",
+        "multiLine": "true"
+    },
+    "bloom_indexes": [
+        {
+            "column": "transaction_id",
+            "fpr": 0.01
+        },
+        {
+            "column": "session_id",
+            "fpr": 0.001
+        }
+    ]
+}

@@ -96,10 +96,63 @@ case class Index private (
   /** Adds an index entry.
     * @param index
     *   The index entry to add.
+    * @throws IllegalArgumentException if column is already a bloom index
     */
   def addIndex(index: String): Unit = {
     if (metadata.indexes.contains(index)) return
+    
+    // Check mutual exclusivity with bloom indexes
+    if (metadata.bloom_indexes.asScala.exists(_.column == index)) {
+      throw new IllegalArgumentException(
+        s"Column '$index' is already a bloom index. " +
+        "A column cannot be both a regular index and a bloom index."
+      )
+    }
+    
     metadata.indexes.add(index)
+    writeMetadata(metadata)
+  }
+
+  /** Adds a bloom filter index for the specified column.
+    *
+    * Bloom filters are probabilistic data structures that provide:
+    * - Guaranteed NO false negatives (if filter says "no", value definitely absent)
+    * - Configurable false positive rate (if filter says "yes", value MIGHT be present)
+    * - Space-efficient storage (approximately 10 bits per element at 1% FPR)
+    *
+    * @param column The column name to index with a bloom filter
+    * @param fpr False positive rate between 0.0 and 1.0 (default 0.01 = 1%)
+    * @throws IllegalArgumentException if column is already a regular or computed index
+    * @throws ColumnNotFoundException if column doesn't exist in schema
+    */
+  def addBloomIndex(column: String, fpr: Double = 0.01): Unit = {
+    // Validate FPR range
+    require(fpr > 0 && fpr < 1, s"FPR must be between 0 and 1, got: $fpr")
+    
+    // Check mutual exclusivity with regular indexes
+    if (metadata.indexes.contains(column)) {
+      throw new IllegalArgumentException(
+        s"Column '$column' is already a regular index. " +
+        "A column cannot be both a bloom index and a regular index."
+      )
+    }
+    if (metadata.computed_indexes.containsKey(column)) {
+      throw new IllegalArgumentException(
+        s"Column '$column' is already a computed index. " +
+        "A column cannot be both a bloom index and a computed index."
+      )
+    }
+    
+    // Check if already a bloom index
+    if (metadata.bloom_indexes.asScala.exists(_.column == column)) return
+    
+    // Validate column exists in schema
+    if (!SchemaHelper.fieldExists(storedSchema, column)) {
+      throw new ColumnNotFoundException(s"Column '$column' not found in schema")
+    }
+    
+    val config = BloomIndexConfig(column, fpr)
+    metadata.bloom_indexes.add(config)
     writeMetadata(metadata)
   }
 
@@ -134,7 +187,8 @@ case class Index private (
   def indexes: Set[String] =
     metadata.indexes.asScala.toSet ++
       metadata.computed_indexes.keySet().asScala ++
-      metadata.exploded_field_indexes.asScala.map(_.as_column).toSet
+      metadata.exploded_field_indexes.asScala.map(_.as_column).toSet ++
+      metadata.bloom_indexes.asScala.map(_.column).toSet
 
   def addComputedIndex(name: String, sql_expression: String): Unit = {
     if (metadata.computed_indexes.containsKey(name)) return
@@ -197,8 +251,21 @@ case class Index private (
     val withComputedIndexes = applyComputedIndexes(baseDf)
     val withFilename = withComputedIndexes.withColumn("filename", input_file_name)
 
+    // Build regular indexes
     val regularIndexesDf = buildRegularIndexes(withFilename)
-    val finalDf = buildExplodedFieldIndexes(withFilename, regularIndexesDf)
+    val withExploded = buildExplodedFieldIndexes(withFilename, regularIndexesDf)
+    
+    // Build bloom filter indexes
+    val bloomDf = buildBloomFilterIndexes(withFilename)
+    
+    // Combine regular and bloom indexes
+    val finalDf = if (bloomIndexConfigs.nonEmpty && withExploded.columns.length > 1) {
+      withExploded.join(bloomDf, Seq("filename"), "full_outer")
+    } else if (bloomIndexConfigs.nonEmpty) {
+      bloomDf
+    } else {
+      withExploded
+    }
 
     handleLargeIndexes(finalDf)
     appendToStaging(finalDf)
@@ -329,6 +396,7 @@ object Index {
         new util.ArrayList[String](),
         new util.HashMap[String, String](),
         new util.ArrayList[ExplodedFieldMapping](),
+        new util.ArrayList[BloomIndexConfig](),
         new util.HashMap[String, String]()
       )
     }
