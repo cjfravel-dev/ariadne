@@ -38,7 +38,8 @@ trait IndexJoinOperations extends IndexBuildOperations {
   }
 
   /** Threshold for using broadcast join filtering instead of isin() predicates.
-    * When the number of distinct values exceeds this threshold, we use a broadcast join approach.
+    * When the number of distinct values is at or below this threshold, we use a broadcast join approach.
+    * When values exceed this threshold, we use regular join approach to avoid broadcasting large datasets.
     * Uses the broadcastJoinThreshold from AriadneContextUser.
     */
   protected def largeFilterThreshold: Long = broadcastJoinThreshold
@@ -73,16 +74,16 @@ trait IndexJoinOperations extends IndexBuildOperations {
     }
     
     if (hasLargeFilter) {
-      // Use broadcast join filtering for large value sets
-      applyBroadcastJoinFiltering(readIndex, filtersToApply, columnMappings, indexes)
-    } else {
-      // Use traditional isin() filters for small value sets
+      // Use traditional isin() filters for large value sets (avoid broadcasting large data)
       val filters = filtersToApply.map { joinColumn =>
         val storageColumn = columnMappings(joinColumn)
         val values = indexes(storageColumn)
         col(joinColumn).isin(values: _*)
       }
       readIndex.filter(filters.reduce(_ && _))
+    } else {
+      // Use broadcast join filtering for small value sets (efficient for small data)
+      applyBroadcastJoinFiltering(readIndex, filtersToApply, columnMappings, indexes)
     }
   }
 
