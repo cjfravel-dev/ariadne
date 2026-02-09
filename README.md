@@ -1,8 +1,8 @@
-# Ariadne  
+# Ariadne
 
-Like [Ariadne](https://en.wikipedia.org/wiki/Ariadne) from Greek mythology, this library helps you navigate your data labyrinth. And just like Ariadne, I hope you’ll one day betray it—like Theseus—and move on to something better, such as [Apache Iceberg](https://iceberg.apache.org/) or [Delta Lake](https://delta.io).  
+Like [Ariadne](https://en.wikipedia.org/wiki/Ariadne) from Greek mythology, this library helps you navigate your data labyrinth. And just like Ariadne, I hope you’ll one day betray it—like Theseus—and move on to something better, such as [Apache Iceberg](https://iceberg.apache.org/) or [Delta Lake](https://delta.io).
 
-But in the meantime, if your data lake is more of a data swamp and you lack a way to generate simple indexes for your files, Ariadne can help.  
+But in the meantime, if your data lake is more of a data swamp and you lack a way to generate simple indexes for your files, Ariadne can help.
 
 ## Overview
 
@@ -11,6 +11,7 @@ Ariadne enables you to create simple indexes, allowing you to efficiently locate
 ### Supported Formats
 
 Ariadne supports three data formats:
+
 - **Parquet** - Columnar format (default)
 - **CSV** - Comma-separated values
 - **JSON** - JavaScript Object Notation
@@ -31,12 +32,13 @@ Additional format-specific options can be provided via `readOptions` when creati
 
 > **Note:** When using an index in a join, it is no longer a "narrow" transformation. The index must first retrieve matching values from its records, load the appropriate data, and then perform the narrow transformation on the resulting DataFrame.
 
-### Example Usage  
+### Example Usage
+
 ```xml
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne</artifactId>
-    <version>0.0.1-alpha-33</version>
+    <version>0.0.1-alpha-34</version>
 </dependency>
 ```
 
@@ -109,6 +111,7 @@ val result = index.join(userQueryDf, Seq("user_id"), "inner")
 ```
 
 **Key points about bloom filter indexes:**
+
 - **Space efficient**: ~10 bits per element at 1% FPR vs. storing actual values
 - **Probabilistic**: May return files that don't contain the value (false positives), but never misses files that do contain it (no false negatives)
 - **Mutually exclusive**: A column can have either a regular index OR a bloom index, not both
