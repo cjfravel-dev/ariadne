@@ -194,7 +194,7 @@ trait BloomFilterOperations extends IndexFileOperations {
   }
 
   /** Locates files that might contain values from a DataFrame using bloom
-    * filters. Uses a more efficient approach by broadcasting the bloom filters.
+    * filters.
     *
     * @param column
     *   The bloom index column name

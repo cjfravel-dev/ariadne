@@ -4,6 +4,7 @@ import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.types.{StructType, StructField, StringType}
 import org.apache.spark.sql.functions._
 import io.delta.tables.DeltaTable
+import org.apache.hadoop.fs.Path
 import scala.collection.JavaConverters._
 
 /** Trait providing query operations for Index instances.
@@ -29,7 +30,9 @@ trait IndexQueryOperations extends IndexJoinOperations {
           .listStatus(largeIndexesFilePath)
           .filter(_.isDirectory)
           .map(_.getPath)
-          .filter(path => exists(path) && DeltaTable.isDeltaTable(spark, path.toString))
+          .filter(path =>
+            exists(path) && DeltaTable.isDeltaTable(spark, path.toString)
+          )
           .toSeq
 
         // for each consolidated column table, read and merge into the index
@@ -37,7 +40,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
           (accumDf, columnPath) =>
             val colName = columnPath.getName
             val safeColName = s"ariadne_large_index_$colName"
-            
+
             try {
               val largeIndex = spark.read
                 .format("delta")
@@ -63,8 +66,8 @@ trait IndexQueryOperations extends IndexJoinOperations {
     }
   }
 
-  /** Locates files based on index values.
-    * Handles both regular indexes (using explode) and bloom filter indexes (using probabilistic matching).
+  /** Locates files based on index values. Handles both regular indexes (using
+    * explode) and bloom filter indexes (using probabilistic matching).
     *
     * @param indexes
     *   A map of index column names to their values.
@@ -111,6 +114,52 @@ trait IndexQueryOperations extends IndexJoinOperations {
     }
   }
 
+  /** Collects filenames via staging through temp storage. This separates the
+    * distinct operation from collect to avoid executor failures on large result
+    * sets.
+    *
+    * @param resultDF
+    *   DataFrame containing filename column to collect
+    * @return
+    *   Set of distinct filenames
+    */
+  private def collectFilenamesViaStaging(resultDF: DataFrame): Set[String] = {
+    val tempPath = new Path(
+      IndexPathUtils.tempPath,
+      s"query_files_${System.currentTimeMillis()}_${java.util.UUID.randomUUID()}"
+    )
+
+    try {
+      // Write distinct filenames to temp location (distributed operation)
+      resultDF
+        .distinct()
+        .write
+        .mode("overwrite")
+        .parquet(tempPath.toString)
+
+      logger.debug(s"Staged filenames to $tempPath")
+
+      // Read back from temp (simple, optimized operation)
+      spark.read
+        .parquet(tempPath.toString)
+        .select("filename")
+        .collect()
+        .map(_.getString(0))
+        .toSet
+    } finally {
+      // Cleanup temp location
+      try {
+        if (fs.exists(tempPath)) {
+          fs.delete(tempPath, true)
+          logger.debug(s"Cleaned up temp path $tempPath")
+        }
+      } catch {
+        case e: Exception =>
+          logger.warn(s"Failed to cleanup temp path $tempPath: ${e.getMessage}")
+      }
+    }
+  }
+
   /** Locates files using regular (non-bloom) indexes.
     *
     * @param indexes
@@ -120,7 +169,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
     * @return
     *   A set of file names matching the criteria.
     */
-  private def locateFilesRegular(indexes: Map[String, Array[Any]], df: DataFrame): Set[String] = {
+  private def locateFilesRegular(
+      indexes: Map[String, Array[Any]],
+      df: DataFrame
+  ): Set[String] = {
     val schema = StructType(
       Array(StructField("filename", StringType, nullable = false))
     )
@@ -142,12 +194,12 @@ trait IndexQueryOperations extends IndexJoinOperations {
         accumDF.union(filteredDF)
     }
 
-    resultDF.distinct.collect.map(_.getString(0)).toSet
+    collectFilenamesViaStaging(resultDF)
   }
 
-  /** Locates files based on a DataFrame containing join column values.
-    * Uses broadcast joins for efficient filtering when value sets are large.
-    * Handles both regular indexes and bloom filter indexes.
+  /** Locates files based on a DataFrame containing join column values. Uses
+    * broadcast joins for efficient filtering when value sets are large. Handles
+    * both regular indexes and bloom filter indexes.
     *
     * @param valuesDf
     *   DataFrame containing the distinct values to search for
@@ -159,21 +211,20 @@ trait IndexQueryOperations extends IndexJoinOperations {
     *   A set of file names matching the criteria.
     */
   def locateFilesFromDataFrame(
-    valuesDf: DataFrame,
-    columnMappings: Map[String, String],
-    joinColumns: Seq[String]
+      valuesDf: DataFrame,
+      columnMappings: Map[String, String],
+      joinColumns: Seq[String]
   ): Set[String] = {
-    import org.apache.spark.sql.functions.broadcast
-    
     index match {
       case Some(indexDf) =>
         val bloomColumnSet = bloomColumns
-        
+
         // Separate bloom and regular columns
-        val (bloomJoinColumns, regularJoinColumns) = joinColumns.partition { joinColumn =>
-          bloomColumnSet.contains(joinColumn)
+        val (bloomJoinColumns, regularJoinColumns) = joinColumns.partition {
+          joinColumn =>
+            bloomColumnSet.contains(joinColumn)
         }
-        
+
         // Get files from bloom filters
         val bloomFiles = if (bloomJoinColumns.nonEmpty) {
           bloomJoinColumns.flatMap { joinColumn =>
@@ -182,7 +233,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
         } else {
           Set.empty[String]
         }
-        
+
         // Get files from regular indexes
         val regularFiles = if (regularJoinColumns.nonEmpty) {
           val schema = StructType(
@@ -193,32 +244,37 @@ trait IndexQueryOperations extends IndexJoinOperations {
               spark.sparkContext.emptyRDD[Row],
               schema
             )
-          
-          val resultDF = regularJoinColumns.foldLeft(emptyDF) { (accumDF, joinColumn) =>
-            val storageColumn = columnMappings(joinColumn)
-            
-            // Create a DataFrame with distinct values for this column
-            val distinctValues = valuesDf.select(col(joinColumn)).distinct()
-            
-            // Explode the index array column and join with the values
-            val filteredDF = indexDf
-              .select(col("filename"), explode(col(storageColumn)).alias("value"))
-              .join(
-                broadcast(distinctValues.withColumnRenamed(joinColumn, "value")),
-                Seq("value"),
-                "leftsemi"
-              )
-              .select("filename")
-              .distinct()
-            
-            accumDF.union(filteredDF)
+
+          val resultDF = regularJoinColumns.foldLeft(emptyDF) {
+            (accumDF, joinColumn) =>
+              val storageColumn = columnMappings(joinColumn)
+
+              // Create a DataFrame with distinct values for this column
+              val distinctValues = valuesDf.select(col(joinColumn)).distinct()
+
+              // Explode the index array column and join with the values
+              // Note: Removed explicit broadcast hint to let Spark optimizer decide join strategy
+              val filteredDF = indexDf
+                .select(
+                  col("filename"),
+                  explode(col(storageColumn)).alias("value")
+                )
+                .join(
+                  distinctValues.withColumnRenamed(joinColumn, "value"),
+                  Seq("value"),
+                  "leftsemi"
+                )
+                .select("filename")
+                .distinct()
+
+              accumDF.union(filteredDF)
           }
-          
-          resultDF.distinct().collect().map(_.getString(0)).toSet
+
+          collectFilenamesViaStaging(resultDF)
         } else {
           Set.empty[String]
         }
-        
+
         // Combine results
         if (bloomFiles.isEmpty && regularFiles.isEmpty) {
           Set.empty

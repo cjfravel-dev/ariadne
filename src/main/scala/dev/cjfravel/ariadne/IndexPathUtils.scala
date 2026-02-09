@@ -34,18 +34,36 @@ object IndexPathUtils {
       implicit def spark: SparkSession = sparkSession
     }
     val fileListRemoved = FileList.remove(fileListName(name))(sparkSession)
-    contextUser.delete(new Path(contextUser.storagePath, name)) || fileListRemoved
+    contextUser.delete(
+      new Path(contextUser.storagePath, name)
+    ) || fileListRemoved
   }
 
   /** Cleans a filename for safe storage by replacing special characters.
     *
-    * @param fileName The filename to clean
-    * @return The cleaned filename
+    * @param fileName
+    *   The filename to clean
+    * @return
+    *   The cleaned filename
     */
   def cleanFileName(fileName: String): String = {
     fileName
       .replaceAll("[^a-zA-Z0-9]", "_")
       .replaceAll("__+", "_")
       .replaceAll("^_|_$", "")
+  }
+
+  /** Creates a temp path for query staging operations.
+    *
+    * @param sparkSession
+    *   The SparkSession
+    * @return
+    *   Path to temp directory
+    */
+  def tempPath(implicit sparkSession: SparkSession): Path = {
+    val contextUser = new AriadneContextUser {
+      implicit def spark: SparkSession = sparkSession
+    }
+    new Path(contextUser.storagePath, "_temp")
   }
 }
