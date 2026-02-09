@@ -35,17 +35,6 @@ trait AriadneContextUser {
     limit
   }
 
-  /** Threshold for using broadcast join filtering instead of isin() predicates.
-    * When the number of distinct values is at or below this threshold, we use broadcast joins.
-    * When values exceed this threshold, we use regular joins to avoid broadcasting large datasets.
-    * Reads from spark.ariadne.broadcastJoinThreshold configuration (default: 10000).
-    */
-  lazy val broadcastJoinThreshold: Long = {
-    val threshold = spark.conf.get("spark.ariadne.broadcastJoinThreshold", "10000").toLong
-    logger.warn(s"broadcastJoinThreshold initialized: $threshold")
-    threshold
-  }
-
   /** Number of batches to process before consolidating staged data into the main index.
     * This provides fault tolerance for large index builds - if a job fails, work is preserved
     * up to the last consolidation point. Reads from spark.ariadne.stagingConsolidationThreshold

@@ -37,56 +37,6 @@ trait IndexJoinOperations extends IndexBuildOperations {
     }.toMap
   }
 
-  /** Threshold for using broadcast join filtering instead of isin() predicates.
-    * When the number of distinct values is at or below this threshold, we use a broadcast join approach.
-    * When values exceed this threshold, we use regular join approach to avoid broadcasting large datasets.
-    * Uses the broadcastJoinThreshold from AriadneContextUser.
-    */
-  protected def largeFilterThreshold: Long = broadcastJoinThreshold
-
-  /** Creates filter conditions for DataFrame joins based on index values.
-    * For large value sets, uses a join-based approach instead of isin() predicates.
-    *
-    * @param readIndex The DataFrame to filter
-    * @param joinColumnsToUse The columns to create filters for
-    * @param columnMappings Mapping from join columns to storage columns
-    * @param indexes The index values to filter on
-    * @return Filtered DataFrame
-    */
-  protected def applyJoinFilters(
-    readIndex: DataFrame,
-    joinColumnsToUse: Seq[String],
-    columnMappings: Map[String, String],
-    indexes: Map[String, Array[Any]]
-  ): DataFrame = {
-    val filtersToApply = joinColumnsToUse.filter { joinColumn =>
-      indexes.get(columnMappings(joinColumn)).exists(_.nonEmpty)
-    }
-    
-    if (filtersToApply.isEmpty) {
-      return readIndex
-    }
-    
-    // Check if any filter has a large number of values
-    val hasLargeFilter = filtersToApply.exists { joinColumn =>
-      val storageColumn = columnMappings(joinColumn)
-      indexes(storageColumn).length > largeFilterThreshold
-    }
-    
-    if (hasLargeFilter) {
-      // Use traditional isin() filters for large value sets (avoid broadcasting large data)
-      val filters = filtersToApply.map { joinColumn =>
-        val storageColumn = columnMappings(joinColumn)
-        val values = indexes(storageColumn)
-        col(joinColumn).isin(values: _*)
-      }
-      readIndex.filter(filters.reduce(_ && _))
-    } else {
-      // Use broadcast join filtering for small value sets (efficient for small data)
-      applyBroadcastJoinFiltering(readIndex, filtersToApply, columnMappings, indexes)
-    }
-  }
-
   /** Creates filter conditions for DataFrame joins based on a DataFrame of values.
     * Uses broadcast join approach to avoid collecting data to the driver.
     *
@@ -111,58 +61,6 @@ trait IndexJoinOperations extends IndexBuildOperations {
     // Use broadcast semi-join to filter the readIndex DataFrame
     // This is more efficient than collecting values and using isin()
     readIndex.join(broadcast(valuesDf), joinColumnsToUse, "leftsemi")
-  }
-  
-  /** Applies filtering using broadcast join approach for large value sets.
-    *
-    * @param readIndex The DataFrame to filter
-    * @param joinColumnsToUse The columns to filter on
-    * @param columnMappings Mapping from join columns to storage columns
-    * @param indexes The index values to filter on
-    * @return Filtered DataFrame using broadcast join approach
-    */
-  protected def applyBroadcastJoinFiltering(
-    readIndex: DataFrame,
-    joinColumnsToUse: Seq[String],
-    columnMappings: Map[String, String],
-    indexes: Map[String, Array[Any]]
-  ): DataFrame = {
-    import spark.implicits._
-    import org.apache.spark.sql.types._
-    import org.apache.spark.sql.Row
-    import org.apache.spark.sql.functions.broadcast
-    
-    logger.warn(s"Using broadcast join filtering for large value sets with ${joinColumnsToUse.size} columns")
-    
-    // Apply broadcast joins for each filter column
-    joinColumnsToUse.foldLeft(readIndex) { (accumDf, joinColumn) =>
-      val storageColumn = columnMappings(joinColumn)
-      val values = indexes(storageColumn)
-      
-      // Filter out null values to prevent NullPointerException
-      val nonNullValues = values.filter(_ != null)
-      logger.warn(s"Creating broadcast filter DataFrame for column $joinColumn with ${nonNullValues.length} non-null values (filtered from ${values.length} total)")
-      
-      if (nonNullValues.isEmpty) {
-        // If all values are null, return empty result since null values won't match in joins
-        logger.warn(s"All values for column $joinColumn are null, returning empty DataFrame")
-        accumDf.filter(lit(false))
-      } else {
-        // Get the actual data type from the DataFrame schema
-        val columnDataType = accumDf.schema.fields.find(_.name == joinColumn) match {
-          case Some(field) => field.dataType
-          case None => StringType // fallback to StringType
-        }
-        
-        // Create DataFrame with the filter values using proper data type
-        val schema = StructType(Array(StructField(joinColumn, columnDataType, nullable = false)))
-        val rows = nonNullValues.map(v => Row(v))
-        val filterDf = spark.createDataFrame(spark.sparkContext.parallelize(rows), schema)
-        
-        // Use broadcast semi join to filter - more efficient for large sets by avoiding shuffle
-        accumDf.join(broadcast(filterDf), Seq(joinColumn), "leftsemi")
-      }
-    }
   }
 
   /** Retrieves and caches a DataFrame containing indexed data relevant to the
