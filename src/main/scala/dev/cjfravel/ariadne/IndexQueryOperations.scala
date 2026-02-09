@@ -197,8 +197,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
     collectFilenamesViaStaging(resultDF)
   }
 
-  /** Locates files based on a DataFrame containing join column values. Uses
-    * broadcast joins for efficient filtering when value sets are large. Handles
+  /** Locates files based on a DataFrame containing join column values. Handles
     * both regular indexes and bloom filter indexes.
     *
     * @param valuesDf
@@ -253,7 +252,6 @@ trait IndexQueryOperations extends IndexJoinOperations {
               val distinctValues = valuesDf.select(col(joinColumn)).distinct()
 
               // Explode the index array column and join with the values
-              // Note: Removed explicit broadcast hint to let Spark optimizer decide join strategy
               val filteredDF = indexDf
                 .select(
                   col("filename"),

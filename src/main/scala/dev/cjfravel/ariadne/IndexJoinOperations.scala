@@ -16,51 +16,59 @@ trait IndexJoinOperations extends IndexBuildOperations {
 
   /** Maps join column names to their corresponding storage column names.
     *
-    * @param joinColumns The column names used in joins
-    * @return Map from join column to storage column
+    * @param joinColumns
+    *   The column names used in joins
+    * @return
+    *   Map from join column to storage column
     */
-  protected def mapJoinColumnsToStorage(joinColumns: Seq[String]): Map[String, String] = {
+  protected def mapJoinColumnsToStorage(
+      joinColumns: Seq[String]
+  ): Map[String, String] = {
     val bloomColumnSet = bloomColumns
-    
+
     joinColumns.map { joinCol =>
       // Check if this is a bloom filter column
       if (bloomColumnSet.contains(joinCol)) {
         joinCol -> (bloomColumnPrefix + joinCol)
       } else {
         // Check if this is an exploded field column
-        val explodedMapping = metadata.exploded_field_indexes.asScala.find(_.as_column == joinCol)
+        val explodedMapping =
+          metadata.exploded_field_indexes.asScala.find(_.as_column == joinCol)
         explodedMapping match {
           case Some(mapping) => joinCol -> mapping.array_column
-          case None => joinCol -> joinCol
+          case None          => joinCol -> joinCol
         }
       }
     }.toMap
   }
 
-  /** Creates filter conditions for DataFrame joins based on a DataFrame of values.
-    * Uses broadcast join approach to avoid collecting data to the driver.
+  /** Creates filter conditions for DataFrame joins based on a DataFrame of
+    * values.
     *
-    * @param readIndex The DataFrame to filter
-    * @param valuesDf DataFrame containing the distinct values to filter on
-    * @param joinColumnsToUse The columns to create filters for
-    * @return Filtered DataFrame
+    * @param readIndex
+    *   The DataFrame to filter
+    * @param valuesDf
+    *   DataFrame containing the distinct values to filter on
+    * @param joinColumnsToUse
+    *   The columns to create filters for
+    * @return
+    *   Filtered DataFrame
     */
   protected def applyJoinFiltersFromDataFrame(
-    readIndex: DataFrame,
-    valuesDf: DataFrame,
-    joinColumnsToUse: Seq[String]
+      readIndex: DataFrame,
+      valuesDf: DataFrame,
+      joinColumnsToUse: Seq[String]
   ): DataFrame = {
-    import org.apache.spark.sql.functions.broadcast
-    
     if (joinColumnsToUse.isEmpty) {
       return readIndex
     }
-    
-    logger.warn(s"Applying broadcast join filtering from DataFrame with ${joinColumnsToUse.size} columns")
-    
-    // Use broadcast semi-join to filter the readIndex DataFrame
-    // This is more efficient than collecting values and using isin()
-    readIndex.join(broadcast(valuesDf), joinColumnsToUse, "leftsemi")
+
+    logger.warn(
+      s"Applying join filtering from DataFrame with ${joinColumnsToUse.size} columns"
+    )
+
+    // Use semi-join to filter the readIndex DataFrame
+    readIndex.join(valuesDf, joinColumnsToUse, "leftsemi")
   }
 
   /** Retrieves and caches a DataFrame containing indexed data relevant to the
@@ -85,36 +93,48 @@ trait IndexJoinOperations extends IndexBuildOperations {
       case Some(selectedCols) =>
         val missingJoinCols = usingColumns.filterNot(selectedCols.contains)
         if (missingJoinCols.nonEmpty) {
-          throw new ColumnNotFoundException(s"Join columns must be included in selected columns. Missing: ${missingJoinCols.mkString(", ")}")
+          throw new ColumnNotFoundException(
+            s"Join columns must be included in selected columns. Missing: ${missingJoinCols.mkString(", ")}"
+          )
         }
       case None =>
         // No selection active, but still validate columns exist in schema or are available indexes
         val invalidJoinCols = usingColumns.filterNot { colName =>
-          SchemaHelper.fieldExists(storedSchema, colName) || this.indexes.contains(colName)
+          SchemaHelper.fieldExists(storedSchema, colName) || this.indexes
+            .contains(colName)
         }
         if (invalidJoinCols.nonEmpty) {
-          throw new ColumnNotFoundException(s"Join columns not found in schema or indexes: ${invalidJoinCols.mkString(", ")}")
+          throw new ColumnNotFoundException(
+            s"Join columns not found in schema or indexes: ${invalidJoinCols.mkString(", ")}"
+          )
         }
     }
-    
+
     // Map join columns to storage columns
     val columnMappings = mapJoinColumnsToStorage(usingColumns)
 
     // Include both regular storage columns and bloom storage columns
     val allStorageColumns = this.storageColumns ++ this.bloomStorageColumns
-    val storageColumnsToUse = columnMappings.values.toSet.intersect(allStorageColumns)
+    val storageColumnsToUse =
+      columnMappings.values.toSet.intersect(allStorageColumns)
     logger.warn(s"Found indexes for ${storageColumnsToUse.mkString(",")}")
 
     // Get values from the user DataFrame using join column names
     val joinColumnsToUse = usingColumns.filter(col =>
-      columnMappings.contains(col) && storageColumnsToUse.contains(columnMappings(col))
+      columnMappings.contains(col) && storageColumnsToUse.contains(
+        columnMappings(col)
+      )
     )
-    
+
     // Get distinct values as a DataFrame (no collect to driver)
     val filteredValuesDf = df.select(joinColumnsToUse.map(col): _*).distinct()
 
-    // Use the new DataFrame-based method to locate files (uses broadcast joins internally)
-    val files = locateFilesFromDataFrame(filteredValuesDf, columnMappings, joinColumnsToUse)
+    // Use the new DataFrame-based method to locate files
+    val files = locateFilesFromDataFrame(
+      filteredValuesDf,
+      columnMappings,
+      joinColumnsToUse
+    )
     logger.warn(s"Found ${files.size} files in index")
     val readIndex = readFiles(files)
 
@@ -122,10 +142,15 @@ trait IndexJoinOperations extends IndexBuildOperations {
     // (the bloom filter already did the filtering at the file level)
     // For regular columns, apply filters using DataFrame-based approach
     val bloomColumnSet = bloomColumns
-    val nonBloomJoinColumns = joinColumnsToUse.filterNot(bloomColumnSet.contains)
-    
+    val nonBloomJoinColumns =
+      joinColumnsToUse.filterNot(bloomColumnSet.contains)
+
     val filteredReadIndex = if (nonBloomJoinColumns.nonEmpty) {
-      applyJoinFiltersFromDataFrame(readIndex, filteredValuesDf, nonBloomJoinColumns)
+      applyJoinFiltersFromDataFrame(
+        readIndex,
+        filteredValuesDf,
+        nonBloomJoinColumns
+      )
     } else {
       readIndex
     }
@@ -134,7 +159,7 @@ trait IndexJoinOperations extends IndexBuildOperations {
     // We use a hash of the valuesDf to represent the actual values being joined
     val valuesDfHash = filteredValuesDf.queryExecution.analyzed.semanticHash()
     val cacheKey = (files, joinColumnsToUse.toSet, valuesDfHash)
-    
+
     // Note: We can't use the old cache type since the key structure changed
     // Clear old cache entries and use new structure
     val typedCache = mutable.Map[(Set[String], Set[String], Int), DataFrame]()
