@@ -131,18 +131,27 @@ trait IndexQueryOperations extends IndexJoinOperations {
 
     try {
       // Write distinct filenames to temp location (distributed operation)
+      // Using CSV for simplicity and easier debugging (single column of strings)
       resultDF
         .distinct()
         .write
         .mode("overwrite")
-        .parquet(tempPath.toString)
+        .option("header", "true")
+        .csv(tempPath.toString)
 
       logger.debug(s"Staged filenames to $tempPath")
 
       // Read back from temp (simple, optimized operation)
-      spark.read
-        .parquet(tempPath.toString)
+      val stagedFiles = spark.read
+        .option("header", "true")
+        .csv(tempPath.toString)
         .select("filename")
+
+      // Get count before collect for debugging
+      val fileCount = stagedFiles.count()
+      logger.warn(s"Collecting $fileCount distinct filenames from staging")
+
+      stagedFiles
         .collect()
         .map(_.getString(0))
         .toSet
