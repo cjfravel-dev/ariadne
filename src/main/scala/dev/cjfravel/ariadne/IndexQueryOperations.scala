@@ -12,6 +12,25 @@ import scala.collection.JavaConverters._
 trait IndexQueryOperations extends IndexJoinOperations {
   self: Index =>
 
+  /** Conditionally repartitions a DataFrame if indexRepartitionCount is
+    * configured. This helps avoid FetchFailedExceptions when working with very
+    * large index DataFrames by spreading data across more partitions before
+    * expensive operations like explode.
+    *
+    * @param df
+    *   The DataFrame to potentially repartition
+    * @return
+    *   Repartitioned DataFrame if configured, otherwise the original DataFrame
+    */
+  protected def maybeRepartition(df: DataFrame): DataFrame = {
+    indexRepartitionCount match {
+      case Some(count) =>
+        logger.warn(s"Repartitioning DataFrame to $count partitions")
+        df.repartition(count)
+      case None => df
+    }
+  }
+
   /** Helper function to load the index
     *
     * @return
@@ -253,6 +272,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
               schema
             )
 
+          // Repartition the index DataFrame before explode to reduce
+          // per-executor memory pressure on large indexes
+          val repartitionedIndex = maybeRepartition(indexDf)
+
           val resultDF = regularJoinColumns.foldLeft(emptyDF) {
             (accumDF, joinColumn) =>
               val storageColumn = columnMappings(joinColumn)
@@ -261,7 +284,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
               val distinctValues = valuesDf.select(col(joinColumn)).distinct()
 
               // Explode the index array column and join with the values
-              val filteredDF = indexDf
+              val filteredDF = repartitionedIndex
                 .select(
                   col("filename"),
                   explode(col(storageColumn)).alias("value")

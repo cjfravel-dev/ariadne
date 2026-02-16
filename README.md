@@ -1,6 +1,6 @@
 # Ariadne
 
-Like [Ariadne](https://en.wikipedia.org/wiki/Ariadne) from Greek mythology, this library helps you navigate your data labyrinth. And just like Ariadne, I hope you’ll one day betray it—like Theseus—and move on to something better, such as [Apache Iceberg](https://iceberg.apache.org/) or [Delta Lake](https://delta.io).
+Like [Ariadne](https://en.wikipedia.org/wiki/Ariadne) from Greek mythology, this library helps you navigate your data labyrinth. And just like Ariadne, I hope you'll one day betray it—like Theseus—and move on to something better, such as [Apache Iceberg](https://iceberg.apache.org/) or [Delta Lake](https://delta.io).
 
 But in the meantime, if your data lake is more of a data swamp and you lack a way to generate simple indexes for your files, Ariadne can help.
 
@@ -38,7 +38,7 @@ Additional format-specific options can be provided via `readOptions` when creati
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne</artifactId>
-    <version>0.0.1-alpha-35</version>
+    <version>0.0.1-alpha-36</version>
 </dependency>
 ```
 
@@ -116,3 +116,28 @@ val result = index.join(userQueryDf, Seq("user_id"), "inner")
 - **Probabilistic**: May return files that don't contain the value (false positives), but never misses files that do contain it (no false negatives)
 - **Mutually exclusive**: A column can have either a regular index OR a bloom index, not both
 - **Best for**: High-cardinality columns across large datasets where exact value storage would be prohibitive
+
+## Configuration
+
+All configuration is done via Spark configuration properties. Set them before creating or using indexes.
+
+| Configuration Key                             | Type   | Default      | Description                                                                                                                                                                         |
+| --------------------------------------------- | ------ | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spark.ariadne.storagePath`                   | String | _(required)_ | Path on the filesystem where Ariadne stores index data. Must be accessible via `spark.sparkContext.hadoopConfiguration`.                                                            |
+| `spark.ariadne.largeIndexLimit`               | Long   | `500000`     | Maximum number of distinct values per column per file before an index is considered "large" and stored in a separate consolidated Delta table.                                      |
+| `spark.ariadne.stagingConsolidationThreshold` | Int    | `50`         | Number of batches to process before consolidating staged data into the main index during `update`. Provides fault tolerance for large index builds.                                 |
+| `spark.ariadne.indexRepartitionCount`         | Int    | _(not set)_  | Number of partitions to repartition the index DataFrame to during joins. Set this when experiencing `FetchFailedException` on joins to very large indexes. |
+
+### Example
+
+```scala
+// Required: storage path
+spark.conf.set("spark.ariadne.storagePath", "abfss://container@account.dfs.core.windows.net/ariadne")
+
+// Optional: tune for large indexes
+spark.conf.set("spark.ariadne.largeIndexLimit", "1000000")
+spark.conf.set("spark.ariadne.stagingConsolidationThreshold", "100")
+
+// Optional: prevent FetchFailedException on very large index joins
+spark.conf.set("spark.ariadne.indexRepartitionCount", "200")
+```
