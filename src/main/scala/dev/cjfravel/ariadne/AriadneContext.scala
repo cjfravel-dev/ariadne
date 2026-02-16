@@ -35,15 +35,30 @@ trait AriadneContextUser {
     limit
   }
 
-  /** Number of batches to process before consolidating staged data into the main index.
-    * This provides fault tolerance for large index builds - if a job fails, work is preserved
-    * up to the last consolidation point. Reads from spark.ariadne.stagingConsolidationThreshold
-    * configuration (default: 50).
+  /** Number of batches to process before consolidating staged data into the
+    * main index. This provides fault tolerance for large index builds - if a
+    * job fails, work is preserved up to the last consolidation point. Reads
+    * from spark.ariadne.stagingConsolidationThreshold configuration (default:
+    * 50).
     */
   lazy val stagingConsolidationThreshold: Int = {
-    val threshold = spark.conf.get("spark.ariadne.stagingConsolidationThreshold", "50").toInt
+    val threshold =
+      spark.conf.get("spark.ariadne.stagingConsolidationThreshold", "50").toInt
     logger.warn(s"stagingConsolidationThreshold initialized: $threshold")
     threshold
+  }
+
+  /** Optional number of partitions to use when repartitioning the index
+    * DataFrame during joins. When set, the index DataFrame is repartitioned
+    * before expensive operations like explode to reduce per-executor memory
+    * pressure and avoid FetchFailedExceptions on large indexes. Reads from
+    * spark.ariadne.indexRepartitionCount configuration (default: not set).
+    */
+  lazy val indexRepartitionCount: Option[Int] = {
+    val count =
+      spark.conf.getOption("spark.ariadne.indexRepartitionCount").map(_.toInt)
+    count.foreach(c => logger.warn(s"indexRepartitionCount initialized: $c"))
+    count
   }
 
   /** Hadoop FileSystem instance associated with the storage path. */

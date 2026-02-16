@@ -136,7 +136,10 @@ trait IndexJoinOperations extends IndexBuildOperations {
       joinColumnsToUse
     )
     logger.warn(s"Found ${files.size} files in index")
-    val readIndex = readFiles(files)
+
+    // Repartition the readFiles result to reduce per-executor memory pressure
+    // during the subsequent join operations on large indexes
+    val readIndex = maybeRepartition(readFiles(files))
 
     // For bloom columns, we don't need to apply additional filters on the actual data
     // (the bloom filter already did the filtering at the file level)
