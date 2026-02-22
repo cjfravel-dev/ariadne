@@ -61,6 +61,30 @@ trait AriadneContextUser {
     count
   }
 
+  /** When true, logs detailed diagnostics during join operations including
+    * partition counts, physical plans, and per-phase timing. Reads from
+    * spark.ariadne.debug configuration (default: false).
+    */
+  lazy val debugEnabled: Boolean = {
+    val enabled =
+      spark.conf.get("spark.ariadne.debug", "false").toBoolean
+    if (enabled) logger.warn("Debug mode enabled")
+    enabled
+  }
+
+  /** When true (default), applies indexRepartitionCount repartitioning to the
+    * data files read during joinDf. When false, data files keep their natural
+    * parquet partitioning. Disable when column selection significantly reduces
+    * data volume, making the repartition shuffle more expensive than useful.
+    * Reads from spark.ariadne.repartitionDataFiles configuration (default: true).
+    */
+  lazy val repartitionDataFiles: Boolean = {
+    val enabled =
+      spark.conf.get("spark.ariadne.repartitionDataFiles", "false").toBoolean
+    if (enabled) logger.warn("repartitionDataFiles enabled — data files will be repartitioned")
+    enabled
+  }
+
   /** Hadoop FileSystem instance associated with the storage path. */
   lazy val fs: FileSystem = {
     val filesystem = FileSystem.get(

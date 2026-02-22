@@ -143,12 +143,16 @@ trait IndexQueryOperations extends IndexJoinOperations {
     *   Set of distinct filenames
     */
   private def collectFilenamesViaStaging(resultDF: DataFrame): Set[String] = {
+    val stagingStart = System.currentTimeMillis()
     val tempPath = new Path(
       IndexPathUtils.tempPath,
       s"query_files_${System.currentTimeMillis()}_${java.util.UUID.randomUUID()}"
     )
 
     try {
+      if (debugEnabled) {
+        logger.warn(s"[debug] collectFilenamesViaStaging: writing distinct filenames to $tempPath")
+      }
       // Write distinct filenames to temp location (distributed operation)
       // Using CSV for simplicity and easier debugging (single column of strings)
       resultDF
@@ -157,6 +161,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
         .mode("overwrite")
         .option("header", "true")
         .csv(tempPath.toString)
+
+      if (debugEnabled) {
+        logger.warn(s"[debug] collectFilenamesViaStaging: CSV write completed in ${System.currentTimeMillis() - stagingStart}ms")
+      }
 
       logger.debug(s"Staged filenames to $tempPath")
 
@@ -170,10 +178,16 @@ trait IndexQueryOperations extends IndexJoinOperations {
       val fileCount = stagedFiles.count()
       logger.warn(s"Collecting $fileCount distinct filenames from staging")
 
-      stagedFiles
+      val files = stagedFiles
         .collect()
         .map(_.getString(0))
         .toSet
+
+      if (debugEnabled) {
+        logger.warn(s"[debug] collectFilenamesViaStaging: complete in ${System.currentTimeMillis() - stagingStart}ms, $fileCount files collected")
+      }
+
+      files
     } finally {
       // Cleanup temp location
       try {
@@ -242,8 +256,12 @@ trait IndexQueryOperations extends IndexJoinOperations {
       columnMappings: Map[String, String],
       joinColumns: Seq[String]
   ): Set[String] = {
+    val locateStart = System.currentTimeMillis()
     index match {
       case Some(indexDf) =>
+        if (debugEnabled) {
+          logger.warn(s"[debug] locateFilesFromDataFrame started: joinColumns=${joinColumns.mkString(",")}")
+        }
         val bloomColumnSet = bloomColumns
 
         // Separate bloom and regular columns
@@ -275,6 +293,9 @@ trait IndexQueryOperations extends IndexJoinOperations {
           // Repartition the index DataFrame before explode to reduce
           // per-executor memory pressure on large indexes
           val repartitionedIndex = maybeRepartition(indexDf)
+          if (debugEnabled) {
+            logger.warn(s"[debug] locateFiles: index repartitioned")
+          }
 
           val resultDF = regularJoinColumns.foldLeft(emptyDF) {
             (accumDF, joinColumn) =>
@@ -300,6 +321,9 @@ trait IndexQueryOperations extends IndexJoinOperations {
               accumDF.union(filteredDF)
           }
 
+          if (debugEnabled) {
+            logger.warn(s"[debug] locateFiles: about to collectFilenamesViaStaging at ${System.currentTimeMillis() - locateStart}ms")
+          }
           collectFilenamesViaStaging(resultDF)
         } else {
           Set.empty[String]
