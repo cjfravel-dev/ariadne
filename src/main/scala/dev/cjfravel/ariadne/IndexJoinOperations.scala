@@ -1,18 +1,14 @@
 package dev.cjfravel.ariadne
 
 import dev.cjfravel.ariadne.exceptions.ColumnNotFoundException
-import org.apache.spark.sql.{DataFrame, Column}
+import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
-import scala.collection.mutable
 import scala.collection.JavaConverters._
 
 /** Trait providing join operations for Index instances.
   */
 trait IndexJoinOperations extends IndexBuildOperations {
   self: Index =>
-
-  private val joinCache =
-    mutable.Map[(Set[String], Map[String, Seq[Any]]), DataFrame]()
 
   /** Maps join column names to their corresponding storage column names.
     *
@@ -42,20 +38,18 @@ trait IndexJoinOperations extends IndexBuildOperations {
     }.toMap
   }
 
-  /** Retrieves and caches a DataFrame containing indexed data relevant to the
-    * given DataFrame.
+  /** Locates and reads indexed data files relevant to the given DataFrame.
     *
-    * This method determines which index columns exist in the provided
-    * DataFrame, retrieves the relevant indexed files, and loads them into a
-    * DataFrame.
+    * Uses the index to identify which files contain matching values, then
+    * reads those files into a lazy DataFrame. The actual row-level filtering
+    * happens in the subsequent join in [[join]].
     *
     * @param df
     *   The DataFrame to match against the index.
     * @param usingColumns
     *   The columns used for the join.
     * @return
-    *   A DataFrame containing data from indexed files that match the provided
-    *   DataFrame.
+    *   A lazy DataFrame containing data from indexed files.
     */
   protected def joinDf(df: DataFrame, usingColumns: Seq[String]): DataFrame = {
     val joinStart = System.currentTimeMillis()
@@ -169,29 +163,7 @@ trait IndexJoinOperations extends IndexBuildOperations {
         logger.warn(s"[debug]   $line"))
     }
 
-    // Cache key must include join columns to avoid returning wrong cached results
-    // We use a hash of the valuesDf to represent the actual values being joined
-    val valuesDfHash = filteredValuesDf.queryExecution.analyzed.semanticHash()
-    val cacheKey = (files, joinColumnsToUse.toSet, valuesDfHash)
-
-    // Note: We can't use the old cache type since the key structure changed
-    // Clear old cache entries and use new structure
-    val typedCache = mutable.Map[(Set[String], Set[String], Int), DataFrame]()
-    if (debugEnabled) {
-      logger.warn(s"[debug] about to cache + materialize at ${elapsed()}")
-    }
-    val cachedDf = typedCache.getOrElseUpdate(cacheKey, readIndex.cache)
-
-    if (debugEnabled) {
-      logger.warn(s"[debug] cache registered at ${elapsed()}, forcing materialization with count()...")
-      val countStart = System.currentTimeMillis()
-      val count = cachedDf.count()
-      val countDuration = System.currentTimeMillis() - countStart
-      logger.warn(s"[debug] cache materialized in ${elapsed()} (count took ${countDuration}ms), rows: $count")
-      logger.warn(s"[debug] storage level: ${cachedDf.storageLevel}")
-    }
-
-    cachedDf
+    readIndex
   }
 
   /** Joins a DataFrame with the index.
