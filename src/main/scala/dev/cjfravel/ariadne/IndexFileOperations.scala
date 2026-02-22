@@ -66,6 +66,14 @@ trait IndexFileOperations extends IndexMetadataOperations {
     *   DataFrame with data from the specified files
     */
   protected def createBaseDataFrame(files: Set[String]): DataFrame = {
+    val normalizedFiles = files.map(_.trim).filter(_.nonEmpty)
+    if (normalizedFiles.isEmpty) {
+      return spark.createDataFrame(
+        spark.sparkContext.emptyRDD[org.apache.spark.sql.Row],
+        storedSchema
+      )
+    }
+
     // Apply read options
     val configuredReader =
       metadata.read_options.asScala.foldLeft(spark.read.schema(storedSchema)) {
@@ -74,11 +82,28 @@ trait IndexFileOperations extends IndexMetadataOperations {
 
     // Load data based on format
     format match {
-      case "csv"     => configuredReader.csv(files.toList: _*)
-      case "parquet" => configuredReader.parquet(files.toList: _*)
-      case "json"    => configuredReader.json(files.toList: _*)
+      case "csv"     => configuredReader.csv(normalizedFiles.toList: _*)
+      case "parquet" => configuredReader.parquet(normalizedFiles.toList: _*)
+      case "json"    => configuredReader.json(normalizedFiles.toList: _*)
       case _ =>
         throw new IllegalArgumentException(s"Unsupported format: $format")
+    }
+  }
+
+  /** Adds a stable filename column, falling back to the source path for
+    * single-file reads when Spark reports an empty filename.
+    */
+  protected def addFilenameColumn(df: DataFrame, files: Set[String]): DataFrame = {
+    if (files.size == 1) {
+      val fallbackFile = files.head
+      val inputFile = input_file_name()
+      df.withColumn(
+        "filename",
+        when(inputFile.isNull || length(trim(inputFile)) === 0, lit(fallbackFile))
+          .otherwise(inputFile)
+      )
+    } else {
+      df.withColumn("filename", input_file_name())
     }
   }
 
