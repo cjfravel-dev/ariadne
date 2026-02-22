@@ -249,7 +249,7 @@ case class Index private (
   private def updateSingleBatch(files: Set[String]): Unit = {
     val baseDf = createBaseDataFrame(files)
     val withComputedIndexes = applyComputedIndexes(baseDf)
-    val withFilename = withComputedIndexes.withColumn("filename", input_file_name)
+    val withFilename = addFilenameColumn(withComputedIndexes, files)
 
     // Build regular indexes
     val regularIndexesDf = buildRegularIndexes(withFilename)

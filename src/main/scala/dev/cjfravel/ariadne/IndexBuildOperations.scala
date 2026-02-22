@@ -61,7 +61,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
     // Read files with just indexed columns + filename
     val baseDf = createBaseDataFrame(files)
     val withComputedIndexes = applyComputedIndexes(baseDf)
-    val withFilename = withComputedIndexes.withColumn("filename", input_file_name())
+    val withFilename = addFilenameColumn(withComputedIndexes, files)
     
     // For each file, count distinct values per indexed column
     val analysisColumns = allStorageColumns.toSeq
