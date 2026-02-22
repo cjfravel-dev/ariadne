@@ -22,12 +22,23 @@ trait IndexFileOperations extends IndexMetadataOperations {
     *   A DataFrame containing the contents of the specified files.
     */
   protected def readFiles(files: Set[String]): DataFrame = {
+    if (debugEnabled) {
+      logger.warn(s"[debug] readFiles: reading ${files.size} files, format: $format")
+    }
+    val readStart = System.currentTimeMillis()
     val baseDf = createBaseDataFrame(files)
+    if (debugEnabled) {
+      logger.warn(s"[debug] readFiles: createBaseDataFrame setup in ${System.currentTimeMillis() - readStart}ms")
+    }
     val withComputedIndexes = applyComputedIndexes(baseDf)
     val withExplodedFields = applyExplodedFields(withComputedIndexes)
     
     // Apply column selection if specified
-    applyColumnSelection(withExplodedFields)
+    val result = applyColumnSelection(withExplodedFields)
+    if (debugEnabled) {
+      logger.warn(s"[debug] readFiles: complete setup in ${System.currentTimeMillis() - readStart}ms, columns: ${result.schema.fieldNames.length}")
+    }
+    result
   }
 
   /** Applies column selection if columns have been specified via select().

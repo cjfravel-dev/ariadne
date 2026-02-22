@@ -38,7 +38,7 @@ Additional format-specific options can be provided via `readOptions` when creati
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne</artifactId>
-    <version>0.0.1-alpha-36</version>
+    <version>0.0.1-alpha-37</version>
 </dependency>
 ```
 
@@ -121,12 +121,14 @@ val result = index.join(userQueryDf, Seq("user_id"), "inner")
 
 All configuration is done via Spark configuration properties. Set them before creating or using indexes.
 
-| Configuration Key                             | Type   | Default      | Description                                                                                                                                                                         |
-| --------------------------------------------- | ------ | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spark.ariadne.storagePath`                   | String | _(required)_ | Path on the filesystem where Ariadne stores index data. Must be accessible via `spark.sparkContext.hadoopConfiguration`.                                                            |
-| `spark.ariadne.largeIndexLimit`               | Long   | `500000`     | Maximum number of distinct values per column per file before an index is considered "large" and stored in a separate consolidated Delta table.                                      |
-| `spark.ariadne.stagingConsolidationThreshold` | Int    | `50`         | Number of batches to process before consolidating staged data into the main index during `update`. Provides fault tolerance for large index builds.                                 |
-| `spark.ariadne.indexRepartitionCount`         | Int    | _(not set)_  | Number of partitions to repartition the index DataFrame to during joins. Set this when experiencing `FetchFailedException` on joins to very large indexes. |
+| Configuration Key                             | Type    | Default      | Description                                                                                                                                                                         |
+| --------------------------------------------- | ------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spark.ariadne.storagePath`                   | String  | _(required)_ | Path on the filesystem where Ariadne stores index data. Must be accessible via `spark.sparkContext.hadoopConfiguration`.                                                            |
+| `spark.ariadne.largeIndexLimit`               | Long    | `500000`     | Maximum number of distinct values per column per file before an index is considered "large" and stored in a separate consolidated Delta table.                                      |
+| `spark.ariadne.stagingConsolidationThreshold` | Int     | `50`         | Number of batches to process before consolidating staged data into the main index during `update`. Provides fault tolerance for large index builds.                                 |
+| `spark.ariadne.indexRepartitionCount`         | Int     | _(not set)_  | Number of partitions to repartition the index metadata DataFrame to during file lookup. Helps avoid `FetchFailedException` when exploding large index arrays. |
+| `spark.ariadne.repartitionDataFiles`          | Boolean | `false`      | When `true`, also applies `indexRepartitionCount` repartitioning to data files read during joins. When `false` (default), data files keep their natural parquet partitioning. |
+| `spark.ariadne.debug`                         | Boolean | `false`      | Enables detailed diagnostics during join operations: per-phase timing, file sizes, physical plans, and cache materialization stats. |
 
 ### Example
 
@@ -138,6 +140,12 @@ spark.conf.set("spark.ariadne.storagePath", "abfss://container@account.dfs.core.
 spark.conf.set("spark.ariadne.largeIndexLimit", "1000000")
 spark.conf.set("spark.ariadne.stagingConsolidationThreshold", "100")
 
-// Optional: prevent FetchFailedException on very large index joins
-spark.conf.set("spark.ariadne.indexRepartitionCount", "200")
+// Optional: prevent FetchFailedException on very large index metadata
+spark.conf.set("spark.ariadne.indexRepartitionCount", "500")
+
+// Optional: also repartition data files (disabled by default)
+spark.conf.set("spark.ariadne.repartitionDataFiles", "true")
+
+// Optional: enable debug logging
+spark.conf.set("spark.ariadne.debug", "true")
 ```
