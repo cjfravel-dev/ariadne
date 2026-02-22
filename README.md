@@ -24,6 +24,7 @@ Additional format-specific options can be provided via `readOptions` when creati
 2. **Specify indexed columns** – Choose the columns you want to index:
    - **Regular indexes** – Index standard columns directly (`addIndex("column_name")`)
    - **Bloom filter indexes** – Space-efficient probabilistic indexes for high-cardinality columns (`addBloomIndex("column_name", fpr)`)
+   - **Temporal indexes** – Version-aware indexes that deduplicate by recency (`addTemporalIndex("column_name", "timestamp_column")`)
    - **Computed indexes** – Index derived values using SQL expressions (`addComputedIndex("alias", "expression")`)
    - **Exploded field indexes** – Index elements within array columns (`addExplodedFieldIndex("array_column", "field_path", "alias")`)
 3. **Add files** – Register files with the index.
@@ -116,6 +117,31 @@ val result = index.join(userQueryDf, Seq("user_id"), "inner")
 - **Probabilistic**: May return files that don't contain the value (false positives), but never misses files that do contain it (no false negatives)
 - **Mutually exclusive**: A column can have either a regular index OR a bloom index, not both
 - **Best for**: High-cardinality columns across large datasets where exact value storage would be prohibitive
+
+### Temporal Index Example
+
+Temporal indexes are ideal when the same entity appears in multiple files at different timestamps, and you only want the most recent version:
+
+```scala
+// Create an index with temporal deduplication
+val index = Index("users", userSchema, "parquet")
+index.addTemporalIndex("user_id", "updated_at")  // Dedup by user_id, keep latest updated_at
+index.addFile(userFiles: _*)
+index.update
+
+// Join returns only the latest version of each user_id
+val queryDf = // spark.read ....
+val result = index.join(queryDf, Seq("user_id"), "inner")
+// If user_id=1 appears in file_jan.parquet (updated_at=2024-01) and
+// file_jun.parquet (updated_at=2024-06), only the June version is returned.
+```
+
+**Key points about temporal indexes:**
+
+- **Latest-version semantics**: When the same value exists in multiple files, only the row with the most recent timestamp is returned during joins
+- **Null timestamps**: Rows with null timestamps are ranked last — a non-null timestamp always wins
+- **Mutually exclusive**: A column can have either a regular, bloom, computed, OR temporal index — not multiple
+- **Best for**: Slowly changing dimensions, entity snapshots, event-sourced data where you need the current state
 
 ## Configuration
 

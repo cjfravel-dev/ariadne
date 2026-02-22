@@ -3,6 +3,7 @@ package dev.cjfravel.ariadne
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.types.{StructType, StructField, StringType}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.expressions.Window
 import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.Path
 import scala.collection.JavaConverters._
@@ -96,16 +97,29 @@ trait IndexQueryOperations extends IndexJoinOperations {
   def locateFiles(indexes: Map[String, Array[Any]]): Set[String] = {
     index match {
       case Some(df) =>
-        // Separate bloom and regular index queries
+        // Separate bloom, temporal, and regular index queries
         val bloomColumnSet = bloomColumns
-        val (bloomQueries, regularQueries) = indexes.partition {
+        val temporalColumnSet = metadata.temporal_indexes.asScala.map(_.column).toSet
+        val (bloomQueries, nonBloomQueries) = indexes.partition {
           case (col, _) => bloomColumnSet.contains(col)
+        }
+        val (temporalQueries, regularQueries) = nonBloomQueries.partition {
+          case (col, _) => temporalColumnSet.contains(col)
         }
 
         // Get files from bloom filters
         val bloomFiles = if (bloomQueries.nonEmpty) {
           bloomQueries.flatMap { case (col, values) =>
             locateFilesWithBloom(col, values, df)
+          }.toSet
+        } else {
+          Set.empty[String]
+        }
+
+        // Get files from temporal indexes (pruned to latest timestamp per value)
+        val temporalFiles = if (temporalQueries.nonEmpty) {
+          temporalQueries.flatMap { case (column, values) =>
+            locateFilesWithTemporal(column, values, df)
           }.toSet
         } else {
           Set.empty[String]
@@ -118,17 +132,9 @@ trait IndexQueryOperations extends IndexJoinOperations {
           Set.empty[String]
         }
 
-        // Combine results
-        if (bloomFiles.isEmpty && regularFiles.isEmpty) {
-          Set.empty
-        } else if (bloomFiles.isEmpty) {
-          regularFiles
-        } else if (regularFiles.isEmpty) {
-          bloomFiles
-        } else {
-          // Both have results - use union (OR semantics) to match existing behavior
-          bloomFiles.union(regularFiles)
-        }
+        // Combine results (union / OR semantics)
+        val allFiles = bloomFiles.union(temporalFiles).union(regularFiles)
+        if (allFiles.isEmpty) Set.empty else allFiles
       case None => Set()
     }
   }
@@ -239,6 +245,42 @@ trait IndexQueryOperations extends IndexJoinOperations {
     collectFilenamesViaStaging(resultDF)
   }
 
+  /** Locates files using temporal indexes, pruning to only files containing
+    * the latest version of each value (by max timestamp).
+    *
+    * @param column The temporal index value column name
+    * @param values Values to search for
+    * @param df The index DataFrame
+    * @return Set of filenames containing the latest versions
+    */
+  private def locateFilesWithTemporal(
+      column: String,
+      values: Array[Any],
+      df: DataFrame
+  ): Set[String] = {
+    // Explode the struct array: Array[Struct(value, max_ts)] → rows of (filename, value, max_ts)
+    val exploded = df
+      .select(col("filename"), explode(col(column)).alias("_temporal"))
+      .select(
+        col("filename"),
+        col("_temporal.value").alias("_value"),
+        col("_temporal.max_ts").alias("_max_ts")
+      )
+
+    // Filter to requested values
+    val filtered = exploded.where(col("_value").isin(values: _*))
+
+    // For each value, keep only the file with the latest timestamp
+    val w = Window.partitionBy("_value").orderBy(col("_max_ts").desc_nulls_last)
+    val pruned = filtered
+      .withColumn("_rank", row_number().over(w))
+      .filter(col("_rank") === 1)
+      .select("filename")
+      .distinct()
+
+    collectFilenamesViaStaging(pruned)
+  }
+
   /** Locates files based on a DataFrame containing join column values. Handles
     * both regular indexes and bloom filter indexes.
     *
@@ -263,17 +305,30 @@ trait IndexQueryOperations extends IndexJoinOperations {
           logger.warn(s"[debug] locateFilesFromDataFrame started: joinColumns=${joinColumns.mkString(",")}")
         }
         val bloomColumnSet = bloomColumns
+        val temporalColumnSet = metadata.temporal_indexes.asScala.map(_.column).toSet
 
-        // Separate bloom and regular columns
-        val (bloomJoinColumns, regularJoinColumns) = joinColumns.partition {
-          joinColumn =>
-            bloomColumnSet.contains(joinColumn)
+        // Separate bloom, temporal, and regular columns
+        val (bloomJoinColumns, nonBloomColumns) = joinColumns.partition {
+          joinColumn => bloomColumnSet.contains(joinColumn)
+        }
+        val (temporalJoinColumns, regularJoinColumns) = nonBloomColumns.partition {
+          joinColumn => temporalColumnSet.contains(joinColumn)
         }
 
         // Get files from bloom filters
         val bloomFiles = if (bloomJoinColumns.nonEmpty) {
           bloomJoinColumns.flatMap { joinColumn =>
             locateFilesWithBloomFromDataFrame(joinColumn, valuesDf, indexDf)
+          }.toSet
+        } else {
+          Set.empty[String]
+        }
+
+        // Get files from temporal indexes (pruned to latest timestamp per value)
+        val temporalFiles = if (temporalJoinColumns.nonEmpty) {
+          val repartitionedIndex = maybeRepartition(indexDf)
+          temporalJoinColumns.flatMap { joinColumn =>
+            locateFilesWithTemporalFromDataFrame(joinColumn, valuesDf, repartitionedIndex)
           }.toSet
         } else {
           Set.empty[String]
@@ -329,18 +384,49 @@ trait IndexQueryOperations extends IndexJoinOperations {
           Set.empty[String]
         }
 
-        // Combine results
-        if (bloomFiles.isEmpty && regularFiles.isEmpty) {
-          Set.empty
-        } else if (bloomFiles.isEmpty) {
-          regularFiles
-        } else if (regularFiles.isEmpty) {
-          bloomFiles
-        } else {
-          bloomFiles.union(regularFiles)
-        }
+        // Combine results (union / OR semantics)
+        val allFiles = bloomFiles.union(temporalFiles).union(regularFiles)
+        if (allFiles.isEmpty) Set.empty else allFiles
       case None => Set()
     }
+  }
+
+  /** Locates files using temporal indexes from a DataFrame of values, pruning
+    * to only files containing the latest version of each value.
+    *
+    * @param column The temporal index value column name
+    * @param valuesDf DataFrame containing values to search for
+    * @param indexDf The index DataFrame
+    * @return Set of filenames containing the latest versions
+    */
+  private def locateFilesWithTemporalFromDataFrame(
+      column: String,
+      valuesDf: DataFrame,
+      indexDf: DataFrame
+  ): Set[String] = {
+    // Explode the struct array: Array[Struct(value, max_ts)] → rows of (filename, value, max_ts)
+    val exploded = indexDf
+      .select(col("filename"), explode(col(column)).alias("_temporal"))
+      .select(
+        col("filename"),
+        col("_temporal.value").alias("_value"),
+        col("_temporal.max_ts").alias("_max_ts")
+      )
+
+    // Join with query values
+    val distinctValues = valuesDf.select(col(column)).distinct()
+      .withColumnRenamed(column, "_value")
+    val matched = exploded.join(distinctValues, Seq("_value"), "inner")
+
+    // For each value, keep only the file with the latest timestamp
+    val w = Window.partitionBy("_value").orderBy(col("_max_ts").desc_nulls_last)
+    val pruned = matched
+      .withColumn("_rank", row_number().over(w))
+      .filter(col("_rank") === 1)
+      .select("filename")
+      .distinct()
+
+    collectFilenamesViaStaging(pruned)
   }
 
   /** Returns a DataFrame of statistics for each indexed column (based on array

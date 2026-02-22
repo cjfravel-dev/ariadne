@@ -3,6 +3,7 @@ package dev.cjfravel.ariadne
 import dev.cjfravel.ariadne.exceptions.ColumnNotFoundException
 import org.apache.spark.sql.{DataFrame, Column}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.expressions.Window
 import scala.collection.mutable
 import scala.collection.JavaConverters._
 
@@ -157,11 +158,13 @@ trait IndexJoinOperations extends IndexBuildOperations {
     // Default is false — data files keep their natural parquet partitioning.
     // Enable when reading all columns from very large indexes to reduce
     // per-executor memory pressure.
-    val readIndex = if (repartitionDataFiles) {
+    val rawReadIndex = if (repartitionDataFiles) {
       maybeRepartition(readFiles(files))
     } else {
       readFiles(files)
     }
+    // Apply temporal deduplication if any temporal indexes are being used in this join
+    val readIndex = applyTemporalDeduplication(rawReadIndex, usingColumns)
     if (debugEnabled) {
       logger.warn(s"[debug] readFiles setup in ${elapsed()}, repartitionDataFiles=$repartitionDataFiles, schema columns: ${readIndex.schema.fieldNames.length}")
       logger.warn(s"[debug] readFiles physical plan:")
@@ -192,6 +195,36 @@ trait IndexJoinOperations extends IndexBuildOperations {
     }
 
     cachedDf
+  }
+
+  /** Applies temporal deduplication to keep only the latest version of each
+    * value for temporal index columns being used in the current join.
+    *
+    * Uses row_number() window function partitioned by the value column and
+    * ordered by the timestamp column descending, keeping only rank 1.
+    *
+    * @param df The DataFrame read from data files
+    * @param joinColumns The columns being used for the join
+    * @return DataFrame with stale duplicates removed, or original if no temporal indexes apply
+    */
+  protected def applyTemporalDeduplication(
+      df: DataFrame,
+      joinColumns: Seq[String]
+  ): DataFrame = {
+    val temporalConfigs = metadata.temporal_indexes.asScala.toSeq
+    val applicableConfigs = temporalConfigs.filter(tc => joinColumns.contains(tc.column))
+
+    if (applicableConfigs.isEmpty) return df
+
+    applicableConfigs.foldLeft(df) { (accumDf, config) =>
+      val w = Window
+        .partitionBy(config.column)
+        .orderBy(col(config.timestamp_column).desc_nulls_last)
+      accumDf
+        .withColumn("_ariadne_temporal_rank", row_number().over(w))
+        .filter(col("_ariadne_temporal_rank") === 1)
+        .drop("_ariadne_temporal_rank")
+    }
   }
 
   /** Joins a DataFrame with the index.

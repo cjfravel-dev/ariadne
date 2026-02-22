@@ -187,5 +187,61 @@ class IndexMetadataTests extends AnyFunSuite {
     assert(metadata.exploded_field_indexes.size() === 0)
     assert(metadata.read_options.size() === 0)
     assert(metadata.bloom_indexes.size() === 0)
+    assert(metadata.temporal_indexes.size() === 0)
+  }
+
+  test("v5 -> v6") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v5.json")
+    require(stream != null, "Resource not found: /index_metadata/v5.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 2)
+    assert(metadata.exploded_field_indexes.size() === 2)
+    assert(metadata.read_options.size() === 2)
+    assert(metadata.bloom_indexes.size() === 2)
+    // v5 -> v6 migration should add empty temporal_indexes
+    assert(metadata.temporal_indexes.size() === 0)
+  }
+
+  test("v6") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v6.json")
+    require(stream != null, "Resource not found: /index_metadata/v6.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 2)
+    assert(metadata.exploded_field_indexes.size() === 2)
+    assert(metadata.read_options.size() === 2)
+    assert(metadata.bloom_indexes.size() === 2)
+    assert(metadata.temporal_indexes.size() === 2)
+
+    val temporalIndexes = metadata.temporal_indexes.asScala.toSeq
+    val entityIdIndex = temporalIndexes.find(_.column == "entity_id").get
+    assert(entityIdIndex.column === "entity_id")
+    assert(entityIdIndex.timestamp_column === "updated_at")
+
+    val userIdIndex = temporalIndexes.find(_.column == "user_id").get
+    assert(userIdIndex.column === "user_id")
+    assert(userIdIndex.timestamp_column === "last_modified")
+  }
+
+  test("v1 -> v6 full migration") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v1.json")
+    require(stream != null, "Resource not found: /index_metadata/v1.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 0)
+    assert(metadata.exploded_field_indexes.size() === 0)
+    assert(metadata.read_options.size() === 0)
+    assert(metadata.bloom_indexes.size() === 0)
+    assert(metadata.temporal_indexes.size() === 0)
   }
 }

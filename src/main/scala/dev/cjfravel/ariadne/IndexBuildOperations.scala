@@ -29,7 +29,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
   protected def storageColumns: Set[String] =
     metadata.indexes.asScala.toSet ++
       metadata.computed_indexes.keySet().asScala ++
-      metadata.exploded_field_indexes.asScala.map(_.array_column).toSet
+      metadata.exploded_field_indexes.asScala.map(_.array_column).toSet ++
+      metadata.temporal_indexes.asScala.map(_.column).toSet
 
   /** Case class to hold file analysis results for batching decisions.
     *
@@ -157,7 +158,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
     * @return DataFrame with regular indexes aggregated by filename
     */
   protected def buildRegularIndexes(df: DataFrame): DataFrame = {
-    val regularIndexes = metadata.indexes.asScala.toSet ++ metadata.computed_indexes.keySet().asScala
+    val regularIndexes = metadata.indexes.asScala.toSet ++
+      metadata.computed_indexes.keySet().asScala
     
     if (regularIndexes.nonEmpty) {
       val regularCols = (regularIndexes + "filename").toList
@@ -186,6 +188,33 @@ trait IndexBuildOperations extends BloomFilterOperations {
         .agg(collect_set(col("temp_exploded")).alias(explodedField.array_column))
 
       accumDf.join(explodedDf, Seq("filename"), "full_outer")
+    }
+  }
+
+  /** Builds temporal indexes storing Array[Struct(value, max_ts)] per file.
+    *
+    * For each temporal index config, groups by (filename, value_column) to find
+    * the max timestamp per value per file, then collects into struct arrays.
+    *
+    * @param df The base DataFrame with filename column and source data
+    * @return DataFrame with temporal struct array columns, or filename-only if none configured
+    */
+  protected def buildTemporalIndexes(df: DataFrame): DataFrame = {
+    val temporalConfigs = metadata.temporal_indexes.asScala.toSeq
+    if (temporalConfigs.isEmpty) return df.select("filename").distinct()
+
+    temporalConfigs.foldLeft(df.select("filename").distinct()) { (accumDf, config) =>
+      val perFilePerValue = df
+        .select("filename", config.column, config.timestamp_column)
+        .groupBy("filename", config.column)
+        .agg(max(col(config.timestamp_column)).alias("_ariadne_max_ts"))
+
+      val structPerFile = perFilePerValue
+        .withColumn("_struct", struct(col(config.column).as("value"), col("_ariadne_max_ts").as("max_ts")))
+        .groupBy("filename")
+        .agg(collect_set(col("_struct")).alias(config.column))
+
+      accumDf.join(structPerFile, Seq("filename"), "full_outer")
     }
   }
 
