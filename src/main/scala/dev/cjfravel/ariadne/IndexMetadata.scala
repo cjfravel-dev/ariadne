@@ -19,6 +19,20 @@ case class BloomIndexConfig(
     var fpr: Double = 0.01
 )
 
+/** Configuration for a temporal index.
+  *
+  * Temporal indexes track entity versions across files. When joining on the
+  * value column, only the row with the latest timestamp is returned, effectively
+  * deduplicating across files by recency.
+  *
+  * @param column The value column to index and deduplicate on (e.g., "user_id")
+  * @param timestamp_column The timestamp column used to determine recency (e.g., "updated_at")
+  */
+case class TemporalIndexConfig(
+    var column: String,
+    var timestamp_column: String
+)
+
 /** Represents a mapping for exploded field index configuration.
   *
   * This case class defines how to extract and index fields from array elements.
@@ -54,6 +68,7 @@ case class ExplodedFieldMapping(
   * @param computed_indexes Map of computed index aliases to their SQL expressions
   * @param exploded_field_indexes List of exploded field mappings for nested data structures
   * @param bloom_indexes List of bloom filter index configurations for probabilistic indexing
+  * @param temporal_indexes List of temporal index configurations for version-aware deduplication
   * @param read_options Map of read options for format-specific configuration (e.g., "multiLine" -> "true" for JSON)
   *
   * @note The field names use underscore notation to match JSON serialization format
@@ -68,6 +83,7 @@ case class IndexMetadata(
     ],
     var exploded_field_indexes: util.List[ExplodedFieldMapping],
     var bloom_indexes: util.List[BloomIndexConfig],
+    var temporal_indexes: util.List[TemporalIndexConfig],
     var read_options: util.Map[String, String]
 )
 
@@ -114,6 +130,10 @@ object IndexMetadata {
     // v4 -> v5
     if (indexMetadata.bloom_indexes == null) {
       indexMetadata.bloom_indexes = new util.ArrayList[BloomIndexConfig]()
+    }
+    // v5 -> v6
+    if (indexMetadata.temporal_indexes == null) {
+      indexMetadata.temporal_indexes = new util.ArrayList[TemporalIndexConfig]()
     }
     indexMetadata
   }

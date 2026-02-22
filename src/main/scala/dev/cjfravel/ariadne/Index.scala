@@ -108,6 +108,14 @@ case class Index private (
         "A column cannot be both a regular index and a bloom index."
       )
     }
+
+    // Check mutual exclusivity with temporal indexes
+    if (metadata.temporal_indexes.asScala.exists(_.column == index)) {
+      throw new IllegalArgumentException(
+        s"Column '$index' is already a temporal index. " +
+        "A column cannot be both a regular index and a temporal index."
+      )
+    }
     
     metadata.indexes.add(index)
     writeMetadata(metadata)
@@ -140,6 +148,12 @@ case class Index private (
       throw new IllegalArgumentException(
         s"Column '$column' is already a computed index. " +
         "A column cannot be both a bloom index and a computed index."
+      )
+    }
+    if (metadata.temporal_indexes.asScala.exists(_.column == column)) {
+      throw new IllegalArgumentException(
+        s"Column '$column' is already a temporal index. " +
+        "A column cannot be both a bloom index and a temporal index."
       )
     }
     
@@ -188,11 +202,62 @@ case class Index private (
     metadata.indexes.asScala.toSet ++
       metadata.computed_indexes.keySet().asScala ++
       metadata.exploded_field_indexes.asScala.map(_.as_column).toSet ++
-      metadata.bloom_indexes.asScala.map(_.column).toSet
+      metadata.bloom_indexes.asScala.map(_.column).toSet ++
+      metadata.temporal_indexes.asScala.map(_.column).toSet
 
   def addComputedIndex(name: String, sql_expression: String): Unit = {
     if (metadata.computed_indexes.containsKey(name)) return
     metadata.computed_indexes.put(name, sql_expression)
+    writeMetadata(metadata)
+  }
+
+  /** Adds a temporal index for the specified column using a timestamp for versioning.
+    *
+    * When joining on a temporal index column, only the latest version (by timestamp)
+    * of each value is returned. This is useful when multiple files contain the same
+    * entity at different points in time.
+    *
+    * @param column The value column to index on (e.g., "user_id")
+    * @param timestampColumn The timestamp column for ordering versions (e.g., "updated_at")
+    * @throws IllegalArgumentException if column is already indexed by another type
+    * @throws ColumnNotFoundException if either column doesn't exist in schema
+    */
+  def addTemporalIndex(column: String, timestampColumn: String): Unit = {
+    // Idempotency check
+    if (metadata.temporal_indexes.asScala.exists(_.column == column)) return
+
+    // Mutual exclusivity checks
+    if (metadata.indexes.contains(column)) {
+      throw new IllegalArgumentException(
+        s"Column '$column' is already a regular index. " +
+        "A column cannot be both a temporal index and a regular index."
+      )
+    }
+    if (metadata.computed_indexes.containsKey(column)) {
+      throw new IllegalArgumentException(
+        s"Column '$column' is already a computed index. " +
+        "A column cannot be both a temporal index and a computed index."
+      )
+    }
+    if (metadata.bloom_indexes.asScala.exists(_.column == column)) {
+      throw new IllegalArgumentException(
+        s"Column '$column' is already a bloom index. " +
+        "A column cannot be both a temporal index and a bloom index."
+      )
+    }
+
+    // Validate both columns exist in schema
+    if (!SchemaHelper.fieldExists(storedSchema, column)) {
+      throw new ColumnNotFoundException(s"Column '$column' not found in schema")
+    }
+    if (!SchemaHelper.fieldExists(storedSchema, timestampColumn)) {
+      throw new ColumnNotFoundException(
+        s"Timestamp column '$timestampColumn' not found in schema"
+      )
+    }
+
+    val config = TemporalIndexConfig(column, timestampColumn)
+    metadata.temporal_indexes.add(config)
     writeMetadata(metadata)
   }
 
@@ -257,18 +322,28 @@ case class Index private (
     
     // Build bloom filter indexes
     val bloomDf = buildBloomFilterIndexes(withFilename)
+
+    // Build temporal indexes (struct arrays with value + max_ts)
+    val temporalDf = buildTemporalIndexes(withFilename)
     
-    // Combine regular and bloom indexes
-    val finalDf = if (bloomIndexConfigs.nonEmpty && withExploded.columns.length > 1) {
-      withExploded.join(bloomDf, Seq("filename"), "full_outer")
+    // Combine all index types
+    var combinedDf = withExploded
+
+    if (bloomIndexConfigs.nonEmpty && combinedDf.columns.length > 1) {
+      combinedDf = combinedDf.join(bloomDf, Seq("filename"), "full_outer")
     } else if (bloomIndexConfigs.nonEmpty) {
-      bloomDf
-    } else {
-      withExploded
+      combinedDf = bloomDf
     }
 
-    handleLargeIndexes(finalDf)
-    appendToStaging(finalDf)
+    val temporalConfigs = metadata.temporal_indexes.asScala.toSeq
+    if (temporalConfigs.nonEmpty && combinedDf.columns.length > 1) {
+      combinedDf = combinedDf.join(temporalDf, Seq("filename"), "full_outer")
+    } else if (temporalConfigs.nonEmpty) {
+      combinedDf = temporalDf
+    }
+
+    handleLargeIndexes(combinedDf)
+    appendToStaging(combinedDf)
   }
 }
 
@@ -397,6 +472,7 @@ object Index {
         new util.HashMap[String, String](),
         new util.ArrayList[ExplodedFieldMapping](),
         new util.ArrayList[BloomIndexConfig](),
+        new util.ArrayList[TemporalIndexConfig](),
         new util.HashMap[String, String]()
       )
     }
