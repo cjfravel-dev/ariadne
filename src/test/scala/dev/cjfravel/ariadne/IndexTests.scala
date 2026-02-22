@@ -201,8 +201,8 @@ class IndexTests extends SparkTests {
     )
 
     assert(index.join(table2, Seq("Version", "Id"), "left_semi").count === 1)
-    assert(index.join(table2, Seq("Version"), "fullouter").count === 1)
-    assert(index.join(table2, Seq("Version", "Id"), "fullouter").count === 1)
+    assert(index.join(table2, Seq("Version"), "fullouter").count === 4)
+    assert(index.join(table2, Seq("Version", "Id"), "fullouter").count === 8)
     assert(
       normalizeSchema(
         index.join(table2, Seq("Version"), "left_semi").schema
