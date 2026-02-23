@@ -105,8 +105,8 @@ trait IndexJoinOperations extends IndexBuildOperations {
       )
     )
 
-    // Get distinct values as a DataFrame (no collect to driver)
-    val filteredValuesDf = df.select(joinColumnsToUse.map(col): _*).distinct()
+    // Get values from the user DataFrame using join column names
+    val filteredValuesDf = df.select(joinColumnsToUse.map(col): _*)
 
     // Use the new DataFrame-based method to locate files
     val files = locateFilesFromDataFrame(

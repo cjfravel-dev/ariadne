@@ -38,51 +38,104 @@ trait IndexQueryOperations extends IndexJoinOperations {
     *   DataFrame containing latest version of the index
     */
   protected def index: Option[DataFrame] = {
-    delta(indexFilePath) match {
-      case Some(delta) => {
-        val index = delta.toDF
-        // search largeIndexesFilePath for consolidated column tables to merge into the index
-        if (!exists(largeIndexesFilePath)) {
-          return Some(index)
-        }
+    delta(indexFilePath).map(_.toDF)
+  }
 
-        val consolidatedTables = fs
-          .listStatus(largeIndexesFilePath)
-          .filter(_.isDirectory)
-          .map(_.getPath)
-          .filter(path =>
-            exists(path) && DeltaTable.isDeltaTable(spark, path.toString)
+  /** Returns the set of column names that have large index Delta tables.
+    *
+    * @return
+    *   Set of column names with large index storage
+    */
+  protected def largeIndexColumns: Set[String] = {
+    if (!exists(largeIndexesFilePath)) return Set.empty
+    fs.listStatus(largeIndexesFilePath)
+      .filter(_.isDirectory)
+      .map(_.getPath)
+      .filter(path =>
+        exists(path) && DeltaTable.isDeltaTable(spark, path.toString)
+      )
+      .map(_.getName)
+      .toSet
+  }
+
+  /** Loads a large index Delta table for a specific column. Large indexes
+    * store data in exploded (filename, value) row form rather than as arrays.
+    *
+    * @param colName
+    *   The column name
+    * @return
+    *   DataFrame with (filename, colName) rows, or None if no large index
+    *   exists
+    */
+  protected def loadLargeIndex(colName: String): Option[DataFrame] = {
+    val columnPath = new Path(largeIndexesFilePath, colName)
+    try {
+      if (
+        exists(columnPath) && DeltaTable
+          .isDeltaTable(spark, columnPath.toString)
+      )
+        Some(spark.read.format("delta").load(columnPath.toString))
+      else None
+    } catch {
+      case _: Exception => None
+    }
+  }
+
+  /** Returns a unified (filename, colName) DataFrame for a regular index
+    * column by exploding the main index arrays and unioning with any large
+    * index rows that exist for that column.
+    *
+    * @param indexDf
+    *   The main index DataFrame (may be repartitioned)
+    * @param colName
+    *   The storage column name
+    * @return
+    *   DataFrame with (filename, colName) scalar rows
+    */
+  protected def loadColumnIndex(
+      indexDf: DataFrame,
+      colName: String
+  ): DataFrame = {
+    val mainRows = indexDf
+      .select(col("filename"), explode(col(colName)).alias(colName))
+    loadLargeIndex(colName) match {
+      case Some(largeDf) => mainRows.union(largeDf)
+      case None          => mainRows
+    }
+  }
+
+  /** Returns a unified (filename, _value, _max_ts) DataFrame for a temporal
+    * index column by exploding the main index struct arrays and unioning with
+    * any large index rows that exist for that column.
+    *
+    * @param indexDf
+    *   The main index DataFrame (may be repartitioned)
+    * @param colName
+    *   The temporal column name
+    * @return
+    *   DataFrame with (filename, _value, _max_ts) rows
+    */
+  protected def loadTemporalColumnIndex(
+      indexDf: DataFrame,
+      colName: String
+  ): DataFrame = {
+    val mainRows = indexDf
+      .select(col("filename"), explode(col(colName)).alias("_temporal"))
+      .select(
+        col("filename"),
+        col("_temporal.value").alias("_value"),
+        col("_temporal.max_ts").alias("_max_ts")
+      )
+    loadLargeIndex(colName) match {
+      case Some(largeDf) =>
+        val largeRows = largeDf
+          .select(
+            col("filename"),
+            col(s"$colName.value").alias("_value"),
+            col(s"$colName.max_ts").alias("_max_ts")
           )
-          .toSeq
-
-        // for each consolidated column table, read and merge into the index
-        val combined = consolidatedTables.foldLeft(index) {
-          (accumDf, columnPath) =>
-            val colName = columnPath.getName
-            val safeColName = s"ariadne_large_index_$colName"
-
-            try {
-              val largeIndex = spark.read
-                .format("delta")
-                .load(columnPath.toString)
-                .groupBy("filename")
-                .agg(collect_set(colName).alias(safeColName))
-                .select("filename", safeColName)
-
-              accumDf
-                .join(largeIndex, Seq("filename"), "left")
-                .withColumn(colName, coalesce(col(colName), col(safeColName)))
-                .drop(safeColName)
-            } catch {
-              case _: Exception =>
-                // If there's an issue reading the large index table, continue without it
-                accumDf
-            }
-        }
-
-        Some(combined)
-      }
-      case None => None
+        mainRows.union(largeRows)
+      case None => mainRows
     }
   }
 
@@ -232,10 +285,8 @@ trait IndexQueryOperations extends IndexJoinOperations {
 
     val resultDF = indexes.foldLeft(emptyDF) {
       case (accumDF, (column, values)) =>
-        val filteredDF = df
-          .select("filename", column)
-          .withColumn("value", explode(col(column)))
-          .where(col("value").isin(values: _*))
+        val filteredDF = loadColumnIndex(df, column)
+          .where(col(column).isin(values: _*))
           .select("filename")
           .distinct
 
@@ -258,17 +309,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
       values: Array[Any],
       df: DataFrame
   ): Set[String] = {
-    // Explode the struct array: Array[Struct(value, max_ts)] → rows of (filename, value, max_ts)
-    val exploded = df
-      .select(col("filename"), explode(col(column)).alias("_temporal"))
-      .select(
-        col("filename"),
-        col("_temporal.value").alias("_value"),
-        col("_temporal.max_ts").alias("_max_ts")
-      )
+    val allExploded = loadTemporalColumnIndex(df, column)
 
     // Filter to requested values
-    val filtered = exploded.where(col("_value").isin(values: _*))
+    val filtered = allExploded.where(col("_value").isin(values: _*))
 
     // For each value, keep only the file with the latest timestamp
     val w = Window.partitionBy("_value").orderBy(col("_max_ts").desc_nulls_last)
@@ -359,15 +403,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
               // Create a DataFrame with distinct values for this column
               val distinctValues = valuesDf.select(col(joinColumn)).distinct()
 
-              // Explode the index array column and join with the values
-              val filteredDF = repartitionedIndex
-                .select(
-                  col("filename"),
-                  explode(col(storageColumn)).alias("value")
-                )
+              val filteredDF = loadColumnIndex(repartitionedIndex, storageColumn)
                 .join(
-                  distinctValues.withColumnRenamed(joinColumn, "value"),
-                  Seq("value"),
+                  distinctValues.withColumnRenamed(joinColumn, storageColumn),
+                  Seq(storageColumn),
                   "leftsemi"
                 )
                 .select("filename")
@@ -404,19 +443,12 @@ trait IndexQueryOperations extends IndexJoinOperations {
       valuesDf: DataFrame,
       indexDf: DataFrame
   ): Set[String] = {
-    // Explode the struct array: Array[Struct(value, max_ts)] → rows of (filename, value, max_ts)
-    val exploded = indexDf
-      .select(col("filename"), explode(col(column)).alias("_temporal"))
-      .select(
-        col("filename"),
-        col("_temporal.value").alias("_value"),
-        col("_temporal.max_ts").alias("_max_ts")
-      )
+    val allExploded = loadTemporalColumnIndex(indexDf, column)
 
     // Join with query values
     val distinctValues = valuesDf.select(col(column)).distinct()
       .withColumnRenamed(column, "_value")
-    val matched = exploded.join(distinctValues, Seq("_value"), "inner")
+    val matched = allExploded.join(distinctValues, Seq("_value"), "inner")
 
     // For each value, keep only the file with the latest timestamp
     val w = Window.partitionBy("_value").orderBy(col("_max_ts").desc_nulls_last)

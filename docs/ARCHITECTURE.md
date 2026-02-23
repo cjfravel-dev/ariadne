@@ -193,7 +193,9 @@ The Ariadne Index system provides a modular architecture for managing file-based
 
 **Protected Methods**:
 
-- `index: Option[DataFrame]` - Access to complete index DataFrame with large index integration
+- `index: Option[DataFrame]` - Access to main index DataFrame
+- `largeIndexColumns: Set[String]` - Returns column names with large index Delta tables
+- `loadLargeIndex(colName: String): Option[DataFrame]` - Loads a large index Delta table in row form
 - `maybeRepartition(df: DataFrame): DataFrame` - Conditionally repartitions a DataFrame based on `indexRepartitionCount` configuration
 
 ### 8. Index Class (Main API)
