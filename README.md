@@ -36,10 +36,18 @@ Additional format-specific options can be provided via `readOptions` when creati
 ### Example Usage
 
 ```xml
+<!-- Spark 3.4 / Delta 2.4 (Azure Synapse) -->
 <dependency>
     <groupId>dev.cjfravel</groupId>
-    <artifactId>ariadne</artifactId>
-    <version>0.0.1-alpha-39</version>
+    <artifactId>ariadne-spark34_2.12</artifactId>
+    <version>0.0.1-alpha-40</version>
+</dependency>
+
+<!-- Spark 3.5 / Delta 3.2 -->
+<dependency>
+    <groupId>dev.cjfravel</groupId>
+    <artifactId>ariadne-spark35_2.12</artifactId>
+    <version>0.0.1-alpha-40</version>
 </dependency>
 ```
 
