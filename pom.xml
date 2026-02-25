@@ -5,7 +5,7 @@
 
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne-spark${spark.suffix}_2.12</artifactId>
-    <version>0.0.1-alpha-42</version>
+    <version>0.0.1-alpha-43</version>
     <packaging>jar</packaging>
 
     <name>${project.groupId}:${project.artifactId}</name>
@@ -91,6 +91,7 @@
             <groupId>io.delta</groupId>
             <artifactId>${delta.artifactId}</artifactId>
             <version>${delta.version}</version>
+            <scope>provided</scope>
         </dependency>
 
         <!-- Gson -->
@@ -112,6 +113,7 @@
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-api</artifactId>
             <version>2.19.0</version>
+            <scope>provided</scope>
         </dependency>
 
         <!-- ScalaTest -->
@@ -239,6 +241,18 @@
                                     <pattern>com.google.gson</pattern>
                                     <shadedPattern>dev.cjfravel.ariadne.shaded.gson</shadedPattern>
                                 </relocation>
+                                <relocation>
+                                    <pattern>com.google.errorprone</pattern>
+                                    <shadedPattern>dev.cjfravel.ariadne.shaded.errorprone</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.google.thirdparty</pattern>
+                                    <shadedPattern>dev.cjfravel.ariadne.shaded.thirdparty</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.google.j2objc</pattern>
+                                    <shadedPattern>dev.cjfravel.ariadne.shaded.j2objc</shadedPattern>
+                                </relocation>
                             </relocations>
                             <artifactSet>
                                 <includes>
@@ -246,6 +260,8 @@
                                     <include>com.google.guava:failureaccess</include>
                                     <include>com.google.guava:listenablefuture</include>
                                     <include>com.google.code.gson:gson</include>
+                                    <include>com.google.errorprone:error_prone_annotations</include>
+                                    <include>com.google.j2objc:j2objc-annotations</include>
                                 </includes>
                             </artifactSet>
                             <filters>
