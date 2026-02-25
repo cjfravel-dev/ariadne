@@ -10,7 +10,7 @@ import dev.cjfravel.ariadne.Index.DataFrameOps
 import com.google.gson.Gson
 import scala.collection.JavaConverters._
 import java.util
-import java.util.Collections
+import java.util.{Collections, UUID}
 
 /** Represents an Index for managing metadata and file-based indexes in Apache
   * Spark.
@@ -41,6 +41,12 @@ case class Index private (
   /** Path to the storage location of the index. */
   override lazy val storagePath: Path = new Path(IndexPathUtils.storagePath, name)
 
+  /** Lock path for file list operations. */
+  private def fileListLockPath: Path = new Path(storagePath, ".filelist.lock")
+
+  /** Lock path for index update operations. */
+  private def updateLockPath: Path = new Path(storagePath, ".update.lock")
+
   /** Selects specific columns for optimized reading.
     *
     *
@@ -67,7 +73,16 @@ case class Index private (
 
   def hasFile(fileName: String): Boolean = fileList.hasFile(fileName)
 
-  def addFile(fileNames: String*): Unit = fileList.addFile(fileNames: _*)
+  def addFile(fileNames: String*): Unit = {
+    val lock = IndexLock(fileListLockPath, name)
+    val correlationId = UUID.randomUUID().toString
+    lock.acquire(correlationId)
+    try {
+      fileList.addFile(fileNames: _*)
+    } finally {
+      lock.release(correlationId)
+    }
+  }
 
   /** Helper function to get a list of files that haven't yet been indexed
     *
@@ -263,18 +278,27 @@ case class Index private (
 
   /** Updates the index with new files. */
   def update: Unit = {
-    val unindexed = unindexedFiles
-    if (unindexed.nonEmpty) {
-      logger.warn(s"Updating index for ${unindexed.size} files")
-      updateBatched(unindexed)
+    val lock = IndexLock(updateLockPath, name)
+    val correlationId = UUID.randomUUID().toString
+    lock.acquire(correlationId)
+    try {
+      val unindexed = unindexedFiles
+      if (unindexed.nonEmpty) {
+        logger.warn(s"Updating index for ${unindexed.size} files")
+        updateBatched(unindexed, lock, correlationId)
+      }
+    } finally {
+      lock.release(correlationId)
     }
   }
 
   /** Updates the index using intelligent batching based on pre-flight analysis.
     *
     * @param files Set of files to process
+    * @param lock The update lock to refresh during processing
+    * @param correlationId The correlation ID for lock refresh
     */
-  private def updateBatched(files: Set[String]): Unit = {
+  private def updateBatched(files: Set[String], lock: IndexLock, correlationId: String): Unit = {
     logger.warn(s"Using intelligent batched update for ${files.size} files")
 
     // Perform pre-flight analysis to determine optimal batching
@@ -284,11 +308,19 @@ case class Index private (
     logger.warn(s"Processing ${batches.size} batches with consolidation threshold of $stagingConsolidationThreshold")
 
     var batchesSinceConsolidation = 0
+    var batchesSinceRefresh = 0
 
     batches.zipWithIndex.foreach { case (batch, idx) =>
       logger.warn(s"Processing batch ${idx + 1}/${batches.size} with ${batch.size} files")
       updateSingleBatch(batch)
       batchesSinceConsolidation += 1
+      batchesSinceRefresh += 1
+
+      // Periodic lock refresh to prevent stale lock detection
+      if (batchesSinceRefresh >= lockRefreshInterval) {
+        lock.refresh(correlationId)
+        batchesSinceRefresh = 0
+      }
 
       // Periodic consolidation for fault tolerance
       if (batchesSinceConsolidation >= stagingConsolidationThreshold) {

@@ -26,10 +26,10 @@ The Ariadne Index system provides a modular architecture for managing file-based
                                 │
                                 │ uses
                                 ▼
-┌─────────────────────┐    ┌─────────────────────┐
-│   IndexPathUtils    │    │     FileList        │
-│ (Utility Object)    │    │  (File Tracking)    │
-└─────────────────────┘    └─────────────────────┘
+┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
+│   IndexPathUtils    │    │     FileList        │    │     IndexLock       │
+│ (Utility Object)    │    │  (File Tracking)    │    │  (Concurrency)      │
+└─────────────────────┘    └─────────────────────┘    └─────────────────────┘
 ```
 
 ## Core Components
@@ -198,7 +198,40 @@ The Ariadne Index system provides a modular architecture for managing file-based
 - `loadLargeIndex(colName: String): Option[DataFrame]` - Loads a large index Delta table in row form
 - `maybeRepartition(df: DataFrame): DataFrame` - Conditionally repartitions a DataFrame based on `indexRepartitionCount` configuration
 
-### 8. Index Class (Main API)
+### 8. IndexLock (Concurrency Control)
+
+**Purpose**: Prevents concurrent index modifications by providing per-index file-based locking with auto-healing support.
+
+**Key Responsibilities**:
+
+- Atomic lock acquisition using Hadoop FileSystem `create(overwrite=false)`
+- Lock refresh during long-running batch operations
+- Stale lock detection and auto-healing for crashed jobs
+- Wait-and-retry with exponential backoff for lock contention
+
+**Methods**:
+
+- `acquire(correlationId: String): Unit` - Acquires the lock; retries with backoff if held; auto-heals stale locks
+- `release(correlationId: String): Unit` - Releases the lock if the correlation ID matches
+- `refresh(correlationId: String): Unit` - Updates the lock's `lastRefreshedAt` timestamp
+
+**Lock File Format** (JSON):
+
+```json
+{
+  "correlationId": "uuid",
+  "acquiredAt": "ISO-8601",
+  "lastRefreshedAt": "ISO-8601",
+  "owner": "spark-app-id"
+}
+```
+
+**Usage in Index**:
+
+- `addFile()` acquires/releases `.filelist.lock`
+- `update()` acquires/releases `.update.lock` with periodic refresh every `lockRefreshInterval` batches
+
+### 9. Index Class (Main API)
 
 **Purpose**: Main public interface that combines all functionality through trait composition.
 
@@ -229,7 +262,7 @@ case class Index private (
 - `Index(name: String, schema: StructType, format: String, allowSchemaMismatch: Boolean): Index`
 - `Index(name: String, schema: StructType, format: String, readOptions: Map[String, String]): Index`
 
-### 9. IndexPathUtils (Object)
+### 10. IndexPathUtils (Object)
 
 **Purpose**: Provides utility functions for path manipulation and index management.
 
@@ -248,7 +281,7 @@ case class Index private (
 - `remove(name: String): Boolean` - Removes an index
 - `storagePath: Path` - Overrides base storage path for indexes
 
-### 10. Supporting Classes
+### 11. Supporting Classes
 
 #### IndexMetadata
 
@@ -454,6 +487,7 @@ Each trait can be tested independently with focused test suites:
 - `IndexQueryOperationsTests` - Tests querying and statistics
 - `IndexPathUtilsTests` - Tests utility functions
 - `BloomFilterOperationsTests` - Tests bloom filter functionality
+- `IndexLockTests` - Tests locking, auto-healing, and contention
 
 ### 3. **Performance Optimization**
 
@@ -508,6 +542,7 @@ Each module handles specific error conditions:
 - `FormatMismatchException` - Format validation failures
 - `IndexNotFoundException` - Missing index references
 - `IndexNotFoundInNewSchemaException` - Schema evolution issues
+- `IndexLockException` - Lock acquisition timeout or contention
 
 ## Implementation Details
 

@@ -120,4 +120,40 @@ trait AriadneContextUser {
       None
     }
   }
+
+  /** Time in seconds after lastRefreshedAt before a lock is considered stale and eligible for auto-heal.
+    * Reads from spark.ariadne.lockTimeout configuration (default: 1800).
+    */
+  lazy val lockTimeout: Long = {
+    val value = spark.conf.get("spark.ariadne.lockTimeout", "1800").toLong
+    logger.warn(s"lockTimeout initialized: $value")
+    value
+  }
+
+  /** Base interval in seconds between lock acquisition retries (exponential backoff applied).
+    * Reads from spark.ariadne.lockRetryInterval configuration (default: 60).
+    */
+  lazy val lockRetryInterval: Long = {
+    val value = spark.conf.get("spark.ariadne.lockRetryInterval", "60").toLong
+    logger.warn(s"lockRetryInterval initialized: $value")
+    value
+  }
+
+  /** Maximum total time in seconds to wait for lock acquisition before failing.
+    * Reads from spark.ariadne.lockMaxWait configuration (default: 3600).
+    */
+  lazy val lockMaxWait: Long = {
+    val value = spark.conf.get("spark.ariadne.lockMaxWait", "3600").toLong
+    logger.warn(s"lockMaxWait initialized: $value")
+    value
+  }
+
+  /** Refresh the update lock every N batches during updateBatched.
+    * Reads from spark.ariadne.lockRefreshInterval configuration (default: 1).
+    */
+  lazy val lockRefreshInterval: Int = {
+    val value = spark.conf.get("spark.ariadne.lockRefreshInterval", "1").toInt
+    logger.warn(s"lockRefreshInterval initialized: $value")
+    value
+  }
 }
