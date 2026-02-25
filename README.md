@@ -40,14 +40,14 @@ Additional format-specific options can be provided via `readOptions` when creati
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne-spark34_2.12</artifactId>
-    <version>0.0.1-alpha-41</version>
+    <version>0.0.1-alpha-42</version>
 </dependency>
 
 <!-- Spark 3.5 / Delta 3.2 -->
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne-spark35_2.12</artifactId>
-    <version>0.0.1-alpha-41</version>
+    <version>0.0.1-alpha-42</version>
 </dependency>
 ```
 
@@ -163,6 +163,10 @@ All configuration is done via Spark configuration properties. Set them before cr
 | `spark.ariadne.indexRepartitionCount`         | Int     | _(not set)_  | Number of partitions to repartition the index metadata DataFrame to during file lookup. Helps avoid `FetchFailedException` when exploding large index arrays. |
 | `spark.ariadne.repartitionDataFiles`          | Boolean | `false`      | When `true`, also applies `indexRepartitionCount` repartitioning to data files read during joins. When `false` (default), data files keep their natural parquet partitioning. |
 | `spark.ariadne.debug`                         | Boolean | `false`      | Enables detailed diagnostics during join operations: per-phase timing, file sizes, physical plans, and cache materialization stats. |
+| `spark.ariadne.lockTimeout`                   | Long    | `1800`       | Seconds after last lock refresh before a lock is considered stale and eligible for auto-healing. Default is 30 minutes. |
+| `spark.ariadne.lockRetryInterval`             | Long    | `60`         | Base interval in seconds between lock acquisition retries. Exponential backoff is applied up to a 60-second cap per retry. |
+| `spark.ariadne.lockMaxWait`                   | Long    | `3600`       | Maximum total seconds to wait for lock acquisition before throwing `IndexLockException`. Default is 1 hour. |
+| `spark.ariadne.lockRefreshInterval`           | Int     | `1`          | Refresh the update lock every N batches during `update`. Keeps the lock from appearing stale during long-running updates. |
 
 ### Example
 
@@ -182,4 +186,22 @@ spark.conf.set("spark.ariadne.repartitionDataFiles", "true")
 
 // Optional: enable debug logging
 spark.conf.set("spark.ariadne.debug", "true")
+
+// Optional: tune lock behavior for concurrent jobs
+spark.conf.set("spark.ariadne.lockTimeout", "1800")        // 30 min stale threshold
+spark.conf.set("spark.ariadne.lockRetryInterval", "60")     // 1 min base retry interval
+spark.conf.set("spark.ariadne.lockMaxWait", "3600")         // 1 hr max wait
 ```
+
+### Concurrency & Locking
+
+Ariadne uses per-index file-based locks to prevent concurrent updates from corrupting index data. Locks are automatically acquired and released during `addFile()` and `update()` operations.
+
+**How it works:**
+
+- **Two separate locks per index:** `.filelist.lock` (for `addFile`) and `.update.lock` (for `update`)
+- **Automatic refresh:** During `update`, the lock is refreshed every N batches (configurable via `spark.ariadne.lockRefreshInterval`) to signal the job is still alive
+- **Wait and retry:** If a lock is held by another job, the caller retries with exponential backoff up to `spark.ariadne.lockMaxWait` seconds
+- **Auto-healing:** If a lock's `lastRefreshedAt` timestamp is older than `spark.ariadne.lockTimeout`, it is considered stale (e.g., the holding job crashed) and is automatically broken so the new job can proceed
+
+**Lock file format:** JSON files stored at `{indexStoragePath}/.filelist.lock` and `{indexStoragePath}/.update.lock`, containing a correlation ID, timestamps, and the Spark application ID of the lock holder for diagnostics.
