@@ -108,6 +108,30 @@ case class Index private (
     }
   }
 
+  /** Identifies files already in the index that are missing data for newly added columns.
+    *
+    * Compares the columns declared in metadata against the columns present in the
+    * Delta index table schema. If any metadata columns are missing from the table,
+    * all indexed files need to be re-processed for the new columns.
+    *
+    * @return
+    *   Set of filenames needing column backfill
+    */
+  private[ariadne] def filesNeedingColumnUpdate: Set[String] = {
+    import spark.implicits._
+    index match {
+      case Some(df) =>
+        val expectedCols = storageColumns ++ bloomStorageColumns ++
+          metadata.temporal_indexes.asScala.map(_.column).toSet
+        val existingCols = df.columns.toSet - "filename"
+        val missingCols = expectedCols -- existingCols
+        if (missingCols.isEmpty) return Set.empty
+        logger.warn(s"Detected new index columns not yet in index table: ${missingCols.mkString(", ")}")
+        df.select("filename").as[String].collect().toSet
+      case None => Set.empty
+    }
+  }
+
   /** Adds an index entry.
     * @param index
     *   The index entry to add.
@@ -276,12 +300,19 @@ case class Index private (
     writeMetadata(metadata)
   }
 
-  /** Updates the index with new files. */
+  /** Updates the index with new files and backfills newly added columns. */
   def update: Unit = {
     val lock = IndexLock(updateLockPath, name)
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
     try {
+      // Backfill existing files for new columns first, so the index schema
+      // is complete before processing new files
+      val needsColumnUpdate = filesNeedingColumnUpdate
+      if (needsColumnUpdate.nonEmpty) {
+        logger.warn(s"Backfilling ${needsColumnUpdate.size} files for new index columns")
+        updateBatched(needsColumnUpdate, lock, correlationId)
+      }
       val unindexed = unindexedFiles
       if (unindexed.nonEmpty) {
         logger.warn(s"Updating index for ${unindexed.size} files")
