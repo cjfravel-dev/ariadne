@@ -252,11 +252,14 @@ trait IndexBuildOperations extends BloomFilterOperations {
 
     smallGroupedDf.write
       .format("delta")
+      .option("mergeSchema", "true")
       .mode("append")
       .save(stagingFilePath.toString)
   }
 
   /** Appends large index data directly to large_indexes/{column} Delta tables.
+    * When files already exist in the large index (e.g., during column backfill),
+    * existing rows for those files are removed before appending to prevent duplicates.
     *
     * @param df The DataFrame with large index data to append
     */
@@ -273,6 +276,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
         )
     }
     
+    // Collect filenames being processed for dedup
+    val processedFiles = df.select("filename").distinct()
+    
     allStorageColumns.foreach { colName =>
       val columnData = largeGroupedDf
         .select("filename", colName)
@@ -284,8 +290,20 @@ trait IndexBuildOperations extends BloomFilterOperations {
       if (!columnData.isEmpty) {
         val columnPath = new Path(largeIndexesFilePath, colName)
         logger.warn(s"Appending large index data for column $colName to ${columnPath}")
+        
+        // Remove existing rows for these files to prevent duplicates during re-indexing
+        delta(columnPath) match {
+          case Some(deltaTable) =>
+            deltaTable.as("target")
+              .merge(processedFiles.as("source"), "target.filename = source.filename")
+              .whenMatched().delete()
+              .execute()
+          case None => // No existing table, nothing to dedup
+        }
+        
         columnData.write
           .format("delta")
+          .option("mergeSchema", "true")
           .mode("append")
           .save(columnPath.toString)
       }
@@ -307,26 +325,34 @@ trait IndexBuildOperations extends BloomFilterOperations {
       return
     }
     
-    val allStorageColumns = storageColumns
+    val allStorageColumns = storageColumns ++ bloomStorageColumns
     val stagingDf = spark.read.format("delta").load(stagingFilePath.toString)
     
     if (allStorageColumns.nonEmpty) {
       delta(indexFilePath) match {
         case Some(deltaTable) =>
           logger.warn(s"Merging staging data into main index at ${indexFilePath}")
-          deltaTable
-            .as("target")
-            .merge(
-              stagingDf.as("source"),
-              "target.filename = source.filename"
-            )
-            .whenMatched()
-            .updateExpr(
-              allStorageColumns.map(colName => colName -> s"source.$colName").toMap
-            )
-            .whenNotMatched()
-            .insertAll()
-            .execute()
+          // Enable schema auto-merge so new index columns evolve the target table
+          val previousAutoMerge = spark.conf.getOption("spark.databricks.delta.schema.autoMerge.enabled")
+          spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+          try {
+            deltaTable
+              .as("target")
+              .merge(
+                stagingDf.as("source"),
+                "target.filename = source.filename"
+              )
+              .whenMatched()
+              .updateAll()
+              .whenNotMatched()
+              .insertAll()
+              .execute()
+          } finally {
+            previousAutoMerge match {
+              case Some(v) => spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", v)
+              case None => spark.conf.unset("spark.databricks.delta.schema.autoMerge.enabled")
+            }
+          }
         case None =>
           logger.warn(s"Creating new main index from staging at ${indexFilePath}")
           stagingDf.write
