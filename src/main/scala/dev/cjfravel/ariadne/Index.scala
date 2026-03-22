@@ -384,6 +384,8 @@ case class Index private (
   def deleteFiles(filenames: String*): Unit = {
     if (filenames.isEmpty) return
 
+    val startTime = System.currentTimeMillis()
+    logger.warn(s"Deleting ${filenames.size} file(s) from index '$name'")
     val lock = IndexLock(updateLockPath, name)
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
@@ -398,11 +400,12 @@ case class Index private (
           .whenMatched()
           .delete()
           .execute()
-        logger.warn(s"Deleted ${filenames.size} file(s) from main index")
+        logger.warn(s"Deleted ${filenames.size} file(s) from main index in ${System.currentTimeMillis() - startTime}ms")
       }
 
       // Remove from all large index tables
-      largeIndexColumns.foreach { colName =>
+      val largeCols = largeIndexColumns
+      largeCols.foreach { colName =>
         val largePath = new Path(largeIndexesFilePath, colName)
         delta(largePath).foreach { dt =>
           dt.as("target")
@@ -413,9 +416,23 @@ case class Index private (
           logger.warn(s"Deleted file(s) from large index column '$colName'")
         }
       }
+      if (largeCols.nonEmpty) {
+        logger.warn(s"Deleted from ${largeCols.size} large index tables")
+      }
+
+      // Remove from staging table if it exists
+      delta(stagingFilePath).foreach { dt =>
+        dt.as("target")
+          .merge(toDelete.as("source"), "target.filename = source.filename")
+          .whenMatched()
+          .delete()
+          .execute()
+        logger.warn(s"Deleted file(s) from staging table")
+      }
 
       // Remove from file list
       fileList.removeFile(filenames: _*)
+      logger.warn(s"deleteFiles completed in ${System.currentTimeMillis() - startTime}ms")
     } finally {
       lock.release(correlationId)
     }
@@ -449,11 +466,14 @@ case class Index private (
     * Acquires the update lock to prevent concurrent modifications.
     */
   def compact(): Unit = {
+    val startTime = System.currentTimeMillis()
+    logger.warn(s"Starting compaction for index '$name'")
     val lock = IndexLock(updateLockPath, name)
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
     try {
       compactDeltaTables()
+      logger.warn(s"Compaction complete in ${System.currentTimeMillis() - startTime}ms")
     } finally {
       lock.release(correlationId)
     }
@@ -465,6 +485,7 @@ case class Index private (
     * @param retentionHours number of hours of history to retain (default 168 = 7 days)
     */
   def vacuum(retentionHours: Int = 168): Unit = {
+    logger.warn(s"Vacuuming index '$name' with retention=$retentionHours hours")
     val lock = IndexLock(updateLockPath, name)
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
@@ -572,6 +593,9 @@ case class Index private (
 
     handleLargeIndexes(combinedDf)
     appendToStaging(combinedDf)
+
+    // Persist any metadata changes (e.g., auto-bloom column detection) after data is safely staged
+    writeMetadata(metadata)
   }
 }
 

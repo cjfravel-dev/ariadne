@@ -234,6 +234,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
     val rangeConfigs = metadata.range_indexes.asScala.toSeq
     if (rangeConfigs.isEmpty) return df.select("filename").distinct()
 
+    logger.warn(s"Building range indexes for ${rangeConfigs.size} columns: ${rangeConfigs.map(_.column).mkString(", ")}")
+
     rangeConfigs.foldLeft(df.select("filename").distinct()) { (accumDf, config) =>
       val rangeCol = s"range_${config.column}"
       val perFile = df
@@ -371,56 +373,62 @@ trait IndexBuildOperations extends BloomFilterOperations {
     // Cache combinedDf to ensure consistent evaluation when checking column sizes
     // and building bloom filters
     val cachedDf = combinedDf.cache()
-
-    val columnsExceedingLimit = eligible.filter { colName =>
-      cachedDf.columns.contains(colName) &&
-      cachedDf
-        .select("filename", colName)
-        .where(col(colName).isNotNull)
-        .where(size(col(colName)) >= largeIndexLimit)
-        .count() > 0
-    }
-
-    var metadataChanged = false
-    columnsExceedingLimit.foreach { colName =>
-      if (!metadata.auto_bloom_indexes.contains(colName)) {
-        metadata.auto_bloom_indexes.add(colName)
-        metadataChanged = true
+    try {
+      val columnsExceedingLimit = eligible.filter { colName =>
+        cachedDf.columns.contains(colName) &&
+        cachedDf
+          .select("filename", colName)
+          .where(col(colName).isNotNull)
+          .where(size(col(colName)) >= largeIndexLimit)
+          .count() > 0
       }
-    }
-    if (metadataChanged) writeMetadata(metadata)
 
-    val autoBloomColumns = metadata.auto_bloom_indexes.asScala.toSet
-      .intersect(eligible)
-      .filter(cachedDf.columns.contains)
+      logger.warn(s"Auto-bloom: checked ${eligible.size} columns, ${columnsExceedingLimit.size} exceed limit")
 
-    if (autoBloomColumns.isEmpty) {
+      columnsExceedingLimit.foreach { colName =>
+        if (!metadata.auto_bloom_indexes.contains(colName)) {
+          metadata.auto_bloom_indexes.add(colName)
+        }
+      }
+
+      val autoBloomColumns = metadata.auto_bloom_indexes.asScala.toSet
+        .intersect(eligible)
+        .filter(cachedDf.columns.contains)
+
+      if (autoBloomColumns.isEmpty) {
+        return combinedDf
+      }
+
+      logger.warn(s"Building auto-bloom filters for columns: ${autoBloomColumns.mkString(", ")}")
+      val fpr = autoBloomFpr
+      val result = autoBloomColumns.foldLeft(cachedDf) { (df, colName) =>
+        logger.warn(s"Auto-bloom: building filter for '$colName' with FPR=$fpr")
+        val bloomColumn = autoBloomColumnPrefix + colName
+        val bloomUdf = createBloomFilterUdf(fpr)
+        df.withColumn(bloomColumn, bloomUdf(col(colName)))
+      }
+      result
+    } finally {
       cachedDf.unpersist()
-      return combinedDf
     }
-
-    logger.warn(s"Building auto-bloom filters for columns: ${autoBloomColumns.mkString(", ")}")
-    val fpr = autoBloomFpr
-    val result = autoBloomColumns.foldLeft(cachedDf) { (df, colName) =>
-      val bloomColumn = autoBloomColumnPrefix + colName
-      val bloomUdf = createBloomFilterUdf(fpr)
-      df.withColumn(bloomColumn, bloomUdf(col(colName)))
-    }
-    result
   }
 
   /** Compacts all Delta tables (main index and large index tables) using OPTIMIZE. */
   protected def compactDeltaTables(): Unit = {
     delta(indexFilePath).foreach { dt =>
+      val compactStart = System.currentTimeMillis()
       logger.warn(s"Compacting main index at $indexFilePath")
       dt.optimize().executeCompaction()
+      logger.warn(s"Compacted main index in ${System.currentTimeMillis() - compactStart}ms")
     }
 
     largeIndexColumns.foreach { colName =>
       val columnPath = new Path(largeIndexesFilePath, colName)
       delta(columnPath).foreach { dt =>
+        val compactStart = System.currentTimeMillis()
         logger.warn(s"Compacting large index for column $colName at $columnPath")
         dt.optimize().executeCompaction()
+        logger.warn(s"Compacted large index '$colName' in ${System.currentTimeMillis() - compactStart}ms")
       }
     }
   }

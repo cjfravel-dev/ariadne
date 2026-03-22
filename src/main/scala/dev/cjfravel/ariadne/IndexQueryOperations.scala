@@ -178,18 +178,18 @@ trait IndexQueryOperations extends IndexJoinOperations {
 
         // Get files from bloom filters
         val bloomFiles = if (bloomQueries.nonEmpty) {
-          bloomQueries.flatMap { case (col, values) =>
+          bloomQueries.map { case (col, values) =>
             locateFilesWithBloom(col, values, df)
-          }.toSet
+          }.reduce(_ intersect _)
         } else {
           Set.empty[String]
         }
 
         // Get files from temporal indexes (pruned to latest timestamp per value)
         val temporalFiles = if (temporalQueries.nonEmpty) {
-          temporalQueries.flatMap { case (column, values) =>
+          temporalQueries.map { case (column, values) =>
             locateFilesWithTemporal(column, values, df)
-          }.toSet
+          }.reduce(_ intersect _)
         } else {
           Set.empty[String]
         }
@@ -211,11 +211,24 @@ trait IndexQueryOperations extends IndexJoinOperations {
         }
 
         // Combine results - intersect across types that returned results (AND semantics)
-        val nonEmptyResults = Seq(bloomFiles, temporalFiles, rangeFiles, regularFiles).filter(_.nonEmpty)
-        val allFiles = if (nonEmptyResults.isEmpty) {
+        // Track which categories were queried (had input), not just which returned results
+        val queriedResults: Seq[Set[String]] = Seq(
+          if (bloomQueries.nonEmpty) Some(bloomFiles) else None,
+          if (temporalQueries.nonEmpty) Some(temporalFiles) else None,
+          if (rangeQueries.nonEmpty) Some(rangeFiles) else None,
+          if (regularQueries.nonEmpty) Some(regularFiles) else None
+        ).flatten
+
+        val allFiles = if (queriedResults.isEmpty) {
           Set.empty[String]
         } else {
-          nonEmptyResults.reduce(_ intersect _)
+          queriedResults.reduce(_ intersect _)
+        }
+        if (debugEnabled) {
+          logger.warn(
+            s"[debug] Cross-type combination: bloom=${bloomFiles.size}, temporal=${temporalFiles.size}, " +
+              s"range=${rangeFiles.size}, regular=${regularFiles.size} -> final=${allFiles.size}"
+          )
         }
         if (allFiles.isEmpty) Set.empty else allFiles
       case None => Set()
@@ -304,9 +317,11 @@ trait IndexQueryOperations extends IndexJoinOperations {
     val autoBloomCol = s"auto_bloom_${column}"
     if (!indexDf.columns.contains(autoBloomCol)) return None
 
-    val candidates = indexDf
+    val allRows = indexDf
       .select("filename", autoBloomCol)
       .collect()
+
+    val candidates = allRows
       .filter { row =>
         val bloomBytes = row.getAs[Array[Byte]](autoBloomCol)
         if (bloomBytes == null) true
@@ -315,7 +330,9 @@ trait IndexQueryOperations extends IndexJoinOperations {
       .map(_.getString(0))
       .toSet
 
-    logger.warn(s"Auto-bloom filter for $column: ${candidates.size} candidate files")
+    val totalFiles = allRows.length
+    val reduction = if (totalFiles > 0) 100 - (candidates.size * 100 / totalFiles) else 0
+    logger.warn(s"Auto-bloom filter for '$column': $totalFiles total files -> ${candidates.size} candidates ($reduction% reduction)")
     Some(candidates)
   }
 
@@ -370,7 +387,11 @@ trait IndexQueryOperations extends IndexJoinOperations {
       perColumnFiles.reduce((a, b) => a.join(b, Seq("filename"), "inner"))
     }
 
-    collectFilenamesViaStaging(intersectedDF)
+    val result = collectFilenamesViaStaging(intersectedDF)
+    if (debugEnabled && indexes.size > 1) {
+      logger.warn(s"[debug] Multi-column intersection: ${indexes.size} columns, result: ${result.size} files")
+    }
+    result
   }
 
   /** Locates files using temporal indexes, pruning to only files containing
@@ -413,27 +434,35 @@ trait IndexQueryOperations extends IndexJoinOperations {
   private def locateFilesWithRange(
       column: String,
       values: Array[Any],
-      df: DataFrame
+      indexDf: DataFrame
   ): Set[String] = {
     val rangeCol = s"range_${column}"
-    if (!df.columns.contains(rangeCol)) return Set.empty
+    if (!indexDf.columns.contains(rangeCol)) return Set.empty
+    if (values.isEmpty) return Set.empty
 
-    df.select("filename", rangeCol)
-      .where(col(rangeCol).isNotNull)
-      .collect()
-      .filter { row =>
-        val rangeStruct = row.getStruct(1)
-        if (rangeStruct == null || rangeStruct.isNullAt(0) || rangeStruct.isNullAt(1)) false
-        else {
-          val fileMin = rangeStruct.get(0).asInstanceOf[Comparable[Any]]
-          val fileMax = rangeStruct.get(1).asInstanceOf[Comparable[Any]]
-          values.exists { v =>
-            fileMin.compareTo(v) <= 0 && fileMax.compareTo(v) >= 0
-          }
-        }
-      }
-      .map(_.getString(0))
-      .toSet
+    logger.warn(s"Range query on column '$column' with ${values.length} values")
+    if (values.length > 1000) {
+      logger.warn(s"Range query has ${values.length} values; large OR expression may be slow")
+    }
+
+    // Use Spark lit() for type-safe comparisons instead of Comparable casts.
+    // This handles type coercion (e.g. Long vs Int) and NaN correctly.
+    val valueConditions = values.map { v =>
+      col("file_min") <= lit(v) && col("file_max") >= lit(v)
+    }
+
+    val matchingFiles = indexDf
+      .select(
+        col("filename"),
+        col(s"$rangeCol.min").alias("file_min"),
+        col(s"$rangeCol.max").alias("file_max")
+      )
+      .where(col("file_min").isNotNull && col("file_max").isNotNull)
+      .where(valueConditions.reduce(_ || _))
+      .select("filename")
+      .distinct()
+
+    collectFilenamesViaStaging(matchingFiles)
   }
 
   /** Locates files based on a DataFrame containing join column values. Handles
@@ -476,9 +505,9 @@ trait IndexQueryOperations extends IndexJoinOperations {
 
         // Get files from bloom filters
         val bloomFiles = if (bloomJoinColumns.nonEmpty) {
-          bloomJoinColumns.flatMap { joinColumn =>
+          bloomJoinColumns.map { joinColumn =>
             locateFilesWithBloomFromDataFrame(joinColumn, valuesDf, indexDf)
-          }.toSet
+          }.reduce(_ intersect _)
         } else {
           Set.empty[String]
         }
@@ -486,9 +515,9 @@ trait IndexQueryOperations extends IndexJoinOperations {
         // Get files from temporal indexes (pruned to latest timestamp per value)
         val temporalFiles = if (temporalJoinColumns.nonEmpty) {
           val repartitionedIndex = maybeRepartition(indexDf)
-          temporalJoinColumns.flatMap { joinColumn =>
+          temporalJoinColumns.map { joinColumn =>
             locateFilesWithTemporalFromDataFrame(joinColumn, valuesDf, repartitionedIndex)
-          }.toSet
+          }.reduce(_ intersect _)
         } else {
           Set.empty[String]
         }
@@ -540,11 +569,18 @@ trait IndexQueryOperations extends IndexJoinOperations {
         }
 
         // Combine results - intersect across types that returned results (AND semantics)
-        val nonEmptyResults = Seq(bloomFiles, temporalFiles, rangeFiles, regularFiles).filter(_.nonEmpty)
-        val allFiles = if (nonEmptyResults.isEmpty) {
+        // Track which categories were queried (had input), not just which returned results
+        val queriedResults: Seq[Set[String]] = Seq(
+          if (bloomJoinColumns.nonEmpty) Some(bloomFiles) else None,
+          if (temporalJoinColumns.nonEmpty) Some(temporalFiles) else None,
+          if (rangeJoinColumns.nonEmpty) Some(rangeFiles) else None,
+          if (regularJoinColumns.nonEmpty) Some(regularFiles) else None
+        ).flatten
+
+        val allFiles = if (queriedResults.isEmpty) {
           Set.empty[String]
         } else {
-          nonEmptyResults.reduce(_ intersect _)
+          queriedResults.reduce(_ intersect _)
         }
         if (allFiles.isEmpty) Set.empty else allFiles
       case None => Set()
@@ -609,6 +645,8 @@ trait IndexQueryOperations extends IndexJoinOperations {
     val qMin = queryStats.get(0)
     val qMax = queryStats.get(1)
     if (qMin == null || qMax == null) return Set.empty
+
+    logger.warn(s"Range query on column '$column': query range [$qMin, $qMax]")
 
     // Filter files where range overlaps
     val matchingFiles = indexDf
