@@ -123,7 +123,7 @@ case class Index private (
       case Some(df) =>
         val expectedCols = storageColumns ++ bloomStorageColumns ++
           metadata.temporal_indexes.asScala.map(_.column).toSet ++
-          rangeStorageColumns
+          rangeStorageColumns ++ autoBloomStorageColumns
         val existingCols = df.columns.toSet - "filename"
         val missingCols = expectedCols -- existingCols
         if (missingCols.isEmpty) return Set.empty
