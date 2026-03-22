@@ -74,6 +74,23 @@ case class FileList private (
 
   def addFile(fileNames: String*): Unit = addFile(spark, fileNames: _*)
 
+  def removeFile(fileNames: String*): Unit = {
+    delta(storagePath) match {
+      case Some(dt) =>
+        import spark.implicits._
+        val toRemove = fileNames.toDF("filename")
+        dt.as("target")
+          .merge(toRemove.as("source"), "target.filename = source.filename")
+          .whenMatched()
+          .delete()
+          .execute()
+        _files = null
+        logger.warn(s"Removed ${fileNames.size} files from FileList $name")
+      case None =>
+        logger.warn(s"FileList $name does not exist, nothing to remove")
+    }
+  }
+
   def hasFile(fileName: String): Boolean =
     !files.filter(col("filename") === fileName).isEmpty
 

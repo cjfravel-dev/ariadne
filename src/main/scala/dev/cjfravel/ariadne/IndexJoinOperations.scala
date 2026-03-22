@@ -22,11 +22,13 @@ trait IndexJoinOperations extends IndexBuildOperations {
       joinColumns: Seq[String]
   ): Map[String, String] = {
     val bloomColumnSet = bloomColumns
+    val rangeColumnSet = metadata.range_indexes.asScala.map(_.column).toSet
 
     joinColumns.map { joinCol =>
-      // Check if this is a bloom filter column
       if (bloomColumnSet.contains(joinCol)) {
         joinCol -> (bloomColumnPrefix + joinCol)
+      } else if (rangeColumnSet.contains(joinCol)) {
+        joinCol -> (s"range_${joinCol}")
       } else {
         // Check if this is an exploded field column
         val explodedMapping =
@@ -92,8 +94,8 @@ trait IndexJoinOperations extends IndexBuildOperations {
     // Map join columns to storage columns
     val columnMappings = mapJoinColumnsToStorage(usingColumns)
 
-    // Include both regular storage columns and bloom storage columns
-    val allStorageColumns = this.storageColumns ++ this.bloomStorageColumns
+    // Include both regular storage columns and bloom/range storage columns
+    val allStorageColumns = this.storageColumns ++ this.bloomStorageColumns ++ this.rangeStorageColumns
     val storageColumnsToUse =
       columnMappings.values.toSet.intersect(allStorageColumns)
     logger.warn(s"Found indexes for ${storageColumnsToUse.mkString(",")}")
