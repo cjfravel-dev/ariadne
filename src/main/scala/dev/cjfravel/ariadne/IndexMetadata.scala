@@ -33,6 +33,18 @@ case class TemporalIndexConfig(
     var timestamp_column: String
 )
 
+/** Configuration for a range index.
+  *
+  * Range indexes store min/max values per file for a column, enabling
+  * file pruning at query time. Files whose [min, max] range does not
+  * overlap with the queried values are skipped.
+  *
+  * @param column The column name to create a range index for
+  */
+case class RangeIndexConfig(
+    var column: String
+)
+
 /** Represents a mapping for exploded field index configuration.
   *
   * This case class defines how to extract and index fields from array elements.
@@ -84,7 +96,9 @@ case class IndexMetadata(
     var exploded_field_indexes: util.List[ExplodedFieldMapping],
     var bloom_indexes: util.List[BloomIndexConfig],
     var temporal_indexes: util.List[TemporalIndexConfig],
-    var read_options: util.Map[String, String]
+    var read_options: util.Map[String, String],
+    var range_indexes: util.List[RangeIndexConfig],
+    var auto_bloom_indexes: util.List[String]
 )
 
 /** Factory object for creating IndexMetadata instances from JSON.
@@ -134,6 +148,14 @@ object IndexMetadata {
     // v5 -> v6
     if (indexMetadata.temporal_indexes == null) {
       indexMetadata.temporal_indexes = new util.ArrayList[TemporalIndexConfig]()
+    }
+    // v6 -> v7
+    if (indexMetadata.range_indexes == null) {
+      indexMetadata.range_indexes = new util.ArrayList[RangeIndexConfig]()
+    }
+    // v7 -> v8
+    if (indexMetadata.auto_bloom_indexes == null) {
+      indexMetadata.auto_bloom_indexes = new util.ArrayList[String]()
     }
     indexMetadata
   }

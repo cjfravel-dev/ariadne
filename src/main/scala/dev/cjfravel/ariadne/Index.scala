@@ -122,7 +122,8 @@ case class Index private (
     index match {
       case Some(df) =>
         val expectedCols = storageColumns ++ bloomStorageColumns ++
-          metadata.temporal_indexes.asScala.map(_.column).toSet
+          metadata.temporal_indexes.asScala.map(_.column).toSet ++
+          rangeStorageColumns
         val existingCols = df.columns.toSet - "filename"
         val missingCols = expectedCols -- existingCols
         if (missingCols.isEmpty) return Set.empty
@@ -153,6 +154,14 @@ case class Index private (
       throw new IllegalArgumentException(
         s"Column '$index' is already a temporal index. " +
         "A column cannot be both a regular index and a temporal index."
+      )
+    }
+
+    // Check mutual exclusivity with range indexes
+    if (metadata.range_indexes.asScala.exists(_.column == index)) {
+      throw new IllegalArgumentException(
+        s"Column '$index' is already a range index. " +
+        "A column cannot be both a regular index and a range index."
       )
     }
     
@@ -193,6 +202,12 @@ case class Index private (
       throw new IllegalArgumentException(
         s"Column '$column' is already a temporal index. " +
         "A column cannot be both a bloom index and a temporal index."
+      )
+    }
+    if (metadata.range_indexes.asScala.exists(_.column == column)) {
+      throw new IllegalArgumentException(
+        s"Column '$column' is already a range index. " +
+        "A column cannot be both a bloom index and a range index."
       )
     }
     
@@ -242,7 +257,8 @@ case class Index private (
       metadata.computed_indexes.keySet().asScala ++
       metadata.exploded_field_indexes.asScala.map(_.as_column).toSet ++
       metadata.bloom_indexes.asScala.map(_.column).toSet ++
-      metadata.temporal_indexes.asScala.map(_.column).toSet
+      metadata.temporal_indexes.asScala.map(_.column).toSet ++
+      metadata.range_indexes.asScala.map(_.column).toSet
 
   def addComputedIndex(name: String, sql_expression: String): Unit = {
     if (metadata.computed_indexes.containsKey(name)) return
@@ -284,6 +300,12 @@ case class Index private (
         "A column cannot be both a temporal index and a bloom index."
       )
     }
+    if (metadata.range_indexes.asScala.exists(_.column == column)) {
+      throw new IllegalArgumentException(
+        s"Column '$column' is already a range index. " +
+        "A column cannot be both a temporal index and a range index."
+      )
+    }
 
     // Validate both columns exist in schema
     if (!SchemaHelper.fieldExists(storedSchema, column)) {
@@ -298,6 +320,105 @@ case class Index private (
     val config = TemporalIndexConfig(column, timestampColumn)
     metadata.temporal_indexes.add(config)
     writeMetadata(metadata)
+  }
+
+  /** Adds a range index for the specified column.
+    *
+    * Range indexes store min/max values per file, enabling file pruning at
+    * query time. Files whose [min, max] range does not overlap with the
+    * queried values are skipped.
+    *
+    * @param column The column to index with min/max range
+    * @throws IllegalArgumentException if column is already indexed by another type
+    * @throws ColumnNotFoundException if column doesn't exist in schema
+    */
+  def addRangeIndex(column: String): Unit = {
+    // Idempotency check
+    if (metadata.range_indexes.asScala.exists(_.column == column)) return
+
+    // Mutual exclusivity checks
+    if (metadata.indexes.contains(column)) {
+      throw new IllegalArgumentException(
+        s"Column '$column' is already a regular index. " +
+        "A column cannot be both a range index and a regular index."
+      )
+    }
+    if (metadata.computed_indexes.containsKey(column)) {
+      throw new IllegalArgumentException(
+        s"Column '$column' is already a computed index. " +
+        "A column cannot be both a range index and a computed index."
+      )
+    }
+    if (metadata.bloom_indexes.asScala.exists(_.column == column)) {
+      throw new IllegalArgumentException(
+        s"Column '$column' is already a bloom index. " +
+        "A column cannot be both a range index and a bloom index."
+      )
+    }
+    if (metadata.temporal_indexes.asScala.exists(_.column == column)) {
+      throw new IllegalArgumentException(
+        s"Column '$column' is already a temporal index. " +
+        "A column cannot be both a range index and a temporal index."
+      )
+    }
+
+    // Validate column exists in schema
+    if (!SchemaHelper.fieldExists(storedSchema, column)) {
+      throw new ColumnNotFoundException(s"Column '$column' not found in schema")
+    }
+
+    val config = RangeIndexConfig(column)
+    metadata.range_indexes.add(config)
+    writeMetadata(metadata)
+  }
+
+  /** Deletes the specified files from the index, large index tables, and file list.
+    *
+    * Acquires the update lock, removes matching rows from the main index Delta table,
+    * all large index Delta tables, and the FileList. If a filename doesn't exist
+    * in the index, it is silently ignored.
+    *
+    * @param filenames
+    *   One or more filenames to remove from the index.
+    */
+  def deleteFiles(filenames: String*): Unit = {
+    if (filenames.isEmpty) return
+
+    val lock = IndexLock(updateLockPath, name)
+    val correlationId = UUID.randomUUID().toString
+    lock.acquire(correlationId)
+    try {
+      import spark.implicits._
+      val toDelete = filenames.toDF("filename")
+
+      // Remove from main index
+      delta(indexFilePath).foreach { dt =>
+        dt.as("target")
+          .merge(toDelete.as("source"), "target.filename = source.filename")
+          .whenMatched()
+          .delete()
+          .execute()
+        logger.warn(s"Deleted ${filenames.size} file(s) from main index")
+      }
+
+      // Remove from all large index tables
+      largeIndexColumns.foreach { colName =>
+        val largePath = new Path(largeIndexesFilePath, colName)
+        delta(largePath).foreach { dt =>
+          dt.as("target")
+            .merge(toDelete.as("source"), "target.filename = source.filename")
+            .whenMatched()
+            .delete()
+            .execute()
+          logger.warn(s"Deleted file(s) from large index column '$colName'")
+        }
+      }
+
+      // Remove from file list
+      fileList.removeFile(filenames: _*)
+    } finally {
+      lock.release(correlationId)
+    }
   }
 
   /** Updates the index with new files and backfills newly added columns. */
@@ -318,6 +439,37 @@ case class Index private (
         logger.warn(s"Updating index for ${unindexed.size} files")
         updateBatched(unindexed, lock, correlationId)
       }
+      maybeAutoCompact()
+    } finally {
+      lock.release(correlationId)
+    }
+  }
+
+  /** Compacts all Delta tables belonging to this index using OPTIMIZE.
+    * Acquires the update lock to prevent concurrent modifications.
+    */
+  def compact(): Unit = {
+    val lock = IndexLock(updateLockPath, name)
+    val correlationId = UUID.randomUUID().toString
+    lock.acquire(correlationId)
+    try {
+      compactDeltaTables()
+    } finally {
+      lock.release(correlationId)
+    }
+  }
+
+  /** Vacuums all Delta tables belonging to this index to remove old files.
+    * Acquires the update lock to prevent concurrent modifications.
+    *
+    * @param retentionHours number of hours of history to retain (default 168 = 7 days)
+    */
+  def vacuum(retentionHours: Int = 168): Unit = {
+    val lock = IndexLock(updateLockPath, name)
+    val correlationId = UUID.randomUUID().toString
+    lock.acquire(correlationId)
+    try {
+      vacuumDeltaTables(retentionHours)
     } finally {
       lock.release(correlationId)
     }
@@ -404,6 +556,19 @@ case class Index private (
     } else if (temporalConfigs.nonEmpty) {
       combinedDf = temporalDf
     }
+
+    // Build range indexes (struct with min/max per file)
+    val rangeDf = buildRangeIndexes(withFilename)
+
+    val rangeConfigs = metadata.range_indexes.asScala.toSeq
+    if (rangeConfigs.nonEmpty && combinedDf.columns.length > 1) {
+      combinedDf = combinedDf.join(rangeDf, Seq("filename"), "full_outer")
+    } else if (rangeConfigs.nonEmpty) {
+      combinedDf = rangeDf
+    }
+
+    // Build auto-bloom filters for columns that exceed largeIndexLimit
+    combinedDf = buildAutoBloomIndexes(combinedDf)
 
     handleLargeIndexes(combinedDf)
     appendToStaging(combinedDf)
@@ -536,7 +701,9 @@ object Index {
         new util.ArrayList[ExplodedFieldMapping](),
         new util.ArrayList[BloomIndexConfig](),
         new util.ArrayList[TemporalIndexConfig](),
-        new util.HashMap[String, String]()
+        new util.HashMap[String, String](),
+        new util.ArrayList[RangeIndexConfig](),
+        new util.ArrayList[String]()
       )
     }
 

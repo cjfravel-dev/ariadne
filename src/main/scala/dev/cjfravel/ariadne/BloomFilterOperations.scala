@@ -76,7 +76,7 @@ trait BloomFilterOperations extends IndexFileOperations {
     * @return
     *   UDF that takes Array[Any] and returns Array[Byte]
     */
-  private def createBloomFilterUdf(fprValue: Double): UserDefinedFunction = {
+  protected def createBloomFilterUdf(fprValue: Double): UserDefinedFunction = {
     // Capture the FPR as a local constant to ensure it's serializable
     val fpr: Double = fprValue
     

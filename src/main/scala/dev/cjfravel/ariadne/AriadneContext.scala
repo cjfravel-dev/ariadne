@@ -156,4 +156,26 @@ trait AriadneContextUser {
     logger.warn(s"lockRefreshInterval initialized: $value")
     value
   }
+
+  /** Optional threshold for auto-compaction. When set, the main index Delta table
+    * is compacted after an update if the number of Delta log JSON files meets or
+    * exceeds this value. Reads from spark.ariadne.autoCompactThreshold configuration
+    * (default: not set).
+    */
+  lazy val autoCompactThreshold: Option[Int] = {
+    val value = spark.conf.getOption("spark.ariadne.autoCompactThreshold").map(_.toInt)
+    value.foreach(v => logger.warn(s"autoCompactThreshold initialized: $v"))
+    value
+  }
+
+  /** False positive rate for auto-bloom filters on large index columns.
+    * When a column exceeds largeIndexLimit, an auto-bloom filter is built
+    * with this FPR to enable file pruning at query time.
+    * Reads from spark.ariadne.autoBloomFpr configuration (default: 0.01).
+    */
+  lazy val autoBloomFpr: Double = {
+    val value = spark.conf.get("spark.ariadne.autoBloomFpr", "0.01").toDouble
+    logger.warn(s"autoBloomFpr initialized: $value")
+    value
+  }
 }
