@@ -145,7 +145,8 @@ The Ariadne Index system provides a modular architecture for managing file-based
 - `buildRegularIndexes(df: DataFrame): DataFrame` - Builds regular indexes
 - `buildExplodedFieldIndexes(baseData: DataFrame, resultDf: DataFrame): DataFrame` - Builds exploded indexes
 - `handleLargeIndexes(df: DataFrame): Unit` - Handles large index storage
-- `mergeToDelta(df: DataFrame): Unit` - Merges data to Delta table
+- `appendToStaging(df: DataFrame): Unit` - Appends data to staging Delta table
+- `appendToLargeIndex(df: DataFrame): Unit` - Appends data to large index Delta tables
 - `storageColumns: Set[String]` - Returns all storage column names
 - `indexFilePath: Path` - Path to main index Delta table
 - `largeIndexesFilePath: Path` - Path to large indexes storage

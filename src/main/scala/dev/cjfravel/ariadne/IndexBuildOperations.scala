@@ -667,10 +667,10 @@ trait IndexBuildOperations extends BloomFilterOperations {
     val overallStart = System.currentTimeMillis()
     val largeIdxCols = largeIndexColumns
     val previousCheck = spark.conf.getOption("spark.databricks.delta.retentionDurationCheck.enabled")
-    if (retentionHours <= 0) {
-      spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false")
-    }
     try {
+      if (retentionHours <= 0) {
+        spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false")
+      }
       delta(indexFilePath).foreach { dt =>
         logger.warn(s"Vacuuming main index at $indexFilePath with retention $retentionHours hours")
         dt.vacuum(retentionHours.toDouble)
@@ -730,7 +730,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
       delta(indexFilePath) match {
         case Some(deltaTable) =>
           logger.warn(s"Merging staging data into main index at ${indexFilePath}")
-          // Enable schema auto-merge so new index columns evolve the target table
+          // Enable schema auto-merge so new index columns evolve the target table.
+          // NOTE: SparkConf mutation is not thread-safe — concurrent Index instances
+          // sharing the same SparkSession could clobber each other's config values.
           val previousAutoMerge = spark.conf.getOption("spark.databricks.delta.schema.autoMerge.enabled")
           spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
           try {

@@ -51,4 +51,17 @@ object SchemaHelper {
 
     findField(schema, parts.toList)
   }
+
+  /** Returns the data type of a top-level field in the schema.
+    *
+    * @param schema    The root `StructType` schema to search. Must not be null.
+    * @param fieldName The top-level field name to look up. Must not be null or blank.
+    * @return `Some(dataType)` if the field exists, `None` otherwise
+    * @throws IllegalArgumentException if schema is null or fieldName is null/blank
+    */
+  def fieldType(schema: StructType, fieldName: String): Option[DataType] = {
+    require(schema != null, "schema must not be null")
+    require(fieldName != null && fieldName.trim.nonEmpty, "fieldName must not be null or blank")
+    schema.fields.find(_.name == fieldName).map(_.dataType)
+  }
 }

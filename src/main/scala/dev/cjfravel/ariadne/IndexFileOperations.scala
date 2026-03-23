@@ -185,14 +185,19 @@ trait IndexFileOperations extends IndexMetadataOperations {
   /** Applies exploded field transformations to a DataFrame.
     *
     * For each configured exploded field, extracts the nested field path from the
-    * array column and explodes it into a top-level column. Note that `explode()`
-    * (not `explode_outer()`) is used intentionally — rows with null or empty arrays
-    * are dropped, which is correct for index building since there are no values to index.
+    * array column and explodes it into a top-level column. This is used on the
+    * read/join path to prepare data for joining on exploded field values.
+    *
+    * Note that `explode()` (not `explode_outer()`) is used intentionally —
+    * rows with null or empty arrays are dropped because they contain no
+    * matchable values for the join. This is consistent with the index build
+    * path which also excludes null/empty arrays.
     *
     * @param df
     *   The DataFrame to transform
     * @return
-    *   DataFrame with exploded field columns added
+    *   DataFrame with exploded field columns added; rows with null/empty
+    *   arrays are excluded
     */
   protected def applyExplodedFields(df: DataFrame): DataFrame = {
     logger.debug(s"Applying ${metadata.exploded_field_indexes.size()} exploded field transform(s)")

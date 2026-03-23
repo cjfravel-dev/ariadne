@@ -361,6 +361,18 @@ case class Index private (
         throw new ColumnNotFoundException(s"Array column '$arrayColumn' not found in schema")
       }
 
+      // Validate that the column is actually an ArrayType (only if schema is available)
+      if (metadata.schema != null) {
+        SchemaHelper.fieldType(storedSchema, arrayColumn).foreach { dt =>
+          if (!dt.isInstanceOf[ArrayType]) {
+            throw new IllegalArgumentException(
+              s"Column '$arrayColumn' is ${dt.typeName}, not ArrayType. " +
+              "addExplodedFieldIndex requires an array column."
+            )
+          }
+        }
+      }
+
       val explodedFieldMapping =
         ExplodedFieldMapping(arrayColumn, fieldPath, asColumn)
       metadata.exploded_field_indexes.add(explodedFieldMapping)
@@ -709,6 +721,8 @@ case class Index private (
                 .withColumn("file_size", sizeUdf(col("filename")))
 
               val previousAutoMerge = spark.conf.getOption("spark.databricks.delta.schema.autoMerge.enabled")
+              // NOTE: SparkConf mutation is not thread-safe — concurrent Index instances
+              // sharing the same SparkSession could clobber each other's config values.
               spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
               try {
                 dt.as("target")
