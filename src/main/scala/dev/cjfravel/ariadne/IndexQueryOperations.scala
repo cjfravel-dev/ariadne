@@ -57,15 +57,17 @@ trait IndexQueryOperations extends IndexJoinOperations {
     *   Set of column names with large index storage
     */
   protected def largeIndexColumns: Set[String] = {
-    if (!exists(largeIndexesFilePath)) return Set.empty
-    fs.listStatus(largeIndexesFilePath)
-      .filter(_.isDirectory)
-      .map(_.getPath)
-      .filter(path =>
-        exists(path) && DeltaTable.isDeltaTable(spark, path.toString)
-      )
-      .map(_.getName)
-      .toSet
+    if (!exists(largeIndexesFilePath)) Set.empty
+    else {
+      fs.listStatus(largeIndexesFilePath)
+        .filter(_.isDirectory)
+        .map(_.getPath)
+        .filter(path =>
+          exists(path) && DeltaTable.isDeltaTable(spark, path.toString)
+        )
+        .map(_.getName)
+        .toSet
+    }
   }
 
   /** Loads a large index Delta table for a specific column. Large indexes
@@ -263,7 +265,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
             s"(bloom=${bloomMs}ms, temporal=${temporalMs}ms, range=${rangeMs}ms, regular=${regularMs}ms)"
         )
         if (allFiles.isEmpty) Set.empty else allFiles
-      case None => Set()
+      case None => Set.empty
     }
   }
 
@@ -273,6 +275,9 @@ trait IndexQueryOperations extends IndexJoinOperations {
     * to avoid executor memory pressure on large result sets. Writes distinct
     * filenames to a temporary CSV path, then reads them back and collects.
     * The temporary path is cleaned up in a finally block.
+    *
+    * @note All distinct filenames are collected to the driver. For indexes with
+    *   millions of files, this can cause driver OOM.
     *
     * @param resultDF
     *   DataFrame containing a "filename" column to collect
@@ -345,6 +350,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
     * included as candidates for backward compatibility with indexes built
     * before auto-bloom was added.
     *
+    * @note This method collects all (filename, bloom_filter_bytes) rows to the
+    *   driver. For very large indexes (100k+ files), this can cause driver OOM.
+    *   Monitor driver memory when using auto-bloom on large indexes.
+    *
     * @param column
     *   The storage column name to check for auto-bloom filtering
     * @param values
@@ -360,27 +369,35 @@ trait IndexQueryOperations extends IndexJoinOperations {
       values: Array[Any],
       indexDf: DataFrame
   ): Option[Set[String]] = {
-    if (!metadata.auto_bloom_indexes.asScala.contains(column)) return None
-    val autoBloomCol = s"auto_bloom_${column}"
-    if (!indexDf.columns.contains(autoBloomCol)) return None
+    if (!metadata.auto_bloom_indexes.asScala.contains(column)) None
+    else {
+      val autoBloomCol = s"auto_bloom_${column}"
+      if (!indexDf.columns.contains(autoBloomCol)) None
+      else {
+        val rowCount = indexDf.count()
+        if (rowCount > 100000) {
+          logger.warn(s"getAutoBloomCandidates: collecting $rowCount rows to driver for column '$column' — risk of driver OOM on very large indexes")
+        }
 
-    val allRows = indexDf
-      .select("filename", autoBloomCol)
-      .collect()
+        val allRows = indexDf
+          .select("filename", autoBloomCol)
+          .collect()
 
-    val candidates = allRows
-      .filter { row =>
-        val bloomBytes = row.getAs[Array[Byte]](autoBloomCol)
-        if (bloomBytes == null) true
-        else values.exists(v => bloomMightContain(bloomBytes, v))
+        val candidates = allRows
+          .filter { row =>
+            val bloomBytes = row.getAs[Array[Byte]](autoBloomCol)
+            if (bloomBytes == null) true
+            else values.exists(v => bloomMightContain(bloomBytes, v))
+          }
+          .map(_.getString(0))
+          .toSet
+
+        val totalFiles = allRows.length
+        val reduction = if (totalFiles > 0) 100 - (candidates.size * 100 / totalFiles) else 0
+        logger.warn(s"Auto-bloom filter for '$column': $totalFiles total files -> ${candidates.size} candidates ($reduction% reduction)")
+        Some(candidates)
       }
-      .map(_.getString(0))
-      .toSet
-
-    val totalFiles = allRows.length
-    val reduction = if (totalFiles > 0) 100 - (candidates.size * 100 / totalFiles) else 0
-    logger.warn(s"Auto-bloom filter for '$column': $totalFiles total files -> ${candidates.size} candidates ($reduction% reduction)")
-    Some(candidates)
+    }
   }
 
   /** Gets candidate files from the auto-bloom filter using values extracted
@@ -388,6 +405,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
     *
     * Collects distinct non-null values from the given DataFrame column, then
     * delegates to [[getAutoBloomCandidates]] for the actual bloom filter probing.
+    *
+    * @note This method collects distinct values from `valuesDf` to the driver
+    *   and then delegates to [[getAutoBloomCandidates]], which collects all
+    *   bloom filter rows. Both collections can cause driver OOM on large indexes.
     *
     * @param storageColumn
     *   The storage column name in the index (used to look up the auto-bloom)
@@ -407,19 +428,22 @@ trait IndexQueryOperations extends IndexJoinOperations {
       valuesDf: DataFrame,
       indexDf: DataFrame
   ): Option[Set[String]] = {
-    if (!metadata.auto_bloom_indexes.asScala.contains(storageColumn)) return None
-    val autoBloomCol = s"auto_bloom_${storageColumn}"
-    if (!indexDf.columns.contains(autoBloomCol)) return None
+    if (!metadata.auto_bloom_indexes.asScala.contains(storageColumn)) None
+    else {
+      val autoBloomCol = s"auto_bloom_${storageColumn}"
+      if (!indexDf.columns.contains(autoBloomCol)) None
+      else {
+        val values = valuesDf
+          .select(joinColumn)
+          .distinct()
+          .collect()
+          .map(_.get(0))
+          .filter(_ != null)
 
-    val values = valuesDf
-      .select(joinColumn)
-      .distinct()
-      .collect()
-      .map(_.get(0))
-      .filter(_ != null)
-
-    if (values.isEmpty) return None
-    getAutoBloomCandidates(storageColumn, values, indexDf)
+        if (values.isEmpty) None
+        else getAutoBloomCandidates(storageColumn, values, indexDf)
+      }
+    }
   }
 
   /** Locates files using regular (non-bloom, non-temporal, non-range) indexes.
@@ -439,37 +463,39 @@ trait IndexQueryOperations extends IndexJoinOperations {
       indexes: Map[String, Array[Any]],
       df: DataFrame
   ): Set[String] = {
-    if (indexes.isEmpty) return Set.empty
-
-    // Filter null values from each column — isin() throws on an empty array
-    val filteredIndexes = indexes.map { case (column, values) =>
-      column -> values.filter(_ != null)
-    }
-    if (filteredIndexes.exists(_._2.isEmpty)) {
-      val emptyColumns = filteredIndexes.filter(_._2.isEmpty).keys.mkString(", ")
-      logger.debug(s"locateFilesRegular: columns [$emptyColumns] have no non-null values, returning empty result")
-      return Set.empty[String]
-    }
-
-    val perColumnFiles = filteredIndexes.map { case (column, values) =>
-      val bloomCandidates = getAutoBloomCandidates(column, values, df)
-      loadColumnIndex(df, column, bloomCandidates)
-        .where(col(column).isin(values: _*))
-        .select("filename")
-        .distinct
-    }.toSeq
-
-    val intersectedDF = if (perColumnFiles.size == 1) {
-      perColumnFiles.head
+    if (indexes.isEmpty) {
+      Set.empty
     } else {
-      perColumnFiles.reduce((a, b) => a.join(b, Seq("filename"), "inner"))
-    }
+      // Filter null values from each column — isin() throws on an empty array
+      val filteredIndexes = indexes.map { case (column, values) =>
+        column -> values.filter(_ != null)
+      }
+      if (filteredIndexes.exists(_._2.isEmpty)) {
+        val emptyColumns = filteredIndexes.filter(_._2.isEmpty).keys.mkString(", ")
+        logger.debug(s"locateFilesRegular: columns [$emptyColumns] have no non-null values, returning empty result")
+        Set.empty[String]
+      } else {
+        val perColumnFiles = filteredIndexes.map { case (column, values) =>
+          val bloomCandidates = getAutoBloomCandidates(column, values, df)
+          loadColumnIndex(df, column, bloomCandidates)
+            .where(col(column).isin(values: _*))
+            .select("filename")
+            .distinct
+        }.toSeq
 
-    val result = collectFilenamesViaStaging(intersectedDF)
-    if (debugEnabled && indexes.size > 1) {
-      logger.warn(s"[debug] Multi-column intersection: ${indexes.size} columns, result: ${result.size} files")
+        val intersectedDF = if (perColumnFiles.size == 1) {
+          perColumnFiles.head
+        } else {
+          perColumnFiles.reduce((a, b) => a.join(b, Seq("filename"), "inner"))
+        }
+
+        val result = collectFilenamesViaStaging(intersectedDF)
+        if (debugEnabled && indexes.size > 1) {
+          logger.warn(s"[debug] Multi-column intersection: ${indexes.size} columns, result: ${result.size} files")
+        }
+        result
+      }
     }
-    result
   }
 
   /** Locates files using temporal indexes, pruning to only files containing
@@ -521,32 +547,36 @@ trait IndexQueryOperations extends IndexJoinOperations {
       indexDf: DataFrame
   ): Set[String] = {
     val rangeCol = s"range_${column}"
-    if (!indexDf.columns.contains(rangeCol)) return Set.empty
-    if (values.isEmpty) return Set.empty
+    if (!indexDf.columns.contains(rangeCol)) {
+      logger.warn(s"Range column $rangeCol not found in index, returning empty result")
+      Set.empty
+    } else if (values.isEmpty) {
+      Set.empty
+    } else {
+      logger.warn(s"Range query on column '$column' with ${values.length} values")
+      if (values.length > 1000) {
+        logger.warn(s"Range query has ${values.length} values; large OR expression may be slow")
+      }
 
-    logger.warn(s"Range query on column '$column' with ${values.length} values")
-    if (values.length > 1000) {
-      logger.warn(s"Range query has ${values.length} values; large OR expression may be slow")
+      // Use Spark lit() for type-safe comparisons instead of Comparable casts.
+      // This handles type coercion (e.g. Long vs Int) and NaN correctly.
+      val valueConditions = values.map { v =>
+        col("file_min") <= lit(v) && col("file_max") >= lit(v)
+      }
+
+      val matchingFiles = indexDf
+        .select(
+          col("filename"),
+          col(s"$rangeCol.min").alias("file_min"),
+          col(s"$rangeCol.max").alias("file_max")
+        )
+        .where(col("file_min").isNotNull && col("file_max").isNotNull)
+        .where(valueConditions.reduce(_ || _))
+        .select("filename")
+        .distinct()
+
+      collectFilenamesViaStaging(matchingFiles)
     }
-
-    // Use Spark lit() for type-safe comparisons instead of Comparable casts.
-    // This handles type coercion (e.g. Long vs Int) and NaN correctly.
-    val valueConditions = values.map { v =>
-      col("file_min") <= lit(v) && col("file_max") >= lit(v)
-    }
-
-    val matchingFiles = indexDf
-      .select(
-        col("filename"),
-        col(s"$rangeCol.min").alias("file_min"),
-        col(s"$rangeCol.max").alias("file_max")
-      )
-      .where(col("file_min").isNotNull && col("file_max").isNotNull)
-      .where(valueConditions.reduce(_ || _))
-      .select("filename")
-      .distinct()
-
-    collectFilenamesViaStaging(matchingFiles)
   }
 
   /** Locates files based on a DataFrame containing join column values. Handles
@@ -589,6 +619,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
         }
 
         // Get files from bloom filters
+        val bloomStart = System.currentTimeMillis()
         val bloomFiles = if (bloomJoinColumns.nonEmpty) {
           bloomJoinColumns.map { joinColumn =>
             locateFilesWithBloomFromDataFrame(joinColumn, valuesDf, indexDf)
@@ -596,8 +627,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
         } else {
           Set.empty[String]
         }
+        val bloomMs = System.currentTimeMillis() - bloomStart
 
         // Get files from temporal indexes (pruned to latest timestamp per value)
+        val temporalStart = System.currentTimeMillis()
         val temporalFiles = if (temporalJoinColumns.nonEmpty) {
           val repartitionedIndex = maybeRepartition(indexDf)
           temporalJoinColumns.map { joinColumn =>
@@ -606,8 +639,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
         } else {
           Set.empty[String]
         }
+        val temporalMs = System.currentTimeMillis() - temporalStart
 
         // Get files from range indexes
+        val rangeStart = System.currentTimeMillis()
         val rangeFiles = if (rangeJoinColumns.nonEmpty) {
           rangeJoinColumns.map { joinColumn =>
             locateFilesWithRangeFromDataFrame(joinColumn, valuesDf, indexDf)
@@ -615,8 +650,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
         } else {
           Set.empty[String]
         }
+        val rangeMs = System.currentTimeMillis() - rangeStart
 
         // Get files from regular indexes
+        val regularStart = System.currentTimeMillis()
         val regularFiles = if (regularJoinColumns.nonEmpty) {
           // Repartition the index DataFrame before explode to reduce
           // per-executor memory pressure on large indexes
@@ -652,6 +689,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
         } else {
           Set.empty[String]
         }
+        val regularMs = System.currentTimeMillis() - regularStart
 
         // Combine results - intersect across types that returned results (AND semantics)
         // Track which categories were queried (had input), not just which returned results
@@ -667,9 +705,17 @@ trait IndexQueryOperations extends IndexJoinOperations {
         } else {
           queriedResults.reduce(_ intersect _)
         }
-        logger.warn(s"locateFilesFromDataFrame: ${allFiles.size} files matched in ${System.currentTimeMillis() - locateStart}ms")
+        val totalMs = System.currentTimeMillis() - locateStart
+        // Add per-type timing (#38) to match locateFiles
+        logger.warn(
+          s"locateFilesFromDataFrame: ${allFiles.size} files matched in ${totalMs}ms " +
+            s"(bloom=${bloomMs}ms, temporal=${temporalMs}ms, range=${rangeMs}ms, regular=${regularMs}ms)"
+        )
         if (allFiles.isEmpty) Set.empty else allFiles
-      case None => Set()
+      case None =>
+        // Log when index table is None (#33)
+        logger.warn(s"locateFilesFromDataFrame: no index table found for index '$name', returning empty result")
+        Set.empty
     }
   }
 
@@ -678,6 +724,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
     *
     * Joins the exploded temporal index with distinct query values, then applies
     * a window function to keep only the file with the highest max_ts per value.
+    * This ensures joins against temporal indexes always use the most recent data.
     *
     * @param column The temporal index value column name
     * @param valuesDf DataFrame containing a column named `column` with values to search for
@@ -704,7 +751,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
       .select("filename")
       .distinct()
 
-    collectFilenamesViaStaging(pruned)
+    val result = collectFilenamesViaStaging(pruned)
+    // Add result logging (#36)
+    logger.warn(s"Temporal DF query on column '$column': ${result.size} files matched")
+    result
   }
 
   /** Locates files using range indexes from a DataFrame of values.
@@ -712,6 +762,11 @@ trait IndexQueryOperations extends IndexJoinOperations {
     * Collects up to 10,000 distinct query values. For sets exceeding 1,000 values,
     * falls back to a bounding-box optimization (query min/max vs file min/max).
     * For smaller sets, checks per-value containment for precise pruning.
+    *
+    * @note Distinct values are truncated to 10,000 to avoid driver OOM.
+    *   For value sets exceeding 1,000, a bounding-box optimization is used
+    *   which may include false-positive files whose ranges overlap but contain
+    *   no actual matching values.
     *
     * @param column The range index column name
     * @param valuesDf DataFrame containing a column named `column` with values to search for
@@ -724,62 +779,71 @@ trait IndexQueryOperations extends IndexJoinOperations {
       indexDf: DataFrame
   ): Set[String] = {
     val rangeCol = s"range_${column}"
-    if (!indexDf.columns.contains(rangeCol)) return Set.empty
-
-    // Collect distinct query values (bounded to avoid driver OOM)
-    val rawCount = valuesDf.select(col(column)).distinct().count()
-    if (rawCount > 10000) {
-      logger.warn(s"Range query on '$column': truncating $rawCount distinct values to 10000 for per-value pruning")
-    }
-    val distinctValues = valuesDf
-      .select(col(column))
-      .distinct()
-      .limit(10000)
-      .collect()
-      .map(_.get(0))
-      .filter(_ != null)
-
-    if (distinctValues.isEmpty) return Set.empty
-
-    logger.warn(s"Range query on column '$column' with ${distinctValues.length} distinct values")
-
-    if (distinctValues.length > 1000) {
-      logger.warn(s"Range query: large value set (${distinctValues.length}), using bounding box optimization")
-      val minMaxRow = valuesDf.agg(
-        min(col(column)).alias("q_min"),
-        max(col(column)).alias("q_max")
-      ).head()
-
-      val matchingFiles = indexDf
-        .select(
-          col("filename"),
-          col(s"$rangeCol.min").alias("file_min"),
-          col(s"$rangeCol.max").alias("file_max")
-        )
-        .where(col("file_min").isNotNull && col("file_max").isNotNull)
-        .where(col("file_max") >= lit(minMaxRow.get(0)) && col("file_min") <= lit(minMaxRow.get(1)))
-        .select("filename")
-        .distinct()
-
-      collectFilenamesViaStaging(matchingFiles)
+    if (!indexDf.columns.contains(rangeCol)) {
+      Set.empty
     } else {
-      // For reasonable value sets, check per-value containment (precise pruning)
-      val valueConditions = distinctValues.map { v =>
-        col("file_min") <= lit(v) && col("file_max") >= lit(v)
+      // Collect distinct query values (bounded to avoid driver OOM)
+      val rawCount = valuesDf.select(col(column)).distinct().count()
+      if (rawCount > 10000) {
+        logger.warn(s"Range query on '$column': truncating $rawCount distinct values to 10000 for per-value pruning")
       }
-
-      val matchingFiles = indexDf
-        .select(
-          col("filename"),
-          col(s"$rangeCol.min").alias("file_min"),
-          col(s"$rangeCol.max").alias("file_max")
-        )
-        .where(col("file_min").isNotNull && col("file_max").isNotNull)
-        .where(valueConditions.reduce(_ || _))
-        .select("filename")
+      val distinctValues = valuesDf
+        .select(col(column))
         .distinct()
+        .limit(10000)
+        .collect()
+        .map(_.get(0))
+        .filter(_ != null)
 
-      collectFilenamesViaStaging(matchingFiles)
+      if (distinctValues.isEmpty) {
+        Set.empty
+      } else {
+        logger.warn(s"Range query on column '$column' with ${distinctValues.length} distinct values")
+
+        if (distinctValues.length > 1000) {
+          logger.warn(s"Range query: large value set (${distinctValues.length}), using bounding box optimization")
+          val minMaxRow = valuesDf.agg(
+            min(col(column)).alias("q_min"),
+            max(col(column)).alias("q_max")
+          ).head()
+
+          if (minMaxRow.isNullAt(0) || minMaxRow.isNullAt(1)) {
+            logger.warn(s"Range query for '$column': min/max values are null after aggregation, returning empty result")
+            Set.empty[String]
+          } else {
+            val matchingFiles = indexDf
+              .select(
+                col("filename"),
+                col(s"$rangeCol.min").alias("file_min"),
+                col(s"$rangeCol.max").alias("file_max")
+              )
+              .where(col("file_min").isNotNull && col("file_max").isNotNull)
+              .where(col("file_max") >= lit(minMaxRow.get(0)) && col("file_min") <= lit(minMaxRow.get(1)))
+              .select("filename")
+              .distinct()
+
+            collectFilenamesViaStaging(matchingFiles)
+          }
+        } else {
+          // For reasonable value sets, check per-value containment (precise pruning)
+          val valueConditions = distinctValues.map { v =>
+            col("file_min") <= lit(v) && col("file_max") >= lit(v)
+          }
+
+          val matchingFiles = indexDf
+            .select(
+              col("filename"),
+              col(s"$rangeCol.min").alias("file_min"),
+              col(s"$rangeCol.max").alias("file_max")
+            )
+            .where(col("file_min").isNotNull && col("file_max").isNotNull)
+            .where(valueConditions.reduce(_ || _))
+            .select("filename")
+            .distinct()
+
+          collectFilenamesViaStaging(matchingFiles)
+        }
+      }
     }
   }
 
@@ -793,6 +857,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
     *         or an empty DataFrame if no index exists
     */
   def stats(): DataFrame = {
+    logger.warn(s"Computing stats for index '$name'")
     index match {
       case Some(df) =>
         // File count

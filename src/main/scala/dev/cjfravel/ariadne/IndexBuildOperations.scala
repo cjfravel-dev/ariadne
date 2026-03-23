@@ -133,21 +133,25 @@ trait IndexBuildOperations extends BloomFilterOperations {
     * If no storage columns are configured (e.g., only bloom or range indexes), returns
     * trivial analyses with zero distinct counts.
     *
+    * @note This method calls `.collect()` to bring per-file distinct counts to the
+    *       driver. For indexes covering millions of files with many indexed columns,
+    *       the collected result set can be large enough to cause driver OOM. Consider
+    *       limiting the number of files analyzed per call or increasing driver memory.
+    *
     * @param files set of file paths to analyze
     * @return sequence of [[FileAnalysis]] objects with per-column distinct counts;
     *         empty if `files` is empty
     */
   protected def analyzeFiles(files: Set[String]): Seq[FileAnalysis] = {
-    if (files.isEmpty) return Seq.empty
-    
-    val startTime = System.currentTimeMillis()
-    logger.warn(s"Performing pre-flight analysis on ${files.size} files")
-    
-    val allStorageColumns = storageColumns
-    if (allStorageColumns.isEmpty) {
-      return files.map(f => FileAnalysis(f, Map.empty, 0L)).toSeq
-    }
-    
+    if (files.isEmpty) Seq.empty
+    else {
+      val startTime = System.currentTimeMillis()
+      logger.warn(s"Performing pre-flight analysis on ${files.size} files")
+      
+      val allStorageColumns = storageColumns
+      if (allStorageColumns.isEmpty) {
+        files.map(f => FileAnalysis(f, Map.empty, 0L)).toSeq
+      } else {
     // Read files with just indexed columns + filename
     val baseDf = createBaseDataFrame(files)
     val withComputedIndexes = applyComputedIndexes(baseDf)
@@ -177,6 +181,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
 
     logger.warn(s"Pre-flight analysis of ${files.size} files completed in ${System.currentTimeMillis() - startTime}ms")
     results
+      }
+    }
   }
 
   /** Groups files into batches whose aggregate `maxDistinctCount` stays below
@@ -192,14 +198,13 @@ trait IndexBuildOperations extends BloomFilterOperations {
     *         empty if `fileAnalyses` is empty
     */
   protected def createOptimalBatches(fileAnalyses: Seq[FileAnalysis]): Seq[Set[String]] = {
-    if (fileAnalyses.isEmpty) return Seq.empty
-    
-    val allStorageColumns = storageColumns
-    if (allStorageColumns.isEmpty) {
-      return Seq(fileAnalyses.map(_.filename).toSet)
-    }
-    
-    logger.warn(s"Creating optimal batches for ${fileAnalyses.size} files with largeIndexLimit=$largeIndexLimit")
+    if (fileAnalyses.isEmpty) Seq.empty
+    else {
+      val allStorageColumns = storageColumns
+      if (allStorageColumns.isEmpty) {
+        Seq(fileAnalyses.map(_.filename).toSet)
+      } else {
+        logger.warn(s"Creating optimal batches for ${fileAnalyses.size} files with largeIndexLimit=$largeIndexLimit")
     
     // Separate files that individually exceed the limit (will be processed individually)
     val (largeFiles, regularFiles) = fileAnalyses.partition(_.maxDistinctCount >= largeIndexLimit)
@@ -248,6 +253,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
     logger.warn(s"Created ${allBatches.size} batches: ${batches.size} regular batches + ${largeBatches.size} large file batches")
     
     allBatches
+      }
+    }
   }
 
   /** Builds regular (array-aggregated) indexes for all configured regular and computed columns.
@@ -263,6 +270,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
     val regularIndexes = metadata.indexes.asScala.toSet ++
       metadata.computed_indexes.keySet().asScala
     
+    logger.debug(s"Building regular indexes for ${regularIndexes.size} columns: ${regularIndexes.mkString(", ")}")
+
     if (regularIndexes.nonEmpty) {
       val regularCols = (regularIndexes + "filename").toList
       val selectedDf = df.select(regularCols.map(col): _*).distinct
@@ -286,6 +295,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
   protected def buildExplodedFieldIndexes(baseData: DataFrame, resultDf: DataFrame): DataFrame = {
     val explodedFieldMappings = metadata.exploded_field_indexes.asScala.toSeq
     
+    logger.debug(s"Building exploded field indexes for ${explodedFieldMappings.size} mapping(s)")
+
     explodedFieldMappings.foldLeft(resultDf) { (accumDf, explodedField) =>
       val explodedDf = baseData
         .select("filename", explodedField.array_column)
@@ -310,20 +321,24 @@ trait IndexBuildOperations extends BloomFilterOperations {
     */
   protected def buildTemporalIndexes(df: DataFrame): DataFrame = {
     val temporalConfigs = metadata.temporal_indexes.asScala.toSeq
-    if (temporalConfigs.isEmpty) return df.select("filename").distinct()
+    if (temporalConfigs.isEmpty) {
+      df.select("filename").distinct()
+    } else {
+      logger.debug(s"Building temporal indexes for ${temporalConfigs.size} columns: ${temporalConfigs.map(_.column).mkString(", ")}")
 
-    temporalConfigs.foldLeft(df.select("filename").distinct()) { (accumDf, config) =>
-      val perFilePerValue = df
-        .select("filename", config.column, config.timestamp_column)
-        .groupBy("filename", config.column)
-        .agg(max(col(config.timestamp_column)).alias("_ariadne_max_ts"))
+      temporalConfigs.foldLeft(df.select("filename").distinct()) { (accumDf, config) =>
+        val perFilePerValue = df
+          .select("filename", config.column, config.timestamp_column)
+          .groupBy("filename", config.column)
+          .agg(max(col(config.timestamp_column)).alias("_ariadne_max_ts"))
 
-      val structPerFile = perFilePerValue
-        .withColumn("_struct", struct(col(config.column).as("value"), col("_ariadne_max_ts").as("max_ts")))
-        .groupBy("filename")
-        .agg(collect_set(col("_struct")).alias(config.column))
+        val structPerFile = perFilePerValue
+          .withColumn("_struct", struct(col(config.column).as("value"), col("_ariadne_max_ts").as("max_ts")))
+          .groupBy("filename")
+          .agg(collect_set(col("_struct")).alias(config.column))
 
-      accumDf.join(structPerFile, Seq("filename"), "full_outer")
+        accumDf.join(structPerFile, Seq("filename"), "full_outer")
+      }
     }
   }
 
@@ -339,11 +354,11 @@ trait IndexBuildOperations extends BloomFilterOperations {
     */
   protected def buildRangeIndexes(df: DataFrame): DataFrame = {
     val rangeConfigs = metadata.range_indexes.asScala.toSeq
-    if (rangeConfigs.isEmpty) return df.select("filename").distinct()
+    if (rangeConfigs.isEmpty) df.select("filename").distinct()
+    else {
+      logger.warn(s"Building range indexes for ${rangeConfigs.size} columns: ${rangeConfigs.map(_.column).mkString(", ")}")
 
-    logger.warn(s"Building range indexes for ${rangeConfigs.size} columns: ${rangeConfigs.map(_.column).mkString(", ")}")
-
-    rangeConfigs.foldLeft(df.select("filename").distinct()) { (accumDf, config) =>
+      rangeConfigs.foldLeft(df.select("filename").distinct()) { (accumDf, config) =>
       val rangeCol = s"range_${config.column}"
       val perFile = df
         .select("filename", config.column)
@@ -355,6 +370,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
           ).alias(rangeCol)
         )
       accumDf.join(perFile, Seq("filename"), "full_outer")
+      }
     }
   }
 
@@ -365,10 +381,10 @@ trait IndexBuildOperations extends BloomFilterOperations {
     */
   protected def handleLargeIndexes(df: DataFrame): Unit = {
     val allStorageColumns = storageColumns
-    if (allStorageColumns.isEmpty) return
-
-    logger.warn(s"Checking ${allStorageColumns.size} columns for large index separation (limit=$largeIndexLimit)")
-    appendToLargeIndex(df)
+    if (allStorageColumns.nonEmpty) {
+      logger.warn(s"Checking ${allStorageColumns.size} columns for large index separation (limit=$largeIndexLimit)")
+      appendToLargeIndex(df)
+    }
   }
 
   /** Appends the processed DataFrame to the staging Delta table.
@@ -418,7 +434,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
     */
   protected def appendToLargeIndex(df: DataFrame): Unit = {
     val allStorageColumns = storageColumns
-    if (allStorageColumns.isEmpty) return
+    if (allStorageColumns.nonEmpty) {
     
     val largeGroupedDf = allStorageColumns.foldLeft(df) {
       case (accumDf, colName) =>
@@ -440,10 +456,10 @@ trait IndexBuildOperations extends BloomFilterOperations {
         .filter(col(colName).isNotNull)
         .distinct()
       
-      if (!columnData.isEmpty) {
+      val count = columnData.count()
+      if (count > 0) {
         val columnPath = new Path(largeIndexesFilePath, colName)
-        val rowCount = columnData.count()
-        logger.warn(s"Appending $rowCount rows to large index for column '$colName' at $columnPath")
+        logger.warn(s"Appending $count rows to large index for column '$colName' at $columnPath")
         
         // Remove existing rows for these files to prevent duplicates during re-indexing
         delta(columnPath) match {
@@ -461,6 +477,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
           .mode("append")
           .save(columnPath.toString)
       }
+    }
     }
   }
 
@@ -502,6 +519,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
     *
     * The input DataFrame is cached during processing to avoid redundant computation;
     * the cache reference is stored in [[lastAutoBloomCache]] for deferred cleanup.
+    * If an exception occurs during processing, the cached DataFrame is unpersisted
+    * before the exception is rethrown.
     *
     * @param combinedDf the combined index DataFrame with array columns
     * @return DataFrame with `auto_bloom_{column}` binary columns added for columns
@@ -510,50 +529,57 @@ trait IndexBuildOperations extends BloomFilterOperations {
   protected def buildAutoBloomIndexes(combinedDf: DataFrame): DataFrame = {
     val startTime = System.currentTimeMillis()
     val eligible = autoBloomEligibleColumns
-    if (eligible.isEmpty) return combinedDf
+    if (eligible.isEmpty) combinedDf
+    else {
+      // Cache combinedDf to ensure consistent evaluation when checking column sizes
+      // and building bloom filters
+      val cachedDf = combinedDf.cache()
 
-    // Cache combinedDf to ensure consistent evaluation when checking column sizes
-    // and building bloom filters
-    val cachedDf = combinedDf.cache()
+      try {
+      val columnsExceedingLimit = eligible.filter { colName =>
+        cachedDf.columns.contains(colName) &&
+        cachedDf
+          .select("filename", colName)
+          .where(col(colName).isNotNull)
+          .where(size(col(colName)) >= largeIndexLimit)
+          .count() > 0
+      }
 
-    val columnsExceedingLimit = eligible.filter { colName =>
-      cachedDf.columns.contains(colName) &&
-      cachedDf
-        .select("filename", colName)
-        .where(col(colName).isNotNull)
-        .where(size(col(colName)) >= largeIndexLimit)
-        .count() > 0
-    }
+      logger.warn(s"Auto-bloom: checked ${eligible.size} columns, ${columnsExceedingLimit.size} exceed limit")
 
-    logger.warn(s"Auto-bloom: checked ${eligible.size} columns, ${columnsExceedingLimit.size} exceed limit")
+      columnsExceedingLimit.foreach { colName =>
+        if (!metadata.auto_bloom_indexes.contains(colName)) {
+          metadata.auto_bloom_indexes.add(colName)
+        }
+      }
 
-    columnsExceedingLimit.foreach { colName =>
-      if (!metadata.auto_bloom_indexes.contains(colName)) {
-        metadata.auto_bloom_indexes.add(colName)
+      val autoBloomColumns = metadata.auto_bloom_indexes.asScala.toSet
+        .intersect(eligible)
+        .filter(cachedDf.columns.contains)
+
+      if (autoBloomColumns.isEmpty) {
+        cachedDf.unpersist()
+        logger.warn(s"Auto-bloom: no columns to build, completed in ${System.currentTimeMillis() - startTime}ms")
+        combinedDf
+      } else {
+        logger.warn(s"Building auto-bloom filters for columns: ${autoBloomColumns.mkString(", ")}")
+        val fpr = autoBloomFpr
+        val result = autoBloomColumns.foldLeft(cachedDf) { (df, colName) =>
+          logger.warn(s"Auto-bloom: building filter for '$colName' with FPR=$fpr")
+          val bloomColumn = autoBloomColumnPrefix + colName
+          val bloomUdf = createBloomFilterUdf(fpr)
+          df.withColumn(bloomColumn, bloomUdf(col(colName)))
+        }
+        lastAutoBloomCache = Some(cachedDf)
+        logger.warn(s"Auto-bloom: build completed in ${System.currentTimeMillis() - startTime}ms")
+        result
+      }
+      } catch {
+        case e: Exception =>
+          cachedDf.unpersist()
+          throw e
       }
     }
-
-    val autoBloomColumns = metadata.auto_bloom_indexes.asScala.toSet
-      .intersect(eligible)
-      .filter(cachedDf.columns.contains)
-
-    if (autoBloomColumns.isEmpty) {
-      cachedDf.unpersist()
-      logger.warn(s"Auto-bloom: no columns to build, completed in ${System.currentTimeMillis() - startTime}ms")
-      return combinedDf
-    }
-
-    logger.warn(s"Building auto-bloom filters for columns: ${autoBloomColumns.mkString(", ")}")
-    val fpr = autoBloomFpr
-    val result = autoBloomColumns.foldLeft(cachedDf) { (df, colName) =>
-      logger.warn(s"Auto-bloom: building filter for '$colName' with FPR=$fpr")
-      val bloomColumn = autoBloomColumnPrefix + colName
-      val bloomUdf = createBloomFilterUdf(fpr)
-      df.withColumn(bloomColumn, bloomUdf(col(colName)))
-    }
-    lastAutoBloomCache = Some(cachedDf)
-    logger.warn(s"Auto-bloom: build completed in ${System.currentTimeMillis() - startTime}ms")
-    result
   }
 
   /** Compacts all Delta tables (main index and large index tables) using Delta OPTIMIZE.
@@ -563,6 +589,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
     * large index column table.
     */
   protected def compactDeltaTables(): Unit = {
+    val overallStart = System.currentTimeMillis()
+    val largeIdxCols = largeIndexColumns
+
     delta(indexFilePath).foreach { dt =>
       val compactStart = System.currentTimeMillis()
       logger.warn(s"Compacting main index at $indexFilePath")
@@ -570,7 +599,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
       logger.warn(s"Compacted main index in ${System.currentTimeMillis() - compactStart}ms")
     }
 
-    largeIndexColumns.foreach { colName =>
+    largeIdxCols.foreach { colName =>
       val columnPath = new Path(largeIndexesFilePath, colName)
       delta(columnPath).foreach { dt =>
         val compactStart = System.currentTimeMillis()
@@ -579,6 +608,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
         logger.warn(s"Compacted large index '$colName' in ${System.currentTimeMillis() - compactStart}ms")
       }
     }
+
+    logger.warn(s"Compaction completed for main index and ${largeIdxCols.size} large index table(s) in ${System.currentTimeMillis() - overallStart}ms")
   }
 
   /** Counter tracking batches processed since the last auto-compaction.
@@ -617,6 +648,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
     * @param retentionHours number of hours of history to retain (default 168 = 7 days)
     */
   protected def vacuumDeltaTables(retentionHours: Int = 168): Unit = {
+    val overallStart = System.currentTimeMillis()
+    val largeIdxCols = largeIndexColumns
     val previousCheck = spark.conf.getOption("spark.databricks.delta.retentionDurationCheck.enabled")
     if (retentionHours <= 0) {
       spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false")
@@ -627,13 +660,15 @@ trait IndexBuildOperations extends BloomFilterOperations {
         dt.vacuum(retentionHours.toDouble)
       }
 
-      largeIndexColumns.foreach { colName =>
+      largeIdxCols.foreach { colName =>
         val columnPath = new Path(largeIndexesFilePath, colName)
         delta(columnPath).foreach { dt =>
           logger.warn(s"Vacuuming large index for column $colName at $columnPath with retention $retentionHours hours")
           dt.vacuum(retentionHours.toDouble)
         }
       }
+
+      logger.warn(s"Vacuum completed for main index and ${largeIdxCols.size} large index table(s) in ${System.currentTimeMillis() - overallStart}ms")
     } finally {
       previousCheck match {
         case Some(v) => spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", v)
@@ -668,11 +703,12 @@ trait IndexBuildOperations extends BloomFilterOperations {
   private def consolidateMainStaging(): Unit = {
     if (!exists(stagingFilePath)) {
       logger.warn("No staging data to consolidate for main index")
-      return
-    }
+    } else {
     
     val allStorageColumns = storageColumns ++ bloomStorageColumns ++ rangeStorageColumns ++ autoBloomStorageColumns
     val stagingDf = spark.read.format("delta").load(stagingFilePath.toString)
+    val stagingRowCount = stagingDf.count()
+    logger.warn(s"Merging $stagingRowCount staged rows into main index")
     
     if (allStorageColumns.nonEmpty) {
       delta(indexFilePath) match {
@@ -716,6 +752,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
     // Delete staging after successful consolidation
     delete(stagingFilePath)
     logger.warn("Deleted main staging table after consolidation")
+    }
   }
 
 }

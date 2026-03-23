@@ -109,3 +109,56 @@ Default Maven profile is `spark34`. Use `-P spark35` for Spark 3.5 / Delta 3.2. 
 ### Tests
 
 All Spark tests mix in `SparkTests`, which creates a local `SparkSession` with a temp directory as `spark.ariadne.storagePath` and the Delta extensions configured. Test data files live in `src/test/resources/` and are accessed via `resourcePath(fileName)`.
+
+### Java Version
+
+Java 11 is required (`JAVA_HOME=/usr/lib/jvm/java-11-openjdk`). Do not use Java features beyond Java 11. The Scala version (2.12.17) and Spark versions (3.4/3.5) are tied to Azure Synapse dependencies and must not be changed.
+
+### Scaladoc Requirements
+
+All classes, traits, objects, and public/protected methods must have scaladoc documentation:
+- Class/trait/object level: purpose, thread-safety notes, relationship to other components
+- Method level: `@param`, `@return`, `@throws` annotations
+- Include usage examples for public API methods
+- Document edge cases and limitations (e.g., driver OOM risks for `collect()`)
+- Exception classes: document when thrown, by which methods, and recovery steps
+
+### Logging Standards
+
+- Use Log4j2 API (`org.apache.logging.log4j`)
+- `logger.warn(...)` for all operational messages (progress, counts, paths, durations). This is intentional — Spark clusters surface warn-level output.
+- `logger.debug(...)` for verbose/diagnostic entries only
+- All public mutating methods (`update`, `compact`, `vacuum`, `deleteFiles`) must:
+  - Log entry with index name and key parameters
+  - Log completion with duration
+  - Use catch-log-rethrow pattern so failures are logged before lock release
+- All `add*Index` methods must log confirmation of the addition
+- Silent catch blocks are prohibited — always log the exception before swallowing or rethrowing
+- Include enough context in log messages for debugging (index name, file counts, column names, durations)
+
+### Edge Case & Production Readiness Standards
+
+- Guard `.head`, `.last`, `.get` calls with `nonEmpty`/`isDefined` checks
+- Use try-finally for resource cleanup (broadcast variables, cached DataFrames, streams)
+- Close all streams (ByteArrayOutputStream, ByteArrayInputStream, scala.io.Source) in finally blocks
+- Guard against null in finally blocks (e.g., `if (stream != null) stream.close()`)
+- Document thread-safety: `Index` instances are NOT safe for concurrent `select()` + `join()` from multiple threads
+- Add comments documenting TOCTOU race conditions and driver OOM risks where applicable
+- Validate inputs: throw `IllegalArgumentException` for null/empty required parameters
+
+### Scala Coding Standards
+
+- Expression-oriented style: use `if/else` expressions instead of `return` statements
+- Use `import scala.collection.JavaConverters._` (NOT `CollectionConverters` which is Scala 2.13+)
+- Prefer immutable collections; use `var` only when required (e.g., Gson compatibility in `IndexMetadata`)
+- Use `Set.empty`, `Seq.empty` instead of `Set()`, `Seq()`
+- String interpolation (`s"..."`) over concatenation
+- Follow standard Scala naming: camelCase for methods/vals, PascalCase for types, UPPER_SNAKE for constants
+
+### Spark Coding Standards
+
+- Minimize driver-side `collect()` — document OOM risks where unavoidable
+- Use try-finally for `broadcast.destroy()` and `df.unpersist()` cleanup
+- Prefer built-in Spark functions over UDFs where possible
+- Use `@transient` for non-serializable fields in closures
+- Document any operations that break Catalyst optimization

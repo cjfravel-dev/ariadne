@@ -83,23 +83,27 @@ trait BloomFilterOperations extends IndexFileOperations {
     */
   protected def buildBloomFilterIndexes(df: DataFrame): DataFrame = {
     val configs = bloomIndexConfigs
-    if (configs.isEmpty) return df.select("filename").distinct()
+    if (configs.isEmpty) {
+      df.select("filename").distinct()
+    } else {
+      logger.debug(s"Building bloom filter indexes for ${configs.size} columns: ${configs.map(_.column).mkString(", ")}")
 
-    // For each bloom column, create aggregation that produces binary bloom filter
-    configs.foldLeft(df.select("filename").distinct) { (accumDf, config) =>
-      val bloomColumn = bloomColumnPrefix + config.column
-      val fprValue = config.fpr  // Capture FPR as a local val
+      // For each bloom column, create aggregation that produces binary bloom filter
+      configs.foldLeft(df.select("filename").distinct) { (accumDf, config) =>
+        val bloomColumn = bloomColumnPrefix + config.column
+        val fprValue = config.fpr  // Capture FPR as a local val
 
-      // Get distinct values per file and create bloom filter
-      val bloomUdf = createBloomFilterUdf(fprValue)
-      val bloomData = df
-        .select("filename", config.column)
-        .groupBy("filename")
-        .agg(
-          bloomUdf(collect_set(col(config.column))).alias(bloomColumn)
-        )
+        // Get distinct values per file and create bloom filter
+        val bloomUdf = createBloomFilterUdf(fprValue)
+        val bloomData = df
+          .select("filename", config.column)
+          .groupBy("filename")
+          .agg(
+            bloomUdf(collect_set(col(config.column))).alias(bloomColumn)
+          )
 
-      accumDf.join(bloomData, Seq("filename"), "left")
+        accumDf.join(bloomData, Seq("filename"), "left")
+      }
     }
   }
 
@@ -114,11 +118,15 @@ trait BloomFilterOperations extends IndexFileOperations {
     * The `fprValue` parameter is captured as a local `val` to ensure it is
     * serializable when the UDF closure is shipped to Spark executors.
     *
-    * @param fprValue the desired false positive rate (e.g., 0.01 for 1%)
+    * @param fprValue the desired false positive rate (e.g., 0.01 for 1%);
+    *                 must be strictly between 0 and 1 (exclusive)
     * @return a UDF that accepts `Seq[Any]` (from `collect_set`) and returns `Array[Byte]`,
     *         or `null` if the input is null or contains only nulls
+    * @throws IllegalArgumentException if `fprValue` is not in the range (0, 1)
     */
   protected def createBloomFilterUdf(fprValue: Double): UserDefinedFunction = {
+    require(fprValue > 0.0 && fprValue < 1.0,
+      s"False positive rate must be between 0 and 1 (exclusive), got: $fprValue")
     // Capture the FPR as a local constant to ensure it's serializable
     val fpr: Double = fprValue
     
@@ -143,8 +151,12 @@ trait BloomFilterOperations extends IndexFileOperations {
 
           // Serialize to bytes
           val baos = new ByteArrayOutputStream()
-          bf.writeTo(baos)
-          baos.toByteArray
+          try {
+            bf.writeTo(baos)
+            baos.toByteArray
+          } finally {
+            baos.close()
+          }
         }
       }
     }
@@ -163,7 +175,11 @@ trait BloomFilterOperations extends IndexFileOperations {
       bytes: Array[Byte]
   ): BloomFilter[CharSequence] = {
     val bais = new ByteArrayInputStream(bytes)
-    BloomFilter.readFrom(bais, Funnels.stringFunnel(StandardCharsets.UTF_8))
+    try {
+      BloomFilter.readFrom(bais, Funnels.stringFunnel(StandardCharsets.UTF_8))
+    } finally {
+      bais.close()
+    }
   }
 
   /** Checks if a value might be contained in a serialized bloom filter.
@@ -176,9 +192,11 @@ trait BloomFilterOperations extends IndexFileOperations {
     * @return `true` if the value might be present (probabilistic), `false` if definitely absent
     */
   protected def bloomMightContain(bloomBytes: Array[Byte], value: Any): Boolean = {
-    if (bloomBytes == null || value == null) return false
-    val bf = deserializeBloomFilter(bloomBytes)
-    bf.mightContain(value.toString)
+    if (bloomBytes == null || value == null) false
+    else {
+      val bf = deserializeBloomFilter(bloomBytes)
+      bf.mightContain(value.toString)
+    }
   }
 
   /** Creates a Spark UDF for checking bloom filter membership at query time.
@@ -205,6 +223,11 @@ trait BloomFilterOperations extends IndexFileOperations {
     * specified column, and tests every candidate value. A file is included in the
     * result if any value passes the `mightContain` check.
     *
+    * @note This method calls `.collect()` to load all bloom filter binary data to the
+    *       driver. For indexes with millions of files, each row carries a serialized
+    *       bloom filter (potentially KBs each), which can cause driver OOM. Consider
+    *       increasing driver memory for very large indexes.
+    *
     * @param column the source column name (without `bloom_` prefix)
     * @param values array of candidate values to search for
     * @param indexDf the index DataFrame containing bloom filter binary columns
@@ -221,32 +244,39 @@ trait BloomFilterOperations extends IndexFileOperations {
 
     if (!indexDf.columns.contains(bloomColumn)) {
       logger.warn(s"Bloom column $bloomColumn not found in index")
-      return Set.empty
-    }
-
-    // Check each file's bloom filter against all values
-    val matchingFiles = indexDf
-      .select("filename", bloomColumn)
-      .collect()
-      .filter { row =>
-        val bloomBytes = row.getAs[Array[Byte]](bloomColumn)
-        if (bloomBytes == null) false
-        else {
-          // File matches if ANY value might be contained
-          values.exists(v => bloomMightContain(bloomBytes, v))
+      Set.empty
+    } else {
+      // NOTE: collect() loads all bloom filter byte arrays to the driver. For very large
+      // indexes with millions of files, this could cause driver OOM as each row includes
+      // a serialized bloom filter (potentially KBs each).
+      val matchingFiles = indexDf
+        .select("filename", bloomColumn)
+        .collect()
+        .filter { row =>
+          val bloomBytes = row.getAs[Array[Byte]](bloomColumn)
+          if (bloomBytes == null) false
+          else {
+            // File matches if ANY value might be contained
+            values.exists(v => bloomMightContain(bloomBytes, v))
+          }
         }
-      }
-      .map(_.getString(0))
-      .toSet
+        .map(_.getString(0))
+        .toSet
 
-    logger.warn(s"Bloom filter for '$column': ${matchingFiles.size} files matched out of total index rows")
-    matchingFiles
+      logger.warn(s"Bloom filter for '$column': ${matchingFiles.size} files matched out of total index rows")
+      matchingFiles
+    }
   }
 
   /** Locates files that might contain values from a DataFrame using bloom filters.
     *
     * Collects distinct non-null values from the specified column of `valuesDf`,
     * then delegates to [[locateFilesWithBloom]] for the actual bloom filter check.
+    *
+    * @note This method calls `.collect()` twice: first to gather distinct candidate
+    *       values from `valuesDf`, then indirectly via [[locateFilesWithBloom]] to
+    *       load all bloom filter binary data to the driver. Both operations can cause
+    *       driver OOM for very large DataFrames or indexes with millions of files.
     *
     * @param column the source column name (without `bloom_` prefix)
     * @param valuesDf DataFrame containing the candidate values to search for
@@ -263,21 +293,22 @@ trait BloomFilterOperations extends IndexFileOperations {
 
     if (!indexDf.columns.contains(bloomColumn)) {
       logger.warn(s"Bloom column $bloomColumn not found in index")
-      return Set.empty
+      Set.empty
+    } else {
+      // Collect distinct values from the query DataFrame
+      val values = valuesDf
+        .select(column)
+        .distinct()
+        .collect()
+        .map(_.get(0))
+        .filter(_ != null)
+
+      if (values.isEmpty) Set.empty
+      else {
+        logger.warn(s"Bloom filter query for '$column': ${values.length} distinct values from DataFrame")
+        // Use the existing method with collected values
+        locateFilesWithBloom(column, values, indexDf)
+      }
     }
-
-    // Collect distinct values from the query DataFrame
-    val values = valuesDf
-      .select(column)
-      .distinct()
-      .collect()
-      .map(_.get(0))
-      .filter(_ != null)
-
-    if (values.isEmpty) return Set.empty
-
-    logger.warn(s"Bloom filter query for '$column': ${values.length} distinct values from DataFrame")
-    // Use the existing method with collected values
-    locateFilesWithBloom(column, values, indexDf)
   }
 }

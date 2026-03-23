@@ -18,7 +18,9 @@ import dev.cjfravel.ariadne.exceptions.MetadataMissingOrCorruptException
 case class BloomIndexConfig(
     var column: String,
     var fpr: Double = 0.01
-)
+) {
+  require(fpr > 0 && fpr < 1, s"fpr must be between 0 and 1 (exclusive), got $fpr")
+}
 
 /** Configuration for a temporal index.
   *
@@ -131,6 +133,8 @@ object IndexMetadata {
     *
     * @param jsonString The JSON representation of the metadata
     * @return A fully initialized IndexMetadata instance
+    * @throws MetadataMissingOrCorruptException
+    *   if `jsonString` is null, empty, or cannot be deserialized
     *
     * @example
     * {{{
@@ -144,6 +148,9 @@ object IndexMetadata {
       throw new MetadataMissingOrCorruptException()
     }
     val indexMetadata = new Gson().fromJson(jsonString, classOf[IndexMetadata])
+    if (indexMetadata == null) {
+      throw new MetadataMissingOrCorruptException()
+    }
     // v1 -> v2
     if (indexMetadata.computed_indexes == null) {
       indexMetadata.computed_indexes =

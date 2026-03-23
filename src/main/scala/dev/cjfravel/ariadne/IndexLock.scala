@@ -81,7 +81,11 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     try {
       spark.sparkContext.applicationId
     } catch {
-      case _: Exception => InetAddress.getLocalHost.getHostName
+      case e: Exception =>
+        logger.debug(
+          s"Could not get Spark application ID, falling back to hostname: ${e.getMessage}"
+        )
+        InetAddress.getLocalHost.getHostName
     }
   }
 
@@ -98,7 +102,12 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     *   max retry attempts
     */
   def acquire(correlationId: String): Unit = {
+    logger.debug(s"Acquiring lock for index '$indexName' (correlationId='$correlationId')")
+    val acquireStart = System.currentTimeMillis()
     doAcquire(correlationId, depth = 0)
+    logger.debug(
+      s"Lock acquire completed for index '$indexName' in ${System.currentTimeMillis() - acquireStart}ms"
+    )
   }
 
   /** Internal acquire implementation with a recursion depth guard.
@@ -117,7 +126,6 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     }
 
     val startTime = System.currentTimeMillis()
-    val attempt = 0
 
     try {
       val now = Instant.now().toString
@@ -131,7 +139,7 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     } catch {
       case _: org.apache.hadoop.fs.FileAlreadyExistsException |
           _: java.io.IOException =>
-        handleExistingLock(correlationId, startTime, attempt, depth)
+        handleExistingLock(correlationId, startTime, 0, depth)
     }
   }
 
@@ -140,6 +148,12 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     * Reads the existing lock to determine whether it is stale (auto-heal),
     * active (enter retry loop), or corrupt/unreadable (delete and retry with
     * depth guard).
+    *
+    * '''TOCTOU note:''' There is an inherent race between reading the lock,
+    * determining it is stale, deleting it, and re-creating it. A third process
+    * could create a new lock between the delete and the re-acquire. The
+    * `depth` guard limits recursion, and the filesystem's atomic-create
+    * semantics (`overwrite = false`) ensure at most one writer succeeds.
     *
     * @param correlationId
     *   unique identifier for the new lock request
@@ -177,6 +191,24 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     }
   }
 
+  /** Retry loop implementing exponential back-off for lock acquisition.
+    *
+    * Sleeps with exponential back-off (capped at 60 s) between attempts.
+    * On each iteration the lock file is re-read to check for staleness or
+    * release. The loop terminates when the lock is successfully acquired,
+    * the caller is interrupted, or `lockMaxWait` is exceeded.
+    *
+    * @param correlationId
+    *   unique identifier for the new lock request
+    * @param startTime
+    *   epoch millis when the acquire attempt started
+    * @param attempt
+    *   initial retry attempt number (for back-off calculation)
+    * @param lastLock
+    *   the most recently observed [[LockInfo]] from the lock file
+    * @throws IndexLockException
+    *   if the lock cannot be acquired within `lockMaxWait` seconds
+    */
   private def retryLoop(
       correlationId: String,
       startTime: Long,
@@ -185,8 +217,9 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
   ): Unit = {
     var currentAttempt = attempt
     var currentLock = lastLock
+    var acquired = false
 
-    while (true) {
+    while (!acquired) {
       val elapsed = (System.currentTimeMillis() - startTime) / 1000
       if (elapsed >= lockMaxWait) {
         throw new IndexLockException(
@@ -202,6 +235,11 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
           60.0
         )
         .toLong
+      logger.warn(
+        s"Lock retry for index '$indexName': attempt=$currentAttempt, " +
+          s"elapsed=${elapsed}s, sleeping=${sleepSeconds}s, " +
+          s"holder=${currentLock.owner} (correlationId='${currentLock.correlationId}')"
+      )
       try {
         Thread.sleep(sleepSeconds * 1000)
       } catch {
@@ -229,7 +267,7 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
             logger.warn(
               s"Lock acquired for index '$indexName' (correlationId='$correlationId')"
             )
-            return
+            acquired = true
           } catch {
             case _: org.apache.hadoop.fs.FileAlreadyExistsException |
                 _: java.io.IOException =>
@@ -247,7 +285,7 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
             logger.warn(
               s"Lock acquired for index '$indexName' (correlationId='$correlationId')"
             )
-            return
+            acquired = true
           } catch {
             case _: org.apache.hadoop.fs.FileAlreadyExistsException |
                 _: java.io.IOException =>
@@ -266,6 +304,8 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     *   the correlation ID that should currently hold the lock
     */
   def release(correlationId: String): Unit = {
+    logger.debug(s"Releasing lock for index '$indexName' (correlationId='$correlationId')")
+    val releaseStart = System.currentTimeMillis()
     readLock() match {
       case Some(lockInfo) if lockInfo.correlationId == correlationId =>
         delete(lockPath)
@@ -282,6 +322,9 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
           s"Cannot release lock for index '$indexName': lock file does not exist"
         )
     }
+    logger.debug(
+      s"Lock release completed for index '$indexName' in ${System.currentTimeMillis() - releaseStart}ms"
+    )
   }
 
   /** Refreshes the lock's `lastRefreshedAt` timestamp to prevent stale-lock
@@ -294,6 +337,8 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     *   the correlation ID that should currently hold the lock
     */
   def refresh(correlationId: String): Unit = {
+    logger.debug(s"Refreshing lock for index '$indexName' (correlationId='$correlationId')")
+    val refreshStart = System.currentTimeMillis()
     readLock() match {
       case Some(lockInfo) if lockInfo.correlationId == correlationId =>
         val updated = lockInfo.copy(lastRefreshedAt = Instant.now().toString)
@@ -311,13 +356,16 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
           s"Cannot refresh lock for index '$indexName': lock file does not exist"
         )
     }
+    logger.debug(
+      s"Lock refresh completed for index '$indexName' in ${System.currentTimeMillis() - refreshStart}ms"
+    )
   }
 
   /** Determines whether the lock is stale based on `lastRefreshedAt`.
     *
     * A lock is stale when the time elapsed since its last refresh exceeds the
     * configured `lockTimeout`. If the timestamp cannot be parsed, the lock is
-    * considered stale.
+    * considered stale and a warning is logged.
     *
     * @param lockInfo
     *   the lock metadata to evaluate
@@ -329,7 +377,12 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
       val lastRefreshed = Instant.parse(lockInfo.lastRefreshedAt)
       Duration.between(lastRefreshed, Instant.now()).getSeconds > lockTimeout
     } catch {
-      case _: Exception => true
+      case e: Exception =>
+        logger.warn(
+          s"Could not parse lastRefreshedAt='${lockInfo.lastRefreshedAt}' for index " +
+            s"'$indexName', treating lock as stale: ${e.getMessage}"
+        )
+        true
     }
   }
 
@@ -344,9 +397,14 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
       if (exists(lockPath)) {
         val inputStream = open(lockPath)
         try {
-          val jsonString =
-            Source.fromInputStream(inputStream)(StandardCharsets.UTF_8).mkString
-          Some(gson.fromJson(jsonString, classOf[LockInfo]))
+          val source =
+            Source.fromInputStream(inputStream)(StandardCharsets.UTF_8)
+          try {
+            val jsonString = source.mkString
+            Some(gson.fromJson(jsonString, classOf[LockInfo]))
+          } finally {
+            source.close()
+          }
         } finally {
           inputStream.close()
         }
@@ -354,8 +412,10 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
         None
       }
     } catch {
-      case _: java.io.FileNotFoundException       => None
-      case _: com.google.gson.JsonSyntaxException => None
+      case _: java.io.FileNotFoundException => None
+      case e: com.google.gson.JsonSyntaxException =>
+        logger.warn(s"Corrupt lock file at $lockPath: ${e.getMessage}")
+        None
     }
   }
 
@@ -368,8 +428,9 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     *   file already exists (atomic create)
     */
   private def writeLockFile(lockInfo: LockInfo, overwrite: Boolean): Unit = {
-    val outputStream = fs.create(lockPath, overwrite)
+    var outputStream: org.apache.hadoop.fs.FSDataOutputStream = null
     try {
+      outputStream = fs.create(lockPath, overwrite)
       outputStream.write(gson.toJson(lockInfo).getBytes(StandardCharsets.UTF_8))
       outputStream.flush()
     } catch {
@@ -379,7 +440,9 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
         )
         throw e
     } finally {
-      outputStream.close()
+      if (outputStream != null) {
+        outputStream.close()
+      }
     }
   }
 }

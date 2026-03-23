@@ -3,7 +3,21 @@ package dev.cjfravel.ariadne.exceptions
 /** Thrown when a distributed lock for an index operation cannot be acquired.
   *
   * This may occur when another process holds the lock and the maximum wait
-  * time is exceeded, or when lock acquisition is interrupted.
+  * time (`lockMaxWait`) is exceeded, when lock acquisition is interrupted,
+  * or when a corrupt lock file cannot be recovered after multiple attempts.
+  *
+  * Raised by [[dev.cjfravel.ariadne.IndexLock.acquire]] and propagated through
+  * `Index.update`, `Index.compact`, `Index.vacuum`, and `Index.deleteFiles`.
+  *
+  * {{{
+  * try {
+  *   index.update("s3a://bucket/data/")
+  * } catch {
+  *   case e: IndexLockException =>
+  *     // Another process holds the lock or lock file is corrupt
+  *     logger.error(s"Lock contention: \${e.getMessage}")
+  * }
+  * }}}
   *
   * @param message A descriptive error message including index name and lock holder details
   */

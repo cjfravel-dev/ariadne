@@ -1,6 +1,6 @@
 package dev.cjfravel.ariadne
 
-import dev.cjfravel.ariadne.exceptions.IndexNotFoundException
+import dev.cjfravel.ariadne.exceptions.{IndexNotFoundException, FileListNotFoundException}
 import org.apache.hadoop.fs.Path
 import org.apache.logging.log4j.LogManager
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
@@ -84,19 +84,25 @@ object IndexCatalog {
     val indexesDir = IndexPathUtils.storagePath
     if (!contextUser.exists(indexesDir)) {
       logger.warn("IndexCatalog: indexes directory does not exist, returning empty list")
-      return Seq.empty
-    }
-
-    val statuses = contextUser.fs.listStatus(indexesDir)
-    statuses
-      .filter(_.isDirectory)
-      .filter { status =>
-        val metadataPath = new Path(status.getPath, "metadata.json")
-        contextUser.fs.exists(metadataPath)
+      Seq.empty
+    } else {
+      val statuses = contextUser.fs.listStatus(indexesDir)
+      if (statuses == null) {
+        Seq.empty
+      } else {
+        val result = statuses
+          .filter(_.isDirectory)
+          .filter { status =>
+            val metadataPath = new Path(status.getPath, "metadata.json")
+            contextUser.fs.exists(metadataPath)
+          }
+          .map(_.getPath.getName)
+          .sorted
+          .toSeq
+        logger.warn(s"IndexCatalog: found ${result.size} index(es)")
+        result
       }
-      .map(_.getPath.getName)
-      .sorted
-      .toSeq
+    }
   }
 
   /** Checks whether an index with the given name exists.
@@ -199,6 +205,7 @@ object IndexCatalog {
     if (!exists(name)) {
       throw new IndexNotFoundException(name)
     }
+    logger.debug(s"IndexCatalog: fetching index '$name'")
     Index(name)
   }
 
@@ -237,11 +244,11 @@ object IndexCatalog {
     ))
 
     if (summaries.isEmpty) {
-      return spark.createDataFrame(
+      spark.createDataFrame(
         spark.sparkContext.emptyRDD[Row],
         schema
       )
-    }
+    } else {
 
     val rows = summaries.map { s =>
       Row(
@@ -261,12 +268,15 @@ object IndexCatalog {
       spark.sparkContext.parallelize(rows),
       schema
     )
+    }
   }
 
   /** Removes an index by name.
     *
     * Deletes the index storage directory (containing metadata, index tables,
     * staging, and large indexes) and the associated file list Delta table.
+    * If the file list has already been removed by another process, it is
+    * treated as a successful no-op for that resource.
     *
     * @param name  the index name
     * @param spark implicit SparkSession
@@ -282,6 +292,7 @@ object IndexCatalog {
       implicit def spark: SparkSession = sparkSession
     }
 
+    val startTime = System.currentTimeMillis()
     logger.warn(s"IndexCatalog: removing index '$name'")
     val indexDir = new Path(IndexPathUtils.storagePath, name)
     val indexDeleted = if (contextUser.fs.exists(indexDir)) {
@@ -289,10 +300,20 @@ object IndexCatalog {
     } else false
 
     val fileListName = IndexPathUtils.fileListName(name)
-    val fileListDeleted = if (FileList.exists(fileListName)) {
-      FileList.remove(fileListName)
-    } else false
+    val fileListDeleted = try {
+      if (FileList.exists(fileListName)) {
+        FileList.remove(fileListName)
+      } else false
+    } catch {
+      case _: FileListNotFoundException =>
+        false
+    }
 
+    val elapsed = System.currentTimeMillis() - startTime
+    logger.warn(
+      s"IndexCatalog: successfully removed index '$name' in ${elapsed}ms " +
+        s"(indexDir=$indexDeleted, fileList=$fileListDeleted)"
+    )
     indexDeleted || fileListDeleted
   }
 

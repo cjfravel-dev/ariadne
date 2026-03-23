@@ -90,36 +90,48 @@ case class FileList private (
   def files: DataFrame = files(spark)
 
   private def addFile(spark: SparkSession, fileNames: String*): Unit = {
+    require(fileNames != null, "fileNames must not be null")
+    fileNames.foreach { fn =>
+      require(
+        fn != null && fn.trim.nonEmpty,
+        "Each fileName must be non-null and non-blank"
+      )
+    }
+    logger.warn(
+      s"addFile called on FileList '$name' with ${fileNames.size} file(s)"
+    )
     import spark.implicits._
     val existing = files.select("filename").as[String].collect().toSet
     val toAdd = fileNames.toSet.diff(existing)
     if (toAdd.isEmpty) {
       logger.warn("All files were already added")
-      return
-    }
-
-    val ts = Timestamp.from(Instant.now())
-    val newFilesData = toAdd.toList.map(filename => Row(filename, ts))
-    val newFiles = spark.createDataFrame(
-      spark.sparkContext.parallelize(newFilesData),
-      StructType(
-        Seq(
-          StructField("filename", StringType, nullable = false),
-          StructField("addedAt", TimestampType, nullable = false)
+    } else {
+      val ts = Timestamp.from(Instant.now())
+      val newFilesData = toAdd.toList.map(filename => Row(filename, ts))
+      val newFiles = spark.createDataFrame(
+        spark.sparkContext.parallelize(newFilesData),
+        StructType(
+          Seq(
+            StructField("filename", StringType, nullable = false),
+            StructField("addedAt", TimestampType, nullable = false)
+          )
         )
       )
-    )
 
-    val originalFiles = _files
-    _files = _files.union(newFiles)
-    try {
-      write
-    } catch {
-      case e: Exception =>
-        _files = originalFiles
-        throw e
+      val originalFiles = _files
+      _files = _files.union(newFiles)
+      try {
+        write
+      } catch {
+        case e: Exception =>
+          logger.warn(
+            s"Failed to write FileList '$name', rolling back in-memory state: ${e.getMessage}"
+          )
+          _files = originalFiles
+          throw e
+      }
+      logger.warn(s"Added ${toAdd.size} files to FileList $name")
     }
-    logger.warn(s"Added ${toAdd.size} files to FileList $name")
   }
 
   /** Registers new files in the file list.
@@ -130,6 +142,8 @@ case class FileList private (
     *
     * @param fileNames
     *   one or more file paths to add
+    * @throws IllegalArgumentException
+    *   if fileNames is null or any individual file name is null or blank
     */
   def addFile(fileNames: String*): Unit = addFile(spark, fileNames: _*)
 
@@ -142,6 +156,9 @@ case class FileList private (
     *   one or more file paths to remove
     */
   def removeFile(fileNames: String*): Unit = {
+    logger.warn(
+      s"removeFile called on FileList '$name' with ${fileNames.size} file(s)"
+    )
     delta(storagePath) match {
       case Some(dt) =>
         import spark.implicits._

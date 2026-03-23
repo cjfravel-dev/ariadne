@@ -52,9 +52,13 @@ case class Index private (
     *
     * @param columns The column names to select
     * @return This Index instance for method chaining
+    * @throws IllegalArgumentException if columns is null/empty or any column is null/blank
     * @throws ColumnNotFoundException if any specified column doesn't exist in the schema
     */
   def select(columns: String*): Index = {
+    require(columns != null && columns.nonEmpty, "columns must not be null or empty")
+    require(columns.forall(c => c != null && c.trim.nonEmpty), "each column must not be null or blank")
+
     // Validate that all specified columns exist in the schema
     val invalidColumns = columns.filterNot { colName =>
       SchemaHelper.fieldExists(storedSchema, colName)
@@ -79,9 +83,14 @@ case class Index private (
 
   /** Adds files to the index's file list for future indexing.
     * Acquires a file list lock to prevent concurrent modifications.
+    *
     * @param fileNames One or more file paths to register
+    * @throws IllegalArgumentException if fileNames is null/empty or any fileName is null/blank
     */
   def addFile(fileNames: String*): Unit = {
+    require(fileNames != null && fileNames.nonEmpty, "fileNames must not be null or empty")
+    require(fileNames.forall(f => f != null && f.trim.nonEmpty), "each fileName must not be null or blank")
+    logger.warn(s"Adding ${fileNames.size} file(s) to index '$name'")
     val lock = IndexLock(fileListLockPath, name)
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
@@ -101,18 +110,19 @@ case class Index private (
   private[ariadne] def unindexedFiles(spark: SparkSession): Set[String] = {
     val files = fileList.files
     if (files.isEmpty) {
-      return Set()
-    }
-    import spark.implicits._
-    index match {
-      case Some(df) =>
-        files
-          .join(df, Seq("filename"), "left_anti")
-          .select("filename")
-          .as[String]
-          .collect()
-          .toSet
-      case None => files.select("filename").as[String].collect().toSet
+      Set.empty[String]
+    } else {
+      import spark.implicits._
+      index match {
+        case Some(df) =>
+          files
+            .join(df, Seq("filename"), "left_anti")
+            .select("filename")
+            .as[String]
+            .collect()
+            .toSet
+        case None => files.select("filename").as[String].collect().toSet
+      }
     }
   }
 
@@ -134,47 +144,63 @@ case class Index private (
           rangeStorageColumns ++ autoBloomStorageColumns
         val existingCols = df.columns.toSet - "filename"
         val missingCols = expectedCols -- existingCols
-        if (missingCols.isEmpty) return Set.empty
-        logger.warn(s"Detected new index columns not yet in index table: ${missingCols.mkString(", ")}")
-        df.select("filename").as[String].collect().toSet
+        if (missingCols.isEmpty) {
+          Set.empty[String]
+        } else {
+          logger.warn(s"Detected new index columns not yet in index table: ${missingCols.mkString(", ")}")
+          df.select("filename").as[String].collect().toSet
+        }
       case None => Set.empty
     }
   }
 
-  /** Adds an index entry.
+  /** Adds a regular (array-of-distinct-values) index for the specified column.
+    *
+    * Idempotent: calling again with the same column is a no-op.
+    *
     * @param index
-    *   The index entry to add.
-    * @throws IllegalArgumentException if column is already a bloom index
+    *   The column name to index.
+    * @throws IllegalArgumentException if the column name is null/blank or already indexed by another type
+    *   (bloom, temporal, or range)
+    * @throws ColumnNotFoundException if the column doesn't exist in the schema
     */
   def addIndex(index: String): Unit = {
-    if (metadata.indexes.contains(index)) return
-    
-    // Check mutual exclusivity with bloom indexes
-    if (metadata.bloom_indexes.asScala.exists(_.column == index)) {
-      throw new IllegalArgumentException(
-        s"Column '$index' is already a bloom index. " +
-        "A column cannot be both a regular index and a bloom index."
-      )
-    }
+    require(index != null && index.trim.nonEmpty, "index column name must not be null or blank")
 
-    // Check mutual exclusivity with temporal indexes
-    if (metadata.temporal_indexes.asScala.exists(_.column == index)) {
-      throw new IllegalArgumentException(
-        s"Column '$index' is already a temporal index. " +
-        "A column cannot be both a regular index and a temporal index."
-      )
-    }
+    if (!metadata.indexes.contains(index)) {
+      // Check mutual exclusivity with bloom indexes
+      if (metadata.bloom_indexes.asScala.exists(_.column == index)) {
+        throw new IllegalArgumentException(
+          s"Column '$index' is already a bloom index. " +
+          "A column cannot be both a regular index and a bloom index."
+        )
+      }
 
-    // Check mutual exclusivity with range indexes
-    if (metadata.range_indexes.asScala.exists(_.column == index)) {
-      throw new IllegalArgumentException(
-        s"Column '$index' is already a range index. " +
-        "A column cannot be both a regular index and a range index."
-      )
+      // Check mutual exclusivity with temporal indexes
+      if (metadata.temporal_indexes.asScala.exists(_.column == index)) {
+        throw new IllegalArgumentException(
+          s"Column '$index' is already a temporal index. " +
+          "A column cannot be both a regular index and a temporal index."
+        )
+      }
+
+      // Check mutual exclusivity with range indexes
+      if (metadata.range_indexes.asScala.exists(_.column == index)) {
+        throw new IllegalArgumentException(
+          s"Column '$index' is already a range index. " +
+          "A column cannot be both a regular index and a range index."
+        )
+      }
+
+      // Validate column exists in schema (only if schema is available)
+      if (metadata.schema != null && !SchemaHelper.fieldExists(storedSchema, index)) {
+        throw new ColumnNotFoundException(s"Column '$index' not found in schema")
+      }
+
+      metadata.indexes.add(index)
+      writeMetadata(metadata)
+      logger.warn(s"Added regular index on column '$index' for index '$name'")
     }
-    
-    metadata.indexes.add(index)
-    writeMetadata(metadata)
   }
 
   /** Adds a bloom filter index for the specified column.
@@ -186,105 +212,122 @@ case class Index private (
     *
     * @param column The column name to index with a bloom filter
     * @param fpr False positive rate between 0.0 and 1.0 (default 0.01 = 1%)
-    * @throws IllegalArgumentException if column is already a regular or computed index
+    * @throws IllegalArgumentException if column is null/blank, FPR out of range, or column is already a regular or computed index
     * @throws ColumnNotFoundException if column doesn't exist in schema
     */
   def addBloomIndex(column: String, fpr: Double = 0.01): Unit = {
+    require(column != null && column.trim.nonEmpty, "bloom index column name must not be null or blank")
     // Validate FPR range
     require(fpr > 0 && fpr < 1, s"FPR must be between 0 and 1, got: $fpr")
-    
-    // Check mutual exclusivity with regular indexes
-    if (metadata.indexes.contains(column)) {
-      throw new IllegalArgumentException(
-        s"Column '$column' is already a regular index. " +
-        "A column cannot be both a bloom index and a regular index."
-      )
+
+    if (!metadata.bloom_indexes.asScala.exists(_.column == column)) {
+      // Check mutual exclusivity with regular indexes
+      if (metadata.indexes.contains(column)) {
+        throw new IllegalArgumentException(
+          s"Column '$column' is already a regular index. " +
+          "A column cannot be both a bloom index and a regular index."
+        )
+      }
+      if (metadata.computed_indexes.containsKey(column)) {
+        throw new IllegalArgumentException(
+          s"Column '$column' is already a computed index. " +
+          "A column cannot be both a bloom index and a computed index."
+        )
+      }
+      if (metadata.temporal_indexes.asScala.exists(_.column == column)) {
+        throw new IllegalArgumentException(
+          s"Column '$column' is already a temporal index. " +
+          "A column cannot be both a bloom index and a temporal index."
+        )
+      }
+      if (metadata.range_indexes.asScala.exists(_.column == column)) {
+        throw new IllegalArgumentException(
+          s"Column '$column' is already a range index. " +
+          "A column cannot be both a bloom index and a range index."
+        )
+      }
+
+      // Validate column exists in schema (only if schema is available)
+      if (metadata.schema != null && !SchemaHelper.fieldExists(storedSchema, column)) {
+        throw new ColumnNotFoundException(s"Column '$column' not found in schema")
+      }
+
+      val config = BloomIndexConfig(column, fpr)
+      metadata.bloom_indexes.add(config)
+      writeMetadata(metadata)
+      logger.warn(s"Added bloom index for column '$column' with FPR=$fpr to index '$name'")
     }
-    if (metadata.computed_indexes.containsKey(column)) {
-      throw new IllegalArgumentException(
-        s"Column '$column' is already a computed index. " +
-        "A column cannot be both a bloom index and a computed index."
-      )
-    }
-    if (metadata.temporal_indexes.asScala.exists(_.column == column)) {
-      throw new IllegalArgumentException(
-        s"Column '$column' is already a temporal index. " +
-        "A column cannot be both a bloom index and a temporal index."
-      )
-    }
-    if (metadata.range_indexes.asScala.exists(_.column == column)) {
-      throw new IllegalArgumentException(
-        s"Column '$column' is already a range index. " +
-        "A column cannot be both a bloom index and a range index."
-      )
-    }
-    
-    // Check if already a bloom index
-    if (metadata.bloom_indexes.asScala.exists(_.column == column)) return
-    
-    // Validate column exists in schema
-    if (!SchemaHelper.fieldExists(storedSchema, column)) {
-      throw new ColumnNotFoundException(s"Column '$column' not found in schema")
-    }
-    
-    val config = BloomIndexConfig(column, fpr)
-    metadata.bloom_indexes.add(config)
-    writeMetadata(metadata)
   }
 
-  /** Adds an exploded field index entry.
+  /** Adds an exploded field index for a nested field inside an array column.
+    *
+    * During [[update]], each element of `arrayColumn` is exploded, the `fieldPath`
+    * is extracted, and the distinct values are stored under `asColumn` in the index.
+    * Joins on `asColumn` will locate files containing any matching array element.
+    * Idempotent: calling again with the same `asColumn` is a no-op.
+    *
     * @param arrayColumn
-    *   The array column to index.
+    *   The array column to explode.
     * @param fieldPath
-    *   The field path to extract from array elements (e.g., "id" or
-    *   "profile.user_id").
+    *   The dot-separated field path to extract from each array element
+    *   (e.g., "id" or "profile.user_id").
     * @param asColumn
-    *   The column name to use in joins.
+    *   The virtual column name exposed for joins.
+    * @throws IllegalArgumentException if any parameter is null/blank, or `asColumn` conflicts with another index type
     */
   def addExplodedFieldIndex(
       arrayColumn: String,
       fieldPath: String,
       asColumn: String
   ): Unit = {
-    // Idempotency check
-    if (metadata.exploded_field_indexes.asScala.exists(_.as_column == asColumn)) return
+    require(arrayColumn != null && arrayColumn.trim.nonEmpty, "arrayColumn must not be null or blank")
+    require(fieldPath != null && fieldPath.trim.nonEmpty, "fieldPath must not be null or blank")
+    require(asColumn != null && asColumn.trim.nonEmpty, "asColumn must not be null or blank")
 
-    // Mutual exclusivity checks
-    if (metadata.indexes.contains(asColumn)) {
-      throw new IllegalArgumentException(
-        s"Column '$asColumn' is already a regular index. " +
-        "A column cannot be both an exploded field index and a regular index."
-      )
-    }
-    if (metadata.computed_indexes.containsKey(asColumn)) {
-      throw new IllegalArgumentException(
-        s"Column '$asColumn' is already a computed index. " +
-        "A column cannot be both an exploded field index and a computed index."
-      )
-    }
-    if (metadata.bloom_indexes.asScala.exists(_.column == asColumn)) {
-      throw new IllegalArgumentException(
-        s"Column '$asColumn' is already a bloom index. " +
-        "A column cannot be both an exploded field index and a bloom index."
-      )
-    }
-    if (metadata.temporal_indexes.asScala.exists(_.column == asColumn)) {
-      throw new IllegalArgumentException(
-        s"Column '$asColumn' is already a temporal index. " +
-        "A column cannot be both an exploded field index and a temporal index."
-      )
-    }
-    if (metadata.range_indexes.asScala.exists(_.column == asColumn)) {
-      throw new IllegalArgumentException(
-        s"Column '$asColumn' is already a range index. " +
-        "A column cannot be both an exploded field index and a range index."
-      )
-    }
+    if (!metadata.exploded_field_indexes.asScala.exists(_.as_column == asColumn)) {
+      // Mutual exclusivity checks
+      if (metadata.indexes.contains(asColumn)) {
+        throw new IllegalArgumentException(
+          s"Column '$asColumn' is already a regular index. " +
+          "A column cannot be both an exploded field index and a regular index."
+        )
+      }
+      if (metadata.computed_indexes.containsKey(asColumn)) {
+        throw new IllegalArgumentException(
+          s"Column '$asColumn' is already a computed index. " +
+          "A column cannot be both an exploded field index and a computed index."
+        )
+      }
+      if (metadata.bloom_indexes.asScala.exists(_.column == asColumn)) {
+        throw new IllegalArgumentException(
+          s"Column '$asColumn' is already a bloom index. " +
+          "A column cannot be both an exploded field index and a bloom index."
+        )
+      }
+      if (metadata.temporal_indexes.asScala.exists(_.column == asColumn)) {
+        throw new IllegalArgumentException(
+          s"Column '$asColumn' is already a temporal index. " +
+          "A column cannot be both an exploded field index and a temporal index."
+        )
+      }
+      if (metadata.range_indexes.asScala.exists(_.column == asColumn)) {
+        throw new IllegalArgumentException(
+          s"Column '$asColumn' is already a range index. " +
+          "A column cannot be both an exploded field index and a range index."
+        )
+      }
 
-    val explodedFieldMapping =
-      ExplodedFieldMapping(arrayColumn, fieldPath, asColumn)
-    metadata.exploded_field_indexes.add(explodedFieldMapping)
-    writeMetadata(metadata)
+      // Validate array column exists in schema (only if schema is available)
+      if (metadata.schema != null && !SchemaHelper.fieldExists(storedSchema, arrayColumn)) {
+        throw new ColumnNotFoundException(s"Array column '$arrayColumn' not found in schema")
+      }
+
+      val explodedFieldMapping =
+        ExplodedFieldMapping(arrayColumn, fieldPath, asColumn)
+      metadata.exploded_field_indexes.add(explodedFieldMapping)
+      writeMetadata(metadata)
+      logger.warn(s"Added exploded field index '$asColumn' (array='$arrayColumn', path='$fieldPath') to index '$name'")
+    }
   }
 
   /** Returns all column names that can be used in joins across all index types.
@@ -303,48 +346,56 @@ case class Index private (
       metadata.range_indexes.asScala.map(_.column).toSet
 
   /** Adds a computed index derived from a SQL expression.
+    *
+    * The expression is evaluated during [[update]] to produce a virtual column
+    * whose distinct values are stored in the index. Idempotent: calling again
+    * with the same name is a no-op.
+    *
     * @param name The alias name for the computed column
-    * @param sql_expression The SQL expression to compute the column value
-    * @throws IllegalArgumentException if name conflicts with another index type
+    * @param sql_expression A Spark SQL expression evaluated against each data file
+    * @throws IllegalArgumentException if name or sql_expression is null/blank, or name conflicts with another index type
     */
   def addComputedIndex(name: String, sql_expression: String): Unit = {
-    // Idempotency check
-    if (metadata.computed_indexes.containsKey(name)) return
+    require(name != null && name.trim.nonEmpty, "computed index name must not be null or blank")
+    require(sql_expression != null && sql_expression.trim.nonEmpty, "sql_expression must not be null or blank")
 
-    // Mutual exclusivity checks
-    if (metadata.indexes.contains(name)) {
-      throw new IllegalArgumentException(
-        s"Column '$name' is already a regular index. " +
-        "A column cannot be both a computed index and a regular index."
-      )
-    }
-    if (metadata.bloom_indexes.asScala.exists(_.column == name)) {
-      throw new IllegalArgumentException(
-        s"Column '$name' is already a bloom index. " +
-        "A column cannot be both a computed index and a bloom index."
-      )
-    }
-    if (metadata.temporal_indexes.asScala.exists(_.column == name)) {
-      throw new IllegalArgumentException(
-        s"Column '$name' is already a temporal index. " +
-        "A column cannot be both a computed index and a temporal index."
-      )
-    }
-    if (metadata.range_indexes.asScala.exists(_.column == name)) {
-      throw new IllegalArgumentException(
-        s"Column '$name' is already a range index. " +
-        "A column cannot be both a computed index and a range index."
-      )
-    }
-    if (metadata.exploded_field_indexes.asScala.exists(_.as_column == name)) {
-      throw new IllegalArgumentException(
-        s"Column '$name' is already an exploded field index. " +
-        "A column cannot be both a computed index and an exploded field index."
-      )
-    }
+    if (!metadata.computed_indexes.containsKey(name)) {
+      // Mutual exclusivity checks
+      if (metadata.indexes.contains(name)) {
+        throw new IllegalArgumentException(
+          s"Column '$name' is already a regular index. " +
+          "A column cannot be both a computed index and a regular index."
+        )
+      }
+      if (metadata.bloom_indexes.asScala.exists(_.column == name)) {
+        throw new IllegalArgumentException(
+          s"Column '$name' is already a bloom index. " +
+          "A column cannot be both a computed index and a bloom index."
+        )
+      }
+      if (metadata.temporal_indexes.asScala.exists(_.column == name)) {
+        throw new IllegalArgumentException(
+          s"Column '$name' is already a temporal index. " +
+          "A column cannot be both a computed index and a temporal index."
+        )
+      }
+      if (metadata.range_indexes.asScala.exists(_.column == name)) {
+        throw new IllegalArgumentException(
+          s"Column '$name' is already a range index. " +
+          "A column cannot be both a computed index and a range index."
+        )
+      }
+      if (metadata.exploded_field_indexes.asScala.exists(_.as_column == name)) {
+        throw new IllegalArgumentException(
+          s"Column '$name' is already an exploded field index. " +
+          "A column cannot be both a computed index and an exploded field index."
+        )
+      }
 
-    metadata.computed_indexes.put(name, sql_expression)
-    writeMetadata(metadata)
+      metadata.computed_indexes.put(name, sql_expression)
+      writeMetadata(metadata)
+      logger.warn(s"Added computed index '$name' with expression to index '${this.name}'")
+    }
   }
 
   /** Adds a temporal index for the specified column using a timestamp for versioning.
@@ -355,52 +406,57 @@ case class Index private (
     *
     * @param column The value column to index on (e.g., "user_id")
     * @param timestampColumn The timestamp column for ordering versions (e.g., "updated_at")
-    * @throws IllegalArgumentException if column is already indexed by another type
+    * @throws IllegalArgumentException if column or timestampColumn is null/blank, or column is already indexed by another type
     * @throws ColumnNotFoundException if either column doesn't exist in schema
     */
   def addTemporalIndex(column: String, timestampColumn: String): Unit = {
-    // Idempotency check
-    if (metadata.temporal_indexes.asScala.exists(_.column == column)) return
+    require(column != null && column.trim.nonEmpty, "temporal index column must not be null or blank")
+    require(timestampColumn != null && timestampColumn.trim.nonEmpty, "timestampColumn must not be null or blank")
 
-    // Mutual exclusivity checks
-    if (metadata.indexes.contains(column)) {
-      throw new IllegalArgumentException(
-        s"Column '$column' is already a regular index. " +
-        "A column cannot be both a temporal index and a regular index."
-      )
-    }
-    if (metadata.computed_indexes.containsKey(column)) {
-      throw new IllegalArgumentException(
-        s"Column '$column' is already a computed index. " +
-        "A column cannot be both a temporal index and a computed index."
-      )
-    }
-    if (metadata.bloom_indexes.asScala.exists(_.column == column)) {
-      throw new IllegalArgumentException(
-        s"Column '$column' is already a bloom index. " +
-        "A column cannot be both a temporal index and a bloom index."
-      )
-    }
-    if (metadata.range_indexes.asScala.exists(_.column == column)) {
-      throw new IllegalArgumentException(
-        s"Column '$column' is already a range index. " +
-        "A column cannot be both a temporal index and a range index."
-      )
-    }
+    if (!metadata.temporal_indexes.asScala.exists(_.column == column)) {
+      // Mutual exclusivity checks
+      if (metadata.indexes.contains(column)) {
+        throw new IllegalArgumentException(
+          s"Column '$column' is already a regular index. " +
+          "A column cannot be both a temporal index and a regular index."
+        )
+      }
+      if (metadata.computed_indexes.containsKey(column)) {
+        throw new IllegalArgumentException(
+          s"Column '$column' is already a computed index. " +
+          "A column cannot be both a temporal index and a computed index."
+        )
+      }
+      if (metadata.bloom_indexes.asScala.exists(_.column == column)) {
+        throw new IllegalArgumentException(
+          s"Column '$column' is already a bloom index. " +
+          "A column cannot be both a temporal index and a bloom index."
+        )
+      }
+      if (metadata.range_indexes.asScala.exists(_.column == column)) {
+        throw new IllegalArgumentException(
+          s"Column '$column' is already a range index. " +
+          "A column cannot be both a temporal index and a range index."
+        )
+      }
 
-    // Validate both columns exist in schema
-    if (!SchemaHelper.fieldExists(storedSchema, column)) {
-      throw new ColumnNotFoundException(s"Column '$column' not found in schema")
-    }
-    if (!SchemaHelper.fieldExists(storedSchema, timestampColumn)) {
-      throw new ColumnNotFoundException(
-        s"Timestamp column '$timestampColumn' not found in schema"
-      )
-    }
+      // Validate both columns exist in schema (only if schema is available)
+      if (metadata.schema != null) {
+        if (!SchemaHelper.fieldExists(storedSchema, column)) {
+          throw new ColumnNotFoundException(s"Column '$column' not found in schema")
+        }
+        if (!SchemaHelper.fieldExists(storedSchema, timestampColumn)) {
+          throw new ColumnNotFoundException(
+            s"Timestamp column '$timestampColumn' not found in schema"
+          )
+        }
+      }
 
-    val config = TemporalIndexConfig(column, timestampColumn)
-    metadata.temporal_indexes.add(config)
-    writeMetadata(metadata)
+      val config = TemporalIndexConfig(column, timestampColumn)
+      metadata.temporal_indexes.add(config)
+      writeMetadata(metadata)
+      logger.warn(s"Added temporal index for column '$column' (timestamp='$timestampColumn') to index '$name'")
+    }
   }
 
   /** Adds a range index for the specified column.
@@ -410,47 +466,49 @@ case class Index private (
     * queried values are skipped.
     *
     * @param column The column to index with min/max range
-    * @throws IllegalArgumentException if column is already indexed by another type
+    * @throws IllegalArgumentException if column is null/blank or already indexed by another type
     * @throws ColumnNotFoundException if column doesn't exist in schema
     */
   def addRangeIndex(column: String): Unit = {
-    // Idempotency check
-    if (metadata.range_indexes.asScala.exists(_.column == column)) return
+    require(column != null && column.trim.nonEmpty, "range index column must not be null or blank")
 
-    // Mutual exclusivity checks
-    if (metadata.indexes.contains(column)) {
-      throw new IllegalArgumentException(
-        s"Column '$column' is already a regular index. " +
-        "A column cannot be both a range index and a regular index."
-      )
-    }
-    if (metadata.computed_indexes.containsKey(column)) {
-      throw new IllegalArgumentException(
-        s"Column '$column' is already a computed index. " +
-        "A column cannot be both a range index and a computed index."
-      )
-    }
-    if (metadata.bloom_indexes.asScala.exists(_.column == column)) {
-      throw new IllegalArgumentException(
-        s"Column '$column' is already a bloom index. " +
-        "A column cannot be both a range index and a bloom index."
-      )
-    }
-    if (metadata.temporal_indexes.asScala.exists(_.column == column)) {
-      throw new IllegalArgumentException(
-        s"Column '$column' is already a temporal index. " +
-        "A column cannot be both a range index and a temporal index."
-      )
-    }
+    if (!metadata.range_indexes.asScala.exists(_.column == column)) {
+      // Mutual exclusivity checks
+      if (metadata.indexes.contains(column)) {
+        throw new IllegalArgumentException(
+          s"Column '$column' is already a regular index. " +
+          "A column cannot be both a range index and a regular index."
+        )
+      }
+      if (metadata.computed_indexes.containsKey(column)) {
+        throw new IllegalArgumentException(
+          s"Column '$column' is already a computed index. " +
+          "A column cannot be both a range index and a computed index."
+        )
+      }
+      if (metadata.bloom_indexes.asScala.exists(_.column == column)) {
+        throw new IllegalArgumentException(
+          s"Column '$column' is already a bloom index. " +
+          "A column cannot be both a range index and a bloom index."
+        )
+      }
+      if (metadata.temporal_indexes.asScala.exists(_.column == column)) {
+        throw new IllegalArgumentException(
+          s"Column '$column' is already a temporal index. " +
+          "A column cannot be both a range index and a temporal index."
+        )
+      }
 
-    // Validate column exists in schema
-    if (!SchemaHelper.fieldExists(storedSchema, column)) {
-      throw new ColumnNotFoundException(s"Column '$column' not found in schema")
-    }
+      // Validate column exists in schema (only if schema is available)
+      if (metadata.schema != null && !SchemaHelper.fieldExists(storedSchema, column)) {
+        throw new ColumnNotFoundException(s"Column '$column' not found in schema")
+      }
 
-    val config = RangeIndexConfig(column)
-    metadata.range_indexes.add(config)
-    writeMetadata(metadata)
+      val config = RangeIndexConfig(column)
+      metadata.range_indexes.add(config)
+      writeMetadata(metadata)
+      logger.warn(s"Added range index for column '$column' to index '$name'")
+    }
   }
 
   /** Deletes the specified files from the index, large index tables, and file list.
@@ -463,14 +521,13 @@ case class Index private (
     *   One or more filenames to remove from the index.
     */
   def deleteFiles(filenames: String*): Unit = {
-    if (filenames.isEmpty) return
-
-    val startTime = System.currentTimeMillis()
-    logger.warn(s"Deleting ${filenames.size} file(s) from index '$name'")
-    val lock = IndexLock(updateLockPath, name)
-    val correlationId = UUID.randomUUID().toString
-    lock.acquire(correlationId)
-    try {
+    if (filenames.nonEmpty) {
+      val startTime = System.currentTimeMillis()
+      logger.warn(s"Deleting ${filenames.size} file(s) from index '$name'")
+      val lock = IndexLock(updateLockPath, name)
+      val correlationId = UUID.randomUUID().toString
+      lock.acquire(correlationId)
+      try {
       import spark.implicits._
       val toDelete = filenames.toDF("filename")
 
@@ -534,6 +591,7 @@ case class Index private (
       logger.warn(s"Successfully deleted ${filenames.size} file(s) from index '$name' in ${System.currentTimeMillis() - startTime}ms")
     } finally {
       lock.release(correlationId)
+    }
     }
   }
 
@@ -810,8 +868,13 @@ case class Index private (
 }
 
 /** Companion object for the Index class.
+  *
+  * Provides factory methods for creating or reconnecting to indexes, as well as
+  * utility methods for checking existence and removing indexes.
   */
 object Index {
+  private val logger: Logger = LogManager.getLogger("ariadne")
+
   /** Returns the file list name for an index.
     * @param name The index name
     * @return The file list identifier
@@ -901,19 +964,30 @@ object Index {
     Some(readOptions)
   )
 
-  /** Factory method to create an Index instance.
+  /** Primary factory method to create or reconnect to an Index instance.
+    *
+    * If metadata exists at the storage path, reconnects to the existing index and validates
+    * schema/format compatibility. If metadata does not exist, creates a new index with the
+    * provided schema and format.
+    *
     * @param name
-    *   The name of the index.
+    *   Unique index name (must be a valid Hadoop path component).
     * @param schema
-    *   The optional schema.
+    *   Optional Spark schema of the data files. Required for new indexes.
     * @param format
-    *   The optional format.
+    *   Optional data file format (e.g., "parquet", "csv"). Required for new indexes.
     * @param allowSchemaMismatch
-    *   The optional flag to allow new schema.
+    *   When true and metadata exists, allows updating the stored schema. Validates that all
+    *   existing index columns still exist in the new schema before applying the change.
     * @param readOptions
-    *   Optional map of read options for format-specific configuration.
+    *   Optional map of read options for format-specific configuration (e.g., CSV delimiter).
     * @return
-    *   An Index instance.
+    *   A fully initialized Index instance.
+    * @throws SchemaMismatchException if schema differs and allowSchemaMismatch is false
+    * @throws FormatMismatchException if format differs from stored format
+    * @throws SchemaNotProvidedException if creating a new index without a schema
+    * @throws MissingFormatException if creating a new index without a format
+    * @throws IndexNotFoundInNewSchemaException if allowSchemaMismatch is true but an indexed column is missing
     */
   def apply(
       name: String,
@@ -925,6 +999,7 @@ object Index {
     val index = Index(name, schema)(spark)
 
     val metadataExists = index.metadataExists
+    logger.warn(s"Index '$name': ${if (metadataExists) "reconnecting" else "creating new"}")
     val metadata = if (metadataExists) {
       index.metadata
     } else {
@@ -950,11 +1025,11 @@ object Index {
           if (allowSchemaMismatch) {
             if (metadata.schema != s.json) {
               // Validate regular indexes
-              metadata.indexes.forEach(col => {
+              metadata.indexes.asScala.foreach { col =>
                 if (!SchemaHelper.fieldExists(s, col)) {
                   throw new IndexNotFoundInNewSchemaException(col)
                 }
-              })
+              }
               // Validate bloom indexes
               metadata.bloom_indexes.asScala.foreach { bi =>
                 if (!SchemaHelper.fieldExists(s, bi.column)) {
@@ -982,6 +1057,7 @@ object Index {
                 // We validate the output column name exists conceptually but
                 // cannot validate the expression references without executing it
               }
+              logger.warn(s"Index '$name': schema evolved (allowSchemaMismatch=true)")
             }
             metadata.schema = s.json
           } else if (metadata.schema != s.json) {
@@ -1036,6 +1112,12 @@ object Index {
     * This provides the reverse join direction compared to [[Index.join]]:
     * the driving DataFrame is on the left and the index-located data is on the right.
     *
+    * Usage:
+    * {{{
+    * import dev.cjfravel.ariadne.Index.DataFrameOps
+    * val result = myDataFrame.join(index, Seq("user_id"), "inner")
+    * }}}
+    *
     * @param df The DataFrame to enrich with implicit join capability
     */
   implicit class DataFrameOps(df: DataFrame) {
@@ -1056,6 +1138,7 @@ object Index {
         usingColumns: Seq[String],
         joinType: String = "inner"
     ): DataFrame = {
+      logger.warn(s"DataFrameOps.join: $joinType join on columns ${usingColumns.mkString(", ")} against index '${index.name}'")
       val indexDf = index.joinDf(df, usingColumns)
       df.join(indexDf, usingColumns, joinType)
     }

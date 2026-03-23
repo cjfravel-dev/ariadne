@@ -566,6 +566,38 @@ spark.conf.set("spark.ariadne.indexRepartitionCount", "200")
 val result = queryDf.join(index, Seq("user_id"), "inner")
 ```
 
+## Thread Safety & Concurrency
+
+### Index Instance Thread Safety
+
+**`Index` instances are NOT thread-safe for concurrent mutation.** Specifically:
+
+- `select()` mutates internal `selectedColumns` state and returns `this` (not a copy)
+- `_metadata` is a mutable `var` read/written from multiple call sites without synchronization
+- `IndexMetadata` uses mutable Java collections that are not thread-safe
+
+**Safe patterns:**
+- One thread per `Index` instance
+- Create separate `Index` instances per thread (they will coordinate via file-based locks)
+- Read-only operations (`locateFiles`, `stats`, `printIndex`) are safe from multiple threads if no mutations occur concurrently
+
+### Lock File Concurrency
+
+File-based locks (`.filelist.lock`, `.update.lock`) coordinate between separate Spark jobs/applications:
+- Uses Hadoop `create(overwrite=false)` for atomic acquisition
+- Stale lock auto-healing has a known TOCTOU window (mitigated by retry depth guard)
+- Lock refresh during long `update` operations prevents false stale detection
+
+### Driver Memory Considerations
+
+Several operations collect data to the driver and may cause OOM on large indexes:
+- `FileList.addFile()` collects all filenames for duplicate checking
+- `BloomFilterOperations.locateFilesWithBloom()` collects bloom filters
+- `IndexQueryOperations.getAutoBloomCandidates()` collects auto-bloom data
+- `locateFilesWithRangeFromDataFrame()` truncates to 10,000 distinct values
+
+These are documented in scaladoc with `@note` or inline comments.
+
 ## Design Benefits
 
 ### 1. **Trait-Based Modularity**

@@ -46,6 +46,11 @@ object IndexPathUtils {
     * An index is considered to exist if either its file list entry or its
     * storage directory is present.
     *
+    * '''Note:''' This check is subject to a TOCTOU (time-of-check/time-of-use)
+    * race condition — the index may be created or removed between this call and
+    * a subsequent operation. Callers should not rely on this result for
+    * correctness in concurrent environments.
+    *
     * @param name
     *   The index name to check
     * @param sparkSession
@@ -68,6 +73,12 @@ object IndexPathUtils {
     * removed. The method returns `true` if at least one resource was
     * successfully deleted.
     *
+    * '''Note:''' The [[exists]] guard is subject to a TOCTOU
+    * (time-of-check/time-of-use) race — another process may remove the index
+    * between the existence check and the actual deletion, or create a new index
+    * with the same name concurrently. External locking is required to prevent
+    * this in multi-process environments.
+    *
     * @param name
     *   the index name to remove
     * @param sparkSession
@@ -83,13 +94,17 @@ object IndexPathUtils {
     }
 
     logger.warn(s"Removing index '${name}' (file list and storage directory)")
+    val startTime = System.currentTimeMillis()
     val contextUser = new AriadneContextUser {
       implicit def spark: SparkSession = sparkSession
     }
     val fileListRemoved = FileList.remove(fileListName(name))(sparkSession)
-    contextUser.delete(
+    val result = contextUser.delete(
       new Path(contextUser.storagePath, name)
     ) || fileListRemoved
+    val elapsed = System.currentTimeMillis() - startTime
+    logger.warn(s"Successfully removed index '$name' in ${elapsed}ms")
+    result
   }
 
   /** Cleans a filename for safe storage by replacing non-alphanumeric
@@ -97,16 +112,26 @@ object IndexPathUtils {
     * trimming leading/trailing underscores.
     *
     * @param fileName
-    *   the raw filename to clean
+    *   the raw filename to clean; must not be null
     * @return
-    *   the sanitized filename, or an empty string if input is null/empty
+    *   the sanitized filename, or an empty string if input is empty
+    * @throws IllegalArgumentException
+    *   if `fileName` is null
     */
   def cleanFileName(fileName: String): String = {
-    if (fileName == null || fileName.isEmpty) return ""
-    fileName
-      .replaceAll("[^a-zA-Z0-9]", "_")
-      .replaceAll("_+", "_")
-      .replaceAll("^_+|_+$", "")
+    if (fileName == null) {
+      throw new IllegalArgumentException(
+        "fileName must not be null"
+      )
+    }
+    if (fileName.isEmpty) {
+      ""
+    } else {
+      fileName
+        .replaceAll("[^a-zA-Z0-9]", "_")
+        .replaceAll("_+", "_")
+        .replaceAll("^_+|_+$", "")
+    }
   }
 
   /** Returns a temporary directory path for query staging operations.
