@@ -73,6 +73,12 @@ object IndexCatalog {
     * contain a `metadata.json` file — this distinguishes real indexes from
     * stale or partially deleted directories.
     *
+    * @example
+    * {{{
+    * val catalog = IndexCatalog(spark)
+    * val indexNames: Seq[String] = catalog.list()
+    * }}}
+    *
     * @param spark implicit SparkSession providing configuration
     * @return alphabetically sorted sequence of index names, or empty if none exist
     */
@@ -129,6 +135,12 @@ object IndexCatalog {
     * Reads the index's `metadata.json` and file list to populate an
     * [[IndexSummary]] with all configured index types and tracked file count.
     *
+    * @example
+    * {{{
+    * val summary: IndexSummary = catalog.describe("myIndex")
+    * println(summary.name, summary.fileCount)
+    * }}}
+    *
     * @param name  the index name
     * @param spark implicit SparkSession
     * @return the index summary
@@ -147,6 +159,12 @@ object IndexCatalog {
     * Equivalent to calling [[describe]] for each name returned by [[list]],
     * but logs a single message for the batch operation. Indexes whose metadata
     * cannot be read are skipped with a warning.
+    *
+    * @example
+    * {{{
+    * val summaries: Seq[IndexSummary] = catalog.describeAll()
+    * summaries.foreach(s => println(s.name))
+    * }}}
     *
     * @param spark implicit SparkSession
     * @return sequence of [[IndexSummary]], one per valid index
@@ -170,6 +188,11 @@ object IndexCatalog {
     * Scans every index's file list to check whether `fileName` is present.
     * This is useful for determining which indexes need a `deleteFiles` call
     * when a source file has been removed from storage.
+    *
+    * @example
+    * {{{
+    * val indexes: Seq[String] = catalog.findIndexes("/data/users/part-00000.parquet")
+    * }}}
     *
     * {{{
     * val affected: Seq[String] = IndexCatalog.findIndexes("s3a://bucket/data/file1.parquet")
@@ -199,6 +222,11 @@ object IndexCatalog {
     * here for API completeness so callers can discover and fetch indexes
     * without importing [[Index]].
     *
+    * @example
+    * {{{
+    * val index: Index = catalog.get("myIndex")
+    * }}}
+    *
     * @param name  the index name
     * @param spark implicit SparkSession
     * @return a fully initialized Index instance
@@ -227,6 +255,12 @@ object IndexCatalog {
     * exploded_field_indexes: String (comma-separated)
     * file_count: Long
     * total_indexed_file_size: Long
+    * }}}
+    *
+    * @example
+    * {{{
+    * val df: DataFrame = catalog.toDF()
+    * df.show()
     * }}}
     *
     * @param spark implicit SparkSession
@@ -281,6 +315,11 @@ object IndexCatalog {
     * staging, and large indexes) and the associated file list Delta table.
     * If the file list has already been removed by another process, it is
     * treated as a successful no-op for that resource.
+    *
+    * @example
+    * {{{
+    * catalog.remove("oldIndex")
+    * }}}
     *
     * @param name  the index name
     * @param spark implicit SparkSession

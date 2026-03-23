@@ -179,6 +179,14 @@ trait IndexQueryOperations extends IndexJoinOperations {
     * @return
     *   A set of file paths matching all query criteria, or an empty set
     *   if no matches are found or no index exists
+    *
+    * @note If a staging table exists, its contents are collected to the driver
+    *       for merging. This may cause driver OOM for very large staging tables.
+    *
+    * @example
+    * {{{
+    * val matchingFiles = index.locateFiles(Map("userId" -> Set("u1", "u2")))
+    * }}}
     */
   def locateFiles(indexes: Map[String, Array[Any]]): Set[String] = {
     require(indexes != null, "columnValues must not be null")
@@ -268,7 +276,9 @@ trait IndexQueryOperations extends IndexJoinOperations {
             s"(bloom=${bloomMs}ms, temporal=${temporalMs}ms, range=${rangeMs}ms, regular=${regularMs}ms)"
         )
         if (allFiles.isEmpty) Set.empty else allFiles
-      case None => Set.empty
+      case None =>
+        logger.warn(s"Index table not found for index '$name'; returning empty file set")
+        Set.empty
     }
   }
 
@@ -594,6 +604,11 @@ trait IndexQueryOperations extends IndexJoinOperations {
     *   The columns to use for filtering
     * @return
     *   A set of file names matching the criteria.
+    *
+    * @example
+    * {{{
+    * val files = index.locateFilesFromDataFrame(lookupDf, Seq("userId"))
+    * }}}
     */
   def locateFilesFromDataFrame(
       valuesDf: DataFrame,
@@ -861,6 +876,11 @@ trait IndexQueryOperations extends IndexJoinOperations {
     *
     * @return Single-row DataFrame with FileCount and per-column stat structs,
     *         or an empty DataFrame if no index exists
+    *
+    * @example
+    * {{{
+    * index.stats()  // prints index statistics to console
+    * }}}
     */
   def stats(): DataFrame = {
     logger.warn(s"Computing stats for index '$name'")

@@ -166,6 +166,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
       countDistinct(col(colName)).alias(s"${colName}_distinct")
     }
     
+    if (distinctCountExprs.isEmpty) {
+      files.map(f => FileAnalysis(f, Map.empty, 0L)).toSeq
+    } else {
     val fileAnalysisDf = withFilename
       .groupBy("filename")
       .agg(distinctCountExprs.head, distinctCountExprs.tail: _*)
@@ -184,6 +187,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
 
     logger.warn(s"Pre-flight analysis of ${files.size} files completed in ${System.currentTimeMillis() - startTime}ms")
     results
+      }
       }
     }
   }
@@ -279,6 +283,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
       val regularCols = (regularIndexes + "filename").toList
       val selectedDf = df.select(regularCols.map(col): _*).distinct
       val aggExprs = regularIndexes.toList.map(colName => collect_set(col(colName)).alias(colName))
+      // Safe: regularIndexes.nonEmpty guard above guarantees aggExprs.nonEmpty
       selectedDf.groupBy("filename").agg(aggExprs.head, aggExprs.tail: _*)
     } else {
       df.select("filename").distinct

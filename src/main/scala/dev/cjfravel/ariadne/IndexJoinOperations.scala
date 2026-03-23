@@ -193,13 +193,15 @@ trait IndexJoinOperations extends IndexBuildOperations {
             val totalGB = totalBytes / (1024.0 * 1024.0 * 1024.0)
             logger.warn(f"[debug] total file size: $totalMB%.1fMB ($totalGB%.2fGB) across ${files.size} files")
             val avgMB = totalMB / files.size
-            val maxFile = fileSizes.head
-            val minFile = fileSizes.last
-            val maxMB = maxFile._2 / (1024.0 * 1024.0)
-            val minMB = minFile._2 / (1024.0 * 1024.0)
-            logger.warn(f"[debug] file sizes: avg=$avgMB%.1fMB, max=$maxMB%.1fMB, min=$minMB%.1fMB")
-            logger.warn(f"[debug] largest file: $maxMB%.1fMB -> ${maxFile._1}")
-            logger.warn(f"[debug] smallest file: $minMB%.1fMB -> ${minFile._1}")
+            if (fileSizes.nonEmpty) {
+              val maxFile = fileSizes.head
+              val minFile = fileSizes.last
+              val maxMB = maxFile._2 / (1024.0 * 1024.0)
+              val minMB = minFile._2 / (1024.0 * 1024.0)
+              logger.warn(f"[debug] file sizes: avg=$avgMB%.1fMB, max=$maxMB%.1fMB, min=$minMB%.1fMB")
+              logger.warn(f"[debug] largest file: $maxMB%.1fMB -> ${maxFile._1}")
+              logger.warn(f"[debug] smallest file: $minMB%.1fMB -> ${minFile._1}")
+            }
             // Log top 5 largest files
             fileSizes.take(5).foreach { case (f, size) =>
               val mb = size / (1024.0 * 1024.0)

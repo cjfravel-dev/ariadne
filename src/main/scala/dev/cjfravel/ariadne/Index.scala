@@ -52,6 +52,13 @@ case class Index private (
 
   /** Selects specific columns for optimized reading.
     *
+    * When set, only the selected columns (plus any join columns) are read from
+    * data files, reducing I/O. Returns this Index for method chaining.
+    *
+    * @example
+    * {{{
+    * val result = index.select("name", "email").join(df, Seq("userId"))
+    * }}}
     *
     * @param columns The column names to select
     * @return This Index instance for method chaining
@@ -86,6 +93,12 @@ case class Index private (
 
   /** Adds files to the index's file list for future indexing.
     * Acquires a file list lock to prevent concurrent modifications.
+    *
+    * @example
+    * {{{
+    * index.addFile("/data/events/2024-01-01.parquet")
+    * index.addFile("/data/events/2024-01-02.parquet", "/data/events/2024-01-03.parquet")
+    * }}}
     *
     * @param fileNames One or more file paths to register
     * @throws IllegalArgumentException if fileNames is null/empty or any fileName is null/blank
@@ -163,6 +176,12 @@ case class Index private (
     *
     * Idempotent: calling again with the same column is a no-op.
     *
+    * @example
+    * {{{
+    * val index = Index("myIndex", schema, "parquet")
+    * index.addIndex("userId")
+    * }}}
+    *
     * @param index
     *   The column name to index.
     * @throws IllegalArgumentException if the column name is null/blank or already indexed by another type
@@ -215,6 +234,12 @@ case class Index private (
     * - Guaranteed NO false negatives (if filter says "no", value definitely absent)
     * - Configurable false positive rate (if filter says "yes", value MIGHT be present)
     * - Space-efficient storage (approximately 10 bits per element at 1% FPR)
+    *
+    * @example
+    * {{{
+    * index.addBloomIndex("sessionId")
+    * index.addBloomIndex("ipAddress", 0.001)
+    * }}}
     *
     * @param column The column name to index with a bloom filter
     * @param fpr False positive rate between 0.0 and 1.0 (default 0.01 = 1%)
@@ -272,6 +297,12 @@ case class Index private (
     * is extracted, and the distinct values are stored under `asColumn` in the index.
     * Joins on `asColumn` will locate files containing any matching array element.
     * Idempotent: calling again with the same `asColumn` is a no-op.
+    *
+    * @example
+    * {{{
+    * // Index the "id" field from each element of the "items" array column
+    * index.addExplodedFieldIndex("items", "id", "item_id")
+    * }}}
     *
     * @param arrayColumn
     *   The array column to explode.
@@ -343,7 +374,7 @@ case class Index private (
     * Includes regular, computed, exploded field, bloom, temporal, and range
     * index columns.
     *
-    * @return Set of all joinable column names
+    * @return the union of all indexed column names across every index type
     */
   def indexes: Set[String] =
     metadata.indexes.asScala.toSet ++
@@ -358,6 +389,11 @@ case class Index private (
     * The expression is evaluated during [[update]] to produce a virtual column
     * whose distinct values are stored in the index. Idempotent: calling again
     * with the same name is a no-op.
+    *
+    * @example
+    * {{{
+    * index.addComputedIndex("yearMonth", "date_format(event_date, 'yyyy-MM')")
+    * }}}
     *
     * @param name The alias name for the computed column
     * @param sql_expression A Spark SQL expression evaluated against each data file
@@ -412,6 +448,11 @@ case class Index private (
     * When joining on a temporal index column, only the latest version (by timestamp)
     * of each value is returned. This is useful when multiple files contain the same
     * entity at different points in time.
+    *
+    * @example
+    * {{{
+    * index.addTemporalIndex("userId", "updated_at")
+    * }}}
     *
     * @param column The value column to index on (e.g., "user_id")
     * @param timestampColumn The timestamp column for ordering versions (e.g., "updated_at")
@@ -475,6 +516,11 @@ case class Index private (
     * query time. Files whose [min, max] range does not overlap with the
     * queried values are skipped.
     *
+    * @example
+    * {{{
+    * index.addRangeIndex("timestamp")
+    * }}}
+    *
     * @param column The column to index with min/max range
     * @throws IllegalArgumentException if column is null/blank or already indexed by another type
     * @throws ColumnNotFoundException if column doesn't exist in schema
@@ -528,8 +574,16 @@ case class Index private (
     * all large index Delta tables, and the FileList. If a filename doesn't exist
     * in the index, it is silently ignored.
     *
+    * @example
+    * {{{
+    * index.deleteFiles("/data/events/2024-01-01.parquet")
+    * index.deleteFiles("/data/old1.parquet", "/data/old2.parquet")
+    * }}}
+    *
     * @param filenames
     *   One or more filenames to remove from the index.
+    * @throws IllegalArgumentException if filenames is null/empty or contains null/blank entries
+    * @throws IndexLockException if the update lock cannot be acquired within the configured timeout
     */
   def deleteFiles(filenames: String*): Unit = {
     require(filenames != null && filenames.nonEmpty, "filenames must not be null or empty")
@@ -610,7 +664,22 @@ case class Index private (
     }
   }
 
-  /** Updates the index with new files and backfills newly added columns. */
+  /** Updates the index with new files and backfills newly added columns.
+    *
+    * Processes all unindexed files registered via [[addFile]], using intelligent
+    * batching based on pre-flight analysis. Also backfills existing files when
+    * new index columns have been added since the last update.
+    *
+    * @example
+    * {{{
+    * val index = Index("myIndex", schema, "parquet")
+    * index.addIndex("userId")
+    * index.addFile("/data/events/2024-01-01.parquet")
+    * index.update
+    * }}}
+    *
+    * @throws IndexLockException if the update lock cannot be acquired within the configured timeout
+    */
   def update: Unit = {
     logger.warn(s"Starting index update for '$name'")
     batchesSinceCompact = metadata.batches_since_compact
@@ -717,6 +786,13 @@ case class Index private (
 
   /** Compacts all Delta tables belonging to this index using OPTIMIZE.
     * Acquires the update lock to prevent concurrent modifications.
+    *
+    * @example
+    * {{{
+    * index.compact()
+    * }}}
+    *
+    * @throws IndexLockException if the update lock cannot be acquired within the configured timeout
     */
   def compact(): Unit = {
     val startTime = System.currentTimeMillis()
@@ -742,7 +818,14 @@ case class Index private (
   /** Vacuums all Delta tables belonging to this index to remove old files.
     * Acquires the update lock to prevent concurrent modifications.
     *
+    * @example
+    * {{{
+    * index.vacuum()          // default 7 days retention
+    * index.vacuum(24)        // 1 day retention
+    * }}}
+    *
     * @param retentionHours number of hours of history to retain (default 168 = 7 days)
+    * @throws IndexLockException if the update lock cannot be acquired within the configured timeout
     */
   def vacuum(retentionHours: Int = 168): Unit = {
     val startTime = System.currentTimeMillis()
@@ -899,7 +982,15 @@ case class Index private (
 
   /** Joins the indexed data with the provided DataFrame.
     *
-    * Validates inputs then delegates to the inherited join implementation.
+    * Locates relevant data files via the index, reads them, applies temporal
+    * deduplication if configured, and joins the result with the provided DataFrame.
+    *
+    * @example
+    * {{{
+    * val lookupDf = spark.read.parquet("/data/lookups")
+    * val result = index.join(lookupDf, Seq("userId"))
+    * val leftResult = index.join(lookupDf, Seq("userId"), "left_outer")
+    * }}}
     *
     * @param df The DataFrame to join against indexed data
     * @param usingColumns The column names to join on (must be indexed columns)
@@ -1190,6 +1281,7 @@ object Index {
         usingColumns: Seq[String],
         joinType: String = "inner"
     ): DataFrame = {
+      require(index != null, "index must not be null")
       require(usingColumns != null && usingColumns.nonEmpty, "usingColumns must not be null or empty")
       logger.warn(s"DataFrameOps.join: $joinType join on columns ${usingColumns.mkString(", ")} against index '${index.name}'")
       val indexDf = index.joinDf(df, usingColumns)

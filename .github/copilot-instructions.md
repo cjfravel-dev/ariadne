@@ -100,7 +100,7 @@ A column can have exactly one index type: regular, bloom, computed, temporal, ex
 
 ### Shading
 
-Guava and Gson are shaded under `dev.cjfravel.ariadne.shaded.*` to avoid version conflicts with the host Spark environment. Always use the shaded imports inside the library; do not add unshaded `com.google.*` runtime dependencies.
+Guava and Gson are shaded under `dev.cjfravel.ariadne.shaded.*` to avoid version conflicts with the host Spark environment. Source code uses standard `com.google.common.*` (Guava) and `com.google.gson.*` (Gson) imports — the Maven Shade Plugin automatically relocates these to `dev.cjfravel.ariadne.shaded.*` in the packaged JAR. Do not add additional unshaded `com.google.*` runtime dependencies to `pom.xml` as they would conflict with the shading configuration.
 
 ### Spark Profiles
 
