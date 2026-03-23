@@ -357,7 +357,7 @@ Additional format-specific options can be provided via `readOptions` when creati
 
 `vacuum(retentionHours)` runs Delta `VACUUM` on the same tables with configurable retention (default: 168 hours).
 
-**Auto-compaction**: When `spark.ariadne.autoCompactThreshold` is set, compaction runs automatically after every N staging consolidation cycles during `update`.
+**Auto-compaction**: When `spark.ariadne.autoCompactThreshold` is set, compaction runs automatically after every N update batches. The batch counter (`batches_since_compact`) is persisted in index metadata so it accumulates correctly across separate Spark jobs. Both `compact()` and auto-compact reset the counter to zero. If auto-compaction is not configured and the counter reaches 50, a warning is logged.
 
 ## Key Features
 
@@ -534,6 +534,7 @@ The system supports automatic migration between metadata versions:
 - v6 → v7: Adds range_indexes support (RangeIndexConfig with column name and data type)
 - v7 → v8: Adds auto_bloom_indexes support (automatic bloom filters for large index columns)
 - v8 → v9: Adds total_indexed_file_size field (per-file size tracking and pruning metrics)
+- v9 → v10: Adds batches_since_compact field (cross-job auto-compaction counter)
 
 ### Caching Strategy
 

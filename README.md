@@ -220,12 +220,14 @@ index.vacuum()
 index.vacuum(retentionHours = 72)  // Custom retention period
 ```
 
-**Auto-compaction**: Set `spark.ariadne.autoCompactThreshold` to automatically compact after a specified number of update batches:
+**Auto-compaction**: Set `spark.ariadne.autoCompactThreshold` to automatically compact after a specified number of update batches. The batch counter is persisted in index metadata, so it accumulates correctly across separate Spark jobs:
 
 ```scala
 spark.conf.set("spark.ariadne.autoCompactThreshold", "10")  // Compact every 10 batches
 index.update  // Automatically compacts during update
 ```
+
+> **Note:** If auto-compaction is not configured and the batch counter reaches 50, Ariadne logs a warning suggesting you run `index.compact()` or enable `autoCompactThreshold`.
 
 ### Pruning Metrics
 
