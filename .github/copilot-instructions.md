@@ -35,7 +35,7 @@ Formatting: scalafmt (`runner.dialect = scala213`). Run with `scalafmt` or via y
 
 ```
 Index
-  └── IndexQueryOperations   # locateFiles, stats, printIndex
+  └── IndexQueryOperations   # locateFiles (with range/auto-bloom pre-filtering), stats, printIndex
         └── IndexJoinOperations  # join, joinDf, temporal dedup
               └── IndexBuildOperations  # update, batching, staging, large indexes
                     └── BloomFilterOperations  # bloom filter build & query
@@ -50,7 +50,7 @@ All traits use `self: Index =>` to access `Index` members.
 | Path | Purpose |
 |------|---------|
 | `metadata.json` | JSON config: schema, format, index types, read options |
-| `index/` | Main Delta table — arrays of indexed values keyed by filename |
+| `index/` | Main Delta table — arrays of indexed values keyed by filename, plus range structs and auto-bloom binary columns |
 | `staging/` | Transient Delta table during batched `update`; merged then deleted |
 | `large_indexes/{column}/` | Separate Delta table for columns exceeding `largeIndexLimit` (exploded rows instead of arrays) |
 | `.filelist.lock` / `.update.lock` | JSON lock files for concurrency control |
@@ -61,25 +61,34 @@ The file list (`{indexName}.json`) is tracked separately via `FileList`.
 
 1. `analyzeFiles` — pre-flight distinct-count scan to decide batching
 2. `createOptimalBatches` — groups files so no batch exceeds `largeIndexLimit`
-3. Per batch: read files → apply computed indexes → build regular/exploded/bloom/temporal index DataFrames → join them → `appendToStaging` + `appendToLargeIndex`
-4. After every `stagingConsolidationThreshold` batches: `consolidateStaging` (Delta merge staging → main index)
+3. Per batch: read files → apply computed indexes → build regular/exploded/bloom/temporal/range index DataFrames → build auto-bloom filters for large columns → join them → `appendToStaging` + `appendToLargeIndex`
+4. After every `stagingConsolidationThreshold` batches: `consolidateStaging` (Delta merge staging → main index); optionally auto-compact if `autoCompactThreshold` is set
 5. Final consolidation at end of all batches
 
 ### Data Flow for `join`
 
-`Index.join(df, cols)` → `joinDf` → `locateFilesFromDataFrame` (returns a `Set[String]` of matching file paths) → `readFiles(files)` → `applyTemporalDeduplication` → `.join(df, cols, joinType)`
+`Index.join(df, cols)` → `joinDf` → `locateFilesFromDataFrame` (returns a `Set[String]` of matching file paths via intersection across all index types: regular, bloom, temporal, range, and auto-bloom pre-filtering) → `readFiles(files)` → `applyTemporalDeduplication` → `.join(df, cols, joinType)`
 
 `df.join(index, cols, joinType)` (via the `DataFrameOps` implicit) is the reverse direction.
+
+### Data Flow for `deleteFiles`
+
+`deleteFiles(filenames)` → acquire update lock → merge-delete from main index → merge-delete from each large index table → merge-delete from staging (if exists) → remove from FileList → release lock
+
+### Data Flow for `compact` / `vacuum`
+
+`compact()` → acquire update lock → Delta OPTIMIZE on main index + all large index tables → release lock
+`vacuum(hours)` → acquire update lock → Delta VACUUM on main index + all large index tables → release lock
 
 ## Key Conventions
 
 ### Index Type Mutual Exclusivity
 
-A column can have exactly one index type: regular, bloom, computed, temporal, or exploded. Attempting to add a second type throws `IllegalArgumentException`. All add methods are idempotent (calling twice is a no-op).
+A column can have exactly one index type: regular, bloom, computed, temporal, exploded, or range. Attempting to add a second type throws `IllegalArgumentException`. All add methods are idempotent (calling twice is a no-op).
 
 ### Metadata Versioning
 
-`IndexMetadata.apply(jsonString)` performs sequential null-checks to migrate old metadata files forward (v1→v2→…→v6). When adding a new field to `IndexMetadata`, add a corresponding null-check migration block in `IndexMetadata.apply`.
+`IndexMetadata.apply(jsonString)` performs sequential null-checks to migrate old metadata files forward (v1→v2→…→v8). When adding a new field to `IndexMetadata`, add a corresponding null-check migration block in `IndexMetadata.apply`.
 
 ### Logging Convention
 

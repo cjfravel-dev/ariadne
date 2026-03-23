@@ -330,6 +330,27 @@ Ariadne supports three data formats with Parquet as the default:
 
 Additional format-specific options can be provided via `readOptions` when creating an index.
 
+## Data Flows
+
+### Data Flow for `deleteFiles`
+
+1. Acquire update lock
+2. Delete matching rows from main index Delta table (merge-delete on filename)
+3. Delete matching rows from each large index Delta table
+4. Delete matching rows from staging table (if it exists from an interrupted update)
+5. Remove files from the FileList
+6. Release update lock
+
+### Data Flow for `compact` and `vacuum`
+
+`compact()` runs Delta `OPTIMIZE` (executeCompaction) on:
+1. Main index table (`index/`)
+2. All large index tables (`large_indexes/{column}/`)
+
+`vacuum(retentionHours)` runs Delta `VACUUM` on the same tables with configurable retention (default: 168 hours).
+
+**Auto-compaction**: When `spark.ariadne.autoCompactThreshold` is set, compaction runs automatically after every N staging consolidation cycles during `update`.
+
 ## Key Features
 
 ### Large Index Handling
@@ -431,6 +452,68 @@ Bloom filters provide space-efficient probabilistic indexing for high-cardinalit
 - A column can have either a regular index OR a bloom index, not both
 - This is enforced at the API level with clear error messages
 
+### Range Indexes
+
+Range indexes store per-file min/max values for columns with natural ordering (dates, timestamps, numeric IDs). At query time, files are pruned when no query value falls within the file's [min, max] range.
+
+**Storage:**
+
+- Range values are stored as struct columns in the main index Delta table with `range_` prefix
+- Example: A range index on `event_date` creates a `range_event_date` column containing `struct(min: DateType, max: DateType)`
+- Range columns are NOT included in `storageColumns` (which tracks array-type columns) — they have their own `rangeStorageColumns` set
+
+**Query Behavior:**
+
+- For Map-based queries (`locateFiles`): Uses Spark `lit()` expressions for type-safe comparisons
+- For DataFrame-based queries (`locateFilesFromDataFrame`): Computes query min/max and uses range overlap check
+- Results are intersected with other index type results (AND semantics)
+
+**Configuration:**
+
+- Data type is inferred from the index schema
+- Range indexes work alongside regular, bloom, and temporal indexes on different columns
+
+**Mutual Exclusivity:**
+
+- A column can have a range index OR any other index type, not both
+
+### Automatic Bloom Filters for Large Indexes
+
+When a column exceeds `largeIndexLimit` distinct values per file during `update`, it gets stored in a separate large index table (`large_indexes/{column}/`). Querying these large tables is expensive as they contain exploded (filename, value) rows.
+
+Auto-bloom automatically creates a bloom filter for such columns, stored in the main index table. At query time, the bloom filter pre-filters candidate files before querying the large index table, reducing I/O significantly.
+
+**Storage:**
+
+- Auto-bloom filters are stored as binary columns in the main index Delta table with `auto_bloom_` prefix
+- Example: Column `user_id` exceeding the limit creates `auto_bloom_user_id` containing serialized bloom filter bytes
+- Auto-bloom columns are tracked in `autoBloomStorageColumns`, separate from `storageColumns`
+
+**Build Flow:**
+
+1. During `buildAutoBloomIndexes`, each eligible column's distinct count is checked against `largeIndexLimit`
+2. Columns exceeding the limit get a bloom filter built with the configured FPR (`spark.ariadne.autoBloomFpr`, default 0.01)
+3. The bloom filter is added as a binary column to the combined DataFrame before staging
+4. Metadata is updated after data is safely staged
+
+**Query Flow (getAutoBloomCandidates):**
+
+1. Load bloom filter bytes from the main index for the target column
+2. Test each query value against each file's bloom filter
+3. Return only files where the bloom filter reports a possible match
+4. These candidates are then verified against the actual large index table
+
+**Backward Compatibility:**
+
+- Metadata migration v7→v8 adds the `auto_bloom_indexes` field
+- `filesNeedingColumnUpdate` includes `autoBloomStorageColumns`, so existing files get auto-bloom on the next `update`
+- Query methods check for column existence before attempting bloom filter lookups
+
+**Configuration:**
+
+- `spark.ariadne.autoBloomFpr`: False positive rate for auto-bloom filters (default: 0.01 = 1%)
+- Higher FPR = smaller bloom filters but more false positives (more large index lookups)
+
 ### Metadata Versioning
 
 The system supports automatic migration between metadata versions:
@@ -439,6 +522,9 @@ The system supports automatic migration between metadata versions:
 - v2 → v3: Adds exploded_field_indexes support
 - v3 → v4: Adds read_options support
 - v4 → v5: Adds bloom_indexes support
+- v5 → v6: Adds temporal_indexes support
+- v6 → v7: Adds range_indexes support (RangeIndexConfig with column name and data type)
+- v7 → v8: Adds auto_bloom_indexes support (automatic bloom filters for large index columns)
 
 ### Caching Strategy
 
@@ -488,6 +574,12 @@ Each trait can be tested independently with focused test suites:
 - `IndexPathUtilsTests` - Tests utility functions
 - `BloomFilterOperationsTests` - Tests bloom filter functionality
 - `IndexLockTests` - Tests locking, auto-healing, and contention
+- `DeleteFilesTests` - Tests file deletion from index
+- `CompactionTests` - Tests compact, vacuum, and auto-compaction
+- `MultiColumnIntersectTests` - Tests AND semantics across index types
+- `RangeIndexTests` - Tests range index build and query
+- `AutoBloomLargeIndexTests` - Tests automatic bloom filter generation
+- `MixedIndexIntersectionTests` - Tests cross-type intersection edge cases
 
 ### 3. **Performance Optimization**
 
@@ -497,6 +589,10 @@ Each trait can be tested independently with focused test suites:
 - Exploded field indexing enables efficient nested data joins
 - Bloom filter indexes provide space-efficient probabilistic matching for high-cardinality columns
 - Optional index repartitioning prevents FetchFailedExceptions on large index joins
+- Range indexes enable min/max file pruning for ordered columns
+- Automatic bloom filters reduce large index table I/O at query time
+- Multi-column queries use AND semantics (intersection) to minimize files loaded
+- Index compaction (OPTIMIZE) consolidates small Delta files for better read performance
 
 ### 4. **Extensibility**
 

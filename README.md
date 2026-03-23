@@ -31,6 +31,8 @@ Additional format-specific options can be provided via `readOptions` when creati
 4. **Update the index** – Run updates whenever you add new files or indexed columns.
 5. **Use the index in joins** – Leverage the index to load only the relevant files based on your DataFrame's join conditions.
 
+> **Multi-column joins**: When joining on multiple columns, Ariadne uses AND semantics — a file must match on *all* queried index types to be included. This applies across regular, bloom, temporal, and range indexes.
+
 > **Note:** When using an index in a join, it is no longer a "narrow" transformation. The index must first retrieve matching values from its records, load the appropriate data, and then perform the narrow transformation on the resulting DataFrame.
 
 ### Example Usage
@@ -126,6 +128,8 @@ val result = index.join(userQueryDf, Seq("user_id"), "inner")
 - **Mutually exclusive**: A column can have either a regular index OR a bloom index, not both
 - **Best for**: High-cardinality columns across large datasets where exact value storage would be prohibitive
 
+**Automatic bloom filters for large indexes**: When a column exceeds `largeIndexLimit` distinct values, Ariadne automatically creates a bloom filter for that column in addition to the large index table. This pre-filters candidate files before querying the expensive large index, significantly reducing I/O. The false positive rate is controlled by `spark.ariadne.autoBloomFpr` (default: 1%). This feature is backward-compatible — existing indexes are automatically migrated on the next `update`.
+
 ### Temporal Index Example
 
 Temporal indexes are ideal when the same entity appears in multiple files at different timestamps, and you only want the most recent version:
@@ -151,6 +155,66 @@ val result = index.join(queryDf, Seq("user_id"), "inner")
 - **Mutually exclusive**: A column can have either a regular, bloom, computed, OR temporal index — not multiple
 - **Best for**: Slowly changing dimensions, entity snapshots, event-sourced data where you need the current state
 
+### Range Index Example
+
+Range indexes store per-file min/max values for a column, enabling efficient file pruning at query time. Files are only loaded when the query values fall within their min/max range.
+
+```scala
+// Create an index with range-based pruning for date or numeric columns
+val index = Index("events", eventSchema, "parquet")
+index.addRangeIndex("event_date")   // Store min/max event_date per file
+index.addRangeIndex("amount")       // Store min/max amount per file
+index.addIndex("user_id")           // Regular index alongside range indexes
+index.addFile(eventFiles: _*)
+index.update
+
+// During joins, range indexes automatically prune files that can't contain matching values
+val queryDf = // DataFrame with event_date and user_id columns
+val result = index.join(queryDf, Seq("event_date", "user_id"), "inner")
+// Only files where event_date range overlaps with query values are loaded
+```
+
+**Key points about range indexes:**
+
+- **Min/max pruning**: Each file stores the minimum and maximum value for the indexed column. At query time, files are skipped if no query value falls within their range
+- **Best for ordered data**: Most effective when data has natural ordering (dates, timestamps, sequential IDs, amounts)
+- **Complementary**: Range indexes work alongside regular, bloom, and temporal indexes — results are intersected across all index types
+- **Supported types**: Works with any comparable Spark type (DateType, TimestampType, IntegerType, LongType, DoubleType, StringType, etc.)
+- **Mutually exclusive**: A column can have only one index type
+
+## Index Maintenance
+
+### Deleting Files
+
+Remove files from the index when they are no longer needed (e.g., after data archival or deletion):
+
+```scala
+// Remove specific files from the index
+index.deleteFiles("old_data_2023.parquet", "archived_events.parquet")
+
+// Removes entries from: main index, large index tables, staging, and file list
+```
+
+### Compaction
+
+Delta Lake tables accumulate small files over time from repeated updates. Compaction consolidates these into larger files for better read performance:
+
+```scala
+// Manually compact all index Delta tables
+index.compact()
+
+// Vacuum old Delta log files (default: 168 hours / 7 days retention)
+index.vacuum()
+index.vacuum(retentionHours = 72)  // Custom retention period
+```
+
+**Auto-compaction**: Set `spark.ariadne.autoCompactThreshold` to automatically compact after a specified number of update batches:
+
+```scala
+spark.conf.set("spark.ariadne.autoCompactThreshold", "10")  // Compact every 10 batches
+index.update  // Automatically compacts during update
+```
+
 ## Configuration
 
 All configuration is done via Spark configuration properties. Set them before creating or using indexes.
@@ -167,6 +231,8 @@ All configuration is done via Spark configuration properties. Set them before cr
 | `spark.ariadne.lockRetryInterval`             | Long    | `60`         | Base interval in seconds between lock acquisition retries. Exponential backoff is applied up to a 60-second cap per retry. |
 | `spark.ariadne.lockMaxWait`                   | Long    | `3600`       | Maximum total seconds to wait for lock acquisition before throwing `IndexLockException`. Default is 1 hour. |
 | `spark.ariadne.lockRefreshInterval`           | Int     | `1`          | Refresh the update lock every N batches during `update`. Keeps the lock from appearing stale during long-running updates. |
+| `spark.ariadne.autoCompactThreshold`          | Int     | _(not set)_  | Number of update batches before triggering automatic Delta table compaction. When not set, auto-compaction is disabled. |
+| `spark.ariadne.autoBloomFpr`                  | Double  | `0.01`       | False positive rate for automatic bloom filters on large index columns. Only applies to columns that exceed `largeIndexLimit`. |
 
 ### Example
 
@@ -186,6 +252,12 @@ spark.conf.set("spark.ariadne.repartitionDataFiles", "true")
 
 // Optional: enable debug logging
 spark.conf.set("spark.ariadne.debug", "true")
+
+// Optional: auto-compact index after every 10 update batches
+spark.conf.set("spark.ariadne.autoCompactThreshold", "10")
+
+// Optional: tune auto-bloom false positive rate for large indexes (default: 1%)
+spark.conf.set("spark.ariadne.autoBloomFpr", "0.005")
 
 // Optional: tune lock behavior for concurrent jobs
 spark.conf.set("spark.ariadne.lockTimeout", "1800")        // 30 min stale threshold
