@@ -519,7 +519,6 @@ case class Index private (
         logger.warn(s"Updating index for ${unindexed.size} files")
         updateBatched(unindexed, lock, correlationId, isBackfill = false)
       }
-      maybeAutoCompact()
 
       // Recalculate total file size if it was unknown (migration from older version)
       if (metadata.total_indexed_file_size < 0) {
@@ -597,6 +596,7 @@ case class Index private (
       updateSingleBatch(batch, isBackfill)
       batchesSinceConsolidation += 1
       batchesSinceRefresh += 1
+      batchesSinceCompact += 1
 
       // Periodic lock refresh to prevent stale lock detection
       if (batchesSinceRefresh >= lockRefreshInterval) {
@@ -608,6 +608,7 @@ case class Index private (
       if (batchesSinceConsolidation >= stagingConsolidationThreshold) {
         logger.warn(s"Reached consolidation threshold ($stagingConsolidationThreshold batches), consolidating...")
         consolidateStaging()
+        maybeAutoCompact()
         batchesSinceConsolidation = 0
       }
     }
@@ -616,6 +617,7 @@ case class Index private (
     if (batchesSinceConsolidation > 0) {
       logger.warn("Consolidating remaining staged data...")
       consolidateStaging()
+      maybeAutoCompact()
     }
 
     logger.warn(s"Completed batched update of ${files.size} files in ${batches.size} batches")

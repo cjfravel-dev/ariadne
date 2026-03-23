@@ -126,8 +126,10 @@ trait IndexJoinOperations extends IndexBuildOperations {
           val indexDf = dt.toDF
           if (indexDf.columns.contains("file_size")) {
             val totalFiles = indexDf.count()
+            import spark.implicits._
+            val filesDf = files.toSeq.toDF("filename")
             val matchedSizeResult = indexDf
-              .where(col("filename").isin(files.toSeq.map(lit(_)): _*))
+              .join(filesDf, Seq("filename"), "inner")
               .agg(sum("file_size"))
               .head()
             val matchedSize = if (matchedSizeResult.isNullAt(0)) 0L else matchedSizeResult.getLong(0)

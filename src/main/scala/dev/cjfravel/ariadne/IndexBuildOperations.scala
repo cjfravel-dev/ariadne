@@ -14,9 +14,15 @@ trait IndexBuildOperations extends BloomFilterOperations {
   /** Computes file sizes in bytes for the given files using HDFS FileSystem.
     */
   protected def getFileSizes(files: Set[String]): Map[String, Long] = {
-    files.toSeq.map { f =>
-      val path = new org.apache.hadoop.fs.Path(f)
-      f -> fs.getFileStatus(path).getLen
+    files.toSeq.flatMap { f =>
+      try {
+        val path = new org.apache.hadoop.fs.Path(f)
+        Some(f -> fs.getFileStatus(path).getLen)
+      } catch {
+        case _: java.io.FileNotFoundException =>
+          logger.warn(s"File not found when computing size, skipping: $f")
+          None
+      }
     }.toMap
   }
 
@@ -450,7 +456,6 @@ trait IndexBuildOperations extends BloomFilterOperations {
   /** Runs compaction if auto-compact threshold is met. */
   protected def maybeAutoCompact(): Unit = {
     autoCompactThreshold.foreach { threshold =>
-      batchesSinceCompact += 1
       if (batchesSinceCompact >= threshold) {
         logger.warn(s"Auto-compact threshold reached ($batchesSinceCompact batches), compacting Delta tables")
         compactDeltaTables()

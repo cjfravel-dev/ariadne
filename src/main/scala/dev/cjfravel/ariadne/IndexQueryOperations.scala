@@ -636,27 +636,57 @@ trait IndexQueryOperations extends IndexJoinOperations {
     val rangeCol = s"range_${column}"
     if (!indexDf.columns.contains(rangeCol)) return Set.empty
 
-    // Get query range (min/max of incoming values)
-    val queryStats = valuesDf.select(
-      min(col(column)).alias("q_min"),
-      max(col(column)).alias("q_max")
-    ).collect()(0)
-
-    val qMin = queryStats.get(0)
-    val qMax = queryStats.get(1)
-    if (qMin == null || qMax == null) return Set.empty
-
-    logger.warn(s"Range query on column '$column': query range [$qMin, $qMax]")
-
-    // Filter files where range overlaps
-    val matchingFiles = indexDf
-      .select(col("filename"), col(s"$rangeCol.min").alias("file_min"), col(s"$rangeCol.max").alias("file_max"))
-      .where(col("file_min").isNotNull && col("file_max").isNotNull)
-      .where(col("file_max") >= lit(qMin) && col("file_min") <= lit(qMax))
-      .select("filename")
+    // Collect distinct query values (bounded to avoid driver OOM)
+    val distinctValues = valuesDf
+      .select(col(column))
       .distinct()
+      .limit(10000)
+      .collect()
+      .map(_.get(0))
+      .filter(_ != null)
 
-    collectFilenamesViaStaging(matchingFiles)
+    if (distinctValues.isEmpty) return Set.empty
+
+    logger.warn(s"Range query on column '$column' with ${distinctValues.length} distinct values")
+
+    if (distinctValues.length > 1000) {
+      logger.warn(s"Range query: large value set (${distinctValues.length}), using bounding box optimization")
+      val minMaxRow = valuesDf.agg(
+        min(col(column)).alias("q_min"),
+        max(col(column)).alias("q_max")
+      ).head()
+
+      val matchingFiles = indexDf
+        .select(
+          col("filename"),
+          col(s"$rangeCol.min").alias("file_min"),
+          col(s"$rangeCol.max").alias("file_max")
+        )
+        .where(col("file_min").isNotNull && col("file_max").isNotNull)
+        .where(col("file_max") >= lit(minMaxRow.get(0)) && col("file_min") <= lit(minMaxRow.get(1)))
+        .select("filename")
+        .distinct()
+
+      collectFilenamesViaStaging(matchingFiles)
+    } else {
+      // For reasonable value sets, check per-value containment (precise pruning)
+      val valueConditions = distinctValues.map { v =>
+        col("file_min") <= lit(v) && col("file_max") >= lit(v)
+      }
+
+      val matchingFiles = indexDf
+        .select(
+          col("filename"),
+          col(s"$rangeCol.min").alias("file_min"),
+          col(s"$rangeCol.max").alias("file_max")
+        )
+        .where(col("file_min").isNotNull && col("file_max").isNotNull)
+        .where(valueConditions.reduce(_ || _))
+        .select("filename")
+        .distinct()
+
+      collectFilenamesViaStaging(matchingFiles)
+    }
   }
 
   /** Returns a DataFrame of statistics for each indexed column (based on array
