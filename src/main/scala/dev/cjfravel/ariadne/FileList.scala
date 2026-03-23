@@ -13,12 +13,10 @@ import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.hadoop.conf.Configuration
 import java.nio.charset.StandardCharsets
 import scala.collection.mutable
-import collection.JavaConverters._
+import scala.collection.JavaConverters._
 import java.util
 import java.util.Collections
 import org.apache.logging.log4j.{Logger, LogManager}
-import org.apache.spark.sql.Dataset
-
 import java.time.Instant
 import java.sql.Timestamp
 
@@ -67,9 +65,16 @@ case class FileList private (
       ))
     )
 
+    val originalFiles = _files
     _files = _files.union(newFiles)
-    write
-    logger.warn(s"Added ${toAdd.size} files")
+    try {
+      write
+    } catch {
+      case e: Exception =>
+        _files = originalFiles
+        throw e
+    }
+    logger.warn(s"Added ${toAdd.size} files to FileList $name")
   }
 
   def addFile(fileNames: String*): Unit = addFile(spark, fileNames: _*)

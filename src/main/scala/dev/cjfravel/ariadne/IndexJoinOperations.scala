@@ -182,6 +182,7 @@ trait IndexJoinOperations extends IndexBuildOperations {
     // Default is false — data files keep their natural parquet partitioning.
     // Enable when reading all columns from very large indexes to reduce
     // per-executor memory pressure.
+    logger.warn(s"Reading ${files.size} data files from index '$name'")
     val rawReadIndex = if (repartitionDataFiles) {
       maybeRepartition(readFiles(files))
     } else {
@@ -218,6 +219,7 @@ trait IndexJoinOperations extends IndexBuildOperations {
 
     if (applicableConfigs.isEmpty) return df
 
+    logger.warn(s"Applying temporal deduplication for columns: ${applicableConfigs.map(_.column).mkString(", ")}")
     applicableConfigs.foldLeft(df) { (accumDf, config) =>
       val w = Window
         .partitionBy(config.column)
@@ -244,6 +246,7 @@ trait IndexJoinOperations extends IndexBuildOperations {
       usingColumns: Seq[String],
       joinType: String = "inner"
   ): DataFrame = {
+    logger.warn(s"Index.join: $joinType join on columns ${usingColumns.mkString(", ")}")
     val outerJoinStart = System.currentTimeMillis()
     val indexDf = joinDf(df, usingColumns)
     if (debugEnabled) {

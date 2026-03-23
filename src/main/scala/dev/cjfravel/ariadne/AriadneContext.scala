@@ -20,9 +20,12 @@ trait AriadneContextUser {
     * spark.ariadne.storagePath configuration.
     */
   lazy val storagePath: Path = {
-    val path = new Path(spark.conf.get("spark.ariadne.storagePath"))
+    val pathStr = spark.conf.getOption("spark.ariadne.storagePath")
+      .getOrElse(throw new IllegalArgumentException(
+        "Spark configuration 'spark.ariadne.storagePath' must be set. " +
+        "Set it via spark.conf.set(\"spark.ariadne.storagePath\", \"/path/to/storage\")"))
+    val path = new Path(pathStr)
     logger.warn(s"storagePath initialized: $path")
-    println(s"Ariadne storage path: $path")
     path
   }
 
@@ -87,11 +90,12 @@ trait AriadneContextUser {
 
   /** Hadoop FileSystem instance associated with the storage path. */
   lazy val fs: FileSystem = {
+    val fsUri = Option(storagePath.getParent).getOrElse(storagePath).toUri
     val filesystem = FileSystem.get(
-      storagePath.getParent.toUri,
+      fsUri,
       spark.sparkContext.hadoopConfiguration
     )
-    logger.warn(s"FileSystem initialized for: ${storagePath.getParent}")
+    logger.warn(s"FileSystem initialized for: $storagePath")
     filesystem
   }
 
@@ -113,6 +117,7 @@ trait AriadneContextUser {
       if (DeltaTable.isDeltaTable(spark, path.toString)) {
         Some(DeltaTable.forPath(spark, path.toString))
       } else {
+        logger.warn(s"Path $path exists but is not a Delta table — deleting to allow re-creation")
         delete(path)
         None
       }

@@ -3,7 +3,6 @@ package dev.cjfravel.ariadne
 import org.apache.spark.sql.types._
 
 object SchemaHelper {
-  import org.apache.spark.sql.types._
 
   def fieldExists(schema: StructType, fieldName: String): Boolean = {
     val parts = fieldName.split("\\.")

@@ -41,14 +41,8 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: Spar
     def tryAcquire(): Unit = {
       try {
         val now = Instant.now().toString
-        val lockInfo = LockInfo(correlationId, now, now, getOwner)
-        val outputStream = fs.create(lockPath, false)
-        try {
-          outputStream.write(gson.toJson(lockInfo).getBytes(StandardCharsets.UTF_8))
-          outputStream.flush()
-        } finally {
-          outputStream.close()
-        }
+        writeLockFile(LockInfo(correlationId, now, now, getOwner), overwrite = false)
+        logger.warn(s"Lock acquired for index '$indexName' (correlationId='$correlationId')")
       } catch {
         case _: org.apache.hadoop.fs.FileAlreadyExistsException | _: java.io.IOException =>
           handleExistingLock(correlationId, startTime, attempt)
@@ -89,7 +83,7 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: Spar
         throw new IndexLockException(indexName, currentLock.correlationId, currentLock.owner)
       }
 
-      val sleepSeconds = Math.min(lockRetryInterval * Math.pow(2, currentAttempt).toLong, 60)
+      val sleepSeconds = math.min(lockRetryInterval.toDouble * math.pow(2, math.min(currentAttempt, 6)), 60.0).toLong
       Thread.sleep(sleepSeconds * 1000)
       currentAttempt += 1
 
@@ -102,14 +96,8 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: Spar
           delete(lockPath)
           try {
             val now = Instant.now().toString
-            val lockInfo = LockInfo(correlationId, now, now, getOwner)
-            val outputStream = fs.create(lockPath, false)
-            try {
-              outputStream.write(gson.toJson(lockInfo).getBytes(StandardCharsets.UTF_8))
-              outputStream.flush()
-            } finally {
-              outputStream.close()
-            }
+            writeLockFile(LockInfo(correlationId, now, now, getOwner), overwrite = false)
+            logger.warn(s"Lock acquired for index '$indexName' (correlationId='$correlationId')")
             return
           } catch {
             case _: org.apache.hadoop.fs.FileAlreadyExistsException | _: java.io.IOException =>
@@ -120,14 +108,8 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: Spar
         case None =>
           try {
             val now = Instant.now().toString
-            val lockInfo = LockInfo(correlationId, now, now, getOwner)
-            val outputStream = fs.create(lockPath, false)
-            try {
-              outputStream.write(gson.toJson(lockInfo).getBytes(StandardCharsets.UTF_8))
-              outputStream.flush()
-            } finally {
-              outputStream.close()
-            }
+            writeLockFile(LockInfo(correlationId, now, now, getOwner), overwrite = false)
+            logger.warn(s"Lock acquired for index '$indexName' (correlationId='$correlationId')")
             return
           } catch {
             case _: org.apache.hadoop.fs.FileAlreadyExistsException | _: java.io.IOException =>
@@ -145,6 +127,7 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: Spar
     readLock() match {
       case Some(lockInfo) if lockInfo.correlationId == correlationId =>
         delete(lockPath)
+        logger.warn(s"Lock released for index '$indexName' (correlationId='$correlationId')")
       case Some(lockInfo) =>
         logger.warn(
           s"Cannot release lock for index '$indexName': " +
@@ -163,7 +146,8 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: Spar
     readLock() match {
       case Some(lockInfo) if lockInfo.correlationId == correlationId =>
         val updated = lockInfo.copy(lastRefreshedAt = Instant.now().toString)
-        writeLock(updated)
+        writeLockFile(updated, overwrite = true)
+        logger.warn(s"Lock refreshed for index '$indexName' (correlationId='$correlationId')")
       case Some(lockInfo) =>
         logger.warn(
           s"Cannot refresh lock for index '$indexName': " +
@@ -197,15 +181,20 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: Spar
         None
       }
     } catch {
-      case _: Exception => None
+      case _: java.io.FileNotFoundException => None
+      case _: com.google.gson.JsonSyntaxException => None
     }
   }
 
-  private def writeLock(lockInfo: LockInfo): Unit = {
-    val outputStream = fs.create(lockPath, true)
+  private def writeLockFile(lockInfo: LockInfo, overwrite: Boolean): Unit = {
+    val outputStream = fs.create(lockPath, overwrite)
     try {
       outputStream.write(gson.toJson(lockInfo).getBytes(StandardCharsets.UTF_8))
       outputStream.flush()
+    } catch {
+      case e: Exception =>
+        logger.warn(s"Failed to write lock file for index '$indexName': ${e.getMessage}")
+        throw e
     } finally {
       outputStream.close()
     }

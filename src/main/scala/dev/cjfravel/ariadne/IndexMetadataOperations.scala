@@ -31,11 +31,17 @@ trait IndexMetadataOperations extends AriadneContextUser {
     _metadata = if (metadataExists) {
       try {
         val inputStream = open(metadataFilePath)
-        val jsonString =
-          Source.fromInputStream(inputStream)(StandardCharsets.UTF_8).mkString
-        IndexMetadata(jsonString)
+        try {
+          val jsonString =
+            Source.fromInputStream(inputStream)(StandardCharsets.UTF_8).mkString
+          IndexMetadata(jsonString)
+        } finally {
+          inputStream.close()
+        }
       } catch {
-        case _: Exception => throw new MetadataMissingOrCorruptException()
+        case e: Exception =>
+          logger.warn(s"Failed to read metadata from ${metadataFilePath.toString}: ${e.getMessage}")
+          throw new MetadataMissingOrCorruptException(e)
       }
     } else {
       throw new MetadataMissingOrCorruptException()
@@ -67,9 +73,12 @@ trait IndexMetadataOperations extends AriadneContextUser {
 
     val jsonString = new Gson().toJson(metadata)
     val outputStream = fs.create(metadataFilePath)
-    outputStream.write(jsonString.getBytes(StandardCharsets.UTF_8))
-    outputStream.flush()
-    outputStream.close()
+    try {
+      outputStream.write(jsonString.getBytes(StandardCharsets.UTF_8))
+      outputStream.flush()
+    } finally {
+      outputStream.close()
+    }
     _metadata = metadata // Update in-memory cache
     logger.warn(s"Wrote metadata to ${metadataFilePath.toString}")
   }

@@ -273,7 +273,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
   protected def handleLargeIndexes(df: DataFrame): Unit = {
     val allStorageColumns = storageColumns
     if (allStorageColumns.isEmpty) return
-    
+
+    logger.warn(s"Checking ${allStorageColumns.size} columns for large index separation (limit=$largeIndexLimit)")
     appendToLargeIndex(df)
   }
 

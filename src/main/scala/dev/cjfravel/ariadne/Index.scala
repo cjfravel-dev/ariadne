@@ -238,8 +238,40 @@ case class Index private (
       fieldPath: String,
       asColumn: String
   ): Unit = {
-    // Check if this asColumn is already used
-    if (indexes.contains(asColumn)) return
+    // Idempotency check
+    if (metadata.exploded_field_indexes.asScala.exists(_.as_column == asColumn)) return
+
+    // Mutual exclusivity checks
+    if (metadata.indexes.contains(asColumn)) {
+      throw new IllegalArgumentException(
+        s"Column '$asColumn' is already a regular index. " +
+        "A column cannot be both an exploded field index and a regular index."
+      )
+    }
+    if (metadata.computed_indexes.containsKey(asColumn)) {
+      throw new IllegalArgumentException(
+        s"Column '$asColumn' is already a computed index. " +
+        "A column cannot be both an exploded field index and a computed index."
+      )
+    }
+    if (metadata.bloom_indexes.asScala.exists(_.column == asColumn)) {
+      throw new IllegalArgumentException(
+        s"Column '$asColumn' is already a bloom index. " +
+        "A column cannot be both an exploded field index and a bloom index."
+      )
+    }
+    if (metadata.temporal_indexes.asScala.exists(_.column == asColumn)) {
+      throw new IllegalArgumentException(
+        s"Column '$asColumn' is already a temporal index. " +
+        "A column cannot be both an exploded field index and a temporal index."
+      )
+    }
+    if (metadata.range_indexes.asScala.exists(_.column == asColumn)) {
+      throw new IllegalArgumentException(
+        s"Column '$asColumn' is already a range index. " +
+        "A column cannot be both an exploded field index and a range index."
+      )
+    }
 
     val explodedFieldMapping =
       ExplodedFieldMapping(arrayColumn, fieldPath, asColumn)
@@ -261,7 +293,41 @@ case class Index private (
       metadata.range_indexes.asScala.map(_.column).toSet
 
   def addComputedIndex(name: String, sql_expression: String): Unit = {
+    // Idempotency check
     if (metadata.computed_indexes.containsKey(name)) return
+
+    // Mutual exclusivity checks
+    if (metadata.indexes.contains(name)) {
+      throw new IllegalArgumentException(
+        s"Column '$name' is already a regular index. " +
+        "A column cannot be both a computed index and a regular index."
+      )
+    }
+    if (metadata.bloom_indexes.asScala.exists(_.column == name)) {
+      throw new IllegalArgumentException(
+        s"Column '$name' is already a bloom index. " +
+        "A column cannot be both a computed index and a bloom index."
+      )
+    }
+    if (metadata.temporal_indexes.asScala.exists(_.column == name)) {
+      throw new IllegalArgumentException(
+        s"Column '$name' is already a temporal index. " +
+        "A column cannot be both a computed index and a temporal index."
+      )
+    }
+    if (metadata.range_indexes.asScala.exists(_.column == name)) {
+      throw new IllegalArgumentException(
+        s"Column '$name' is already a range index. " +
+        "A column cannot be both a computed index and a range index."
+      )
+    }
+    if (metadata.exploded_field_indexes.asScala.exists(_.as_column == name)) {
+      throw new IllegalArgumentException(
+        s"Column '$name' is already an exploded field index. " +
+        "A column cannot be both a computed index and an exploded field index."
+      )
+    }
+
     metadata.computed_indexes.put(name, sql_expression)
     writeMetadata(metadata)
   }
@@ -450,7 +516,7 @@ case class Index private (
 
       // Remove from file list
       fileList.removeFile(filenames: _*)
-      logger.warn(s"deleteFiles completed in ${System.currentTimeMillis() - startTime}ms")
+      logger.warn(s"Successfully deleted ${filenames.size} file(s) from index '$name' in ${System.currentTimeMillis() - startTime}ms")
     } finally {
       lock.release(correlationId)
     }
@@ -458,6 +524,7 @@ case class Index private (
 
   /** Updates the index with new files and backfills newly added columns. */
   def update: Unit = {
+    val startTime = System.currentTimeMillis()
     val lock = IndexLock(updateLockPath, name)
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
@@ -515,8 +582,8 @@ case class Index private (
         updateBatched(needsColumnUpdate, lock, correlationId, isBackfill = true)
       }
       val unindexed = unindexedFiles
+      logger.warn(s"Found ${unindexed.size} unindexed file(s) for index '$name'")
       if (unindexed.nonEmpty) {
-        logger.warn(s"Updating index for ${unindexed.size} files")
         updateBatched(unindexed, lock, correlationId, isBackfill = false)
       }
 
@@ -534,6 +601,7 @@ case class Index private (
           logger.warn(f"Recalculated total indexed file size: ${totalSize / (1024.0 * 1024.0 * 1024.0)}%.2f GB")
         }
       }
+      logger.warn(s"Update complete for index '$name' in ${System.currentTimeMillis() - startTime}ms")
     } finally {
       lock.release(correlationId)
     }

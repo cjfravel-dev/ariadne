@@ -160,6 +160,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
     *   A set of file names matching the criteria.
     */
   def locateFiles(indexes: Map[String, Array[Any]]): Set[String] = {
+    logger.warn(s"locateFiles: querying columns ${indexes.keys.mkString(", ")} with ${indexes.values.map(_.length).sum} total values")
     index match {
       case Some(df) =>
         // Separate bloom, temporal, range, and regular index queries
@@ -230,6 +231,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
               s"range=${rangeFiles.size}, regular=${regularFiles.size} -> final=${allFiles.size}"
           )
         }
+        logger.warn(s"locateFiles: ${allFiles.size} files matched")
         if (allFiles.isEmpty) Set.empty else allFiles
       case None => Set()
     }
@@ -483,6 +485,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
       joinColumns: Seq[String]
   ): Set[String] = {
     val locateStart = System.currentTimeMillis()
+    logger.warn(s"locateFilesFromDataFrame: querying columns ${joinColumns.mkString(", ")}")
     index match {
       case Some(indexDf) =>
         if (debugEnabled) {
@@ -582,6 +585,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
         } else {
           queriedResults.reduce(_ intersect _)
         }
+        logger.warn(s"locateFilesFromDataFrame: ${allFiles.size} files matched in ${System.currentTimeMillis() - locateStart}ms")
         if (allFiles.isEmpty) Set.empty else allFiles
       case None => Set()
     }
