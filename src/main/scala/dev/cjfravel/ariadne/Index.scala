@@ -106,6 +106,8 @@ case class Index private (
 
   /** Helper function to get a list of files that haven't yet been indexed
     *
+    * @note This method calls `collect()` on the driver, which can cause OOM
+    *       if the number of unindexed files is very large.
     * @return
     *   Set of filenames
     */
@@ -599,6 +601,10 @@ case class Index private (
       // Remove from file list
       fileList.removeFile(filenames: _*)
       logger.warn(s"Successfully deleted ${filenames.size} file(s) from index '$name' in ${System.currentTimeMillis() - startTime}ms")
+    } catch {
+      case e: Throwable =>
+        logger.warn(s"deleteFiles failed for index '$name': ${e.getMessage}", e)
+        throw e
     } finally {
       lock.release(correlationId)
     }
@@ -606,6 +612,7 @@ case class Index private (
 
   /** Updates the index with new files and backfills newly added columns. */
   def update: Unit = {
+    logger.warn(s"Starting index update for '$name'")
     batchesSinceCompact = metadata.batches_since_compact
     val startTime = System.currentTimeMillis()
     val lock = IndexLock(updateLockPath, name)
@@ -699,6 +706,10 @@ case class Index private (
       }
 
       logger.warn(s"Update complete for index '$name' in ${System.currentTimeMillis() - startTime}ms")
+    } catch {
+      case e: Throwable =>
+        logger.warn(s"update failed for index '$name': ${e.getMessage}", e)
+        throw e
     } finally {
       lock.release(correlationId)
     }
@@ -719,6 +730,10 @@ case class Index private (
       metadata.batches_since_compact = 0
       writeMetadata(metadata)
       logger.warn(s"Compaction complete in ${System.currentTimeMillis() - startTime}ms")
+    } catch {
+      case e: Throwable =>
+        logger.warn(s"compact failed for index '$name': ${e.getMessage}", e)
+        throw e
     } finally {
       lock.release(correlationId)
     }
@@ -738,6 +753,10 @@ case class Index private (
     try {
       vacuumDeltaTables(retentionHours)
       logger.warn(s"Vacuum complete for index '$name' in ${System.currentTimeMillis() - startTime}ms")
+    } catch {
+      case e: Throwable =>
+        logger.warn(s"vacuum failed for index '$name': ${e.getMessage}", e)
+        throw e
     } finally {
       lock.release(correlationId)
     }
@@ -1094,7 +1113,7 @@ object Index {
             }
             metadata.schema = s.json
           } else if (metadata.schema != s.json) {
-            throw new SchemaMismatchException()
+            throw new SchemaMismatchException(name)
           }
         } else {
           metadata.schema = s.json
@@ -1108,7 +1127,7 @@ object Index {
       case Some(f) =>
         if (metadataExists) {
           if (metadata.format != f) {
-            throw new FormatMismatchException()
+            throw new FormatMismatchException(name, metadata.format, f)
           }
         } else {
           metadata.format = f
@@ -1171,6 +1190,7 @@ object Index {
         usingColumns: Seq[String],
         joinType: String = "inner"
     ): DataFrame = {
+      require(usingColumns != null && usingColumns.nonEmpty, "usingColumns must not be null or empty")
       logger.warn(s"DataFrameOps.join: $joinType join on columns ${usingColumns.mkString(", ")} against index '${index.name}'")
       val indexDf = index.joinDf(df, usingColumns)
       df.join(indexDf, usingColumns, joinType)

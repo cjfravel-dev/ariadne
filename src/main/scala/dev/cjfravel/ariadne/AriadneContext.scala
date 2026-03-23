@@ -34,8 +34,11 @@ import org.apache.hadoop.fs.FSDataInputStream
   * concurrency model.
   */
 trait AriadneContextUser {
-  /** Log4j logger shared by all Ariadne components. Uses the "ariadne" logger name. */
-  val logger: Logger = LogManager.getLogger("ariadne")
+  /** Log4j logger shared by all Ariadne components. Uses the "ariadne" logger name.
+    * Marked `@transient lazy` so that `Index` (a case class) remains serializable
+    * across Spark stages — Log4j loggers are not `Serializable`.
+    */
+  @transient lazy val logger: Logger = LogManager.getLogger("ariadne")
 
   /** Implicit SparkSession that must be provided by the mixing class. */
   implicit def spark: SparkSession
@@ -96,8 +99,12 @@ trait AriadneContextUser {
         logger.warn(s"Invalid spark.ariadne.stagingConsolidationThreshold value, using default 50: ${e.getMessage}")
         50
     }
-    logger.warn(s"stagingConsolidationThreshold initialized: $threshold")
-    threshold
+    val validated = if (threshold <= 0) {
+      logger.warn(s"spark.ariadne.stagingConsolidationThreshold must be positive (got $threshold), using default 50")
+      50
+    } else threshold
+    logger.warn(s"stagingConsolidationThreshold initialized: $validated")
+    validated
   }
 
   /** Optional number of partitions to use when repartitioning the index

@@ -13,6 +13,12 @@ package dev.cjfravel.ariadne.exceptions
   * // Throws FormatMismatchException — format conflict
   * Index("myIndex", schema, "json")
   * }}}
+  *
+  * @param indexName the name of the index with the format conflict
+  * @param expected  the format stored in existing metadata
+  * @param actual    the format that was provided and does not match
   */
-class FormatMismatchException
-    extends AriadneException("Format provided does not match stored format")
+class FormatMismatchException(indexName: String, expected: String, actual: String)
+    extends AriadneException(
+      s"Format mismatch for index '$indexName': stored format is '$expected' but '$actual' was provided"
+    )

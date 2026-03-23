@@ -14,6 +14,11 @@ package dev.cjfravel.ariadne.exceptions
   * // Throws SchemaMismatchException — type changed from Int to String
   * Index("myIndex", schema2, "parquet")
   * }}}
+  *
+  * @param indexName the name of the index with the schema conflict
   */
-class SchemaMismatchException
-    extends AriadneException("Schema provided does not match stored schema")
+class SchemaMismatchException(indexName: String)
+    extends AriadneException(
+      s"Schema mismatch for index '$indexName': provided schema does not match stored schema. " +
+        "Use allowSchemaMismatch=true to update the stored schema."
+    )

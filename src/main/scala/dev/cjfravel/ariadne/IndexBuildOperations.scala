@@ -761,8 +761,14 @@ trait IndexBuildOperations extends BloomFilterOperations {
     }
     
     // Delete staging after successful consolidation
-    delete(stagingFilePath)
-    logger.warn("Deleted main staging table after consolidation")
+    try {
+      delete(stagingFilePath)
+      logger.warn(s"Deleted main staging table after consolidation for index '$name'")
+    } catch {
+      case e: Exception =>
+        logger.warn(s"Failed to delete staging table after consolidation for index '$name': ${e.getMessage}. " +
+          "Staging data may be re-merged on next consolidation (idempotent).", e)
+    }
     }
   }
 

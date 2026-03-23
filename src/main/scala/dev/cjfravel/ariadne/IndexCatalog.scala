@@ -115,6 +115,7 @@ object IndexCatalog {
     * @return true if the index exists
     */
   def exists(name: String)(implicit spark: SparkSession): Boolean = {
+    require(name != null && name.trim.nonEmpty, "Index name must not be null or blank")
     val sparkSession = spark
     val contextUser = new AriadneContextUser {
       implicit def spark: SparkSession = sparkSession
@@ -204,6 +205,7 @@ object IndexCatalog {
     * @throws IndexNotFoundException if the index does not exist
     */
   def get(name: String)(implicit spark: SparkSession): Index = {
+    require(name != null && name.trim.nonEmpty, "Index name must not be null or blank")
     if (!exists(name)) {
       throw new IndexNotFoundException(name)
     }

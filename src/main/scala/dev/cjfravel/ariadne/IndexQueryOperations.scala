@@ -325,6 +325,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
 
       val files = collectedFiles
         .map(_.getString(0))
+        .filter(_ != null)
         .toSet
 
       if (debugEnabled) {

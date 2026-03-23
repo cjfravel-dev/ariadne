@@ -25,7 +25,7 @@ import com.google.gson.Gson
 trait IndexMetadataOperations extends AriadneContextUser {
   self: Index =>
 
-  override val logger: Logger = LogManager.getLogger("ariadne")
+  override lazy val logger: Logger = LogManager.getLogger("ariadne")
 
   /** Hadoop path for the metadata file.
     * @return

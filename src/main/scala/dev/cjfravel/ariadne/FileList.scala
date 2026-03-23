@@ -29,7 +29,7 @@ case class FileList private (
     name: String
 )(implicit val spark: SparkSession)
     extends AriadneContextUser {
-  override val logger: Logger = LogManager.getLogger("ariadne")
+  override lazy val logger: Logger = LogManager.getLogger("ariadne")
 
   override lazy val storagePath: Path = new Path(FileList.storagePath, name)
 
