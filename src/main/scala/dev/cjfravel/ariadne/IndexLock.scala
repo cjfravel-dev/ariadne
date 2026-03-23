@@ -102,6 +102,7 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     *   max retry attempts
     */
   def acquire(correlationId: String): Unit = {
+    require(correlationId != null && correlationId.trim.nonEmpty, "correlationId must not be null or blank")
     logger.debug(s"Acquiring lock for index '$indexName' (correlationId='$correlationId')")
     val acquireStart = System.currentTimeMillis()
     doAcquire(correlationId, depth = 0)
@@ -304,6 +305,7 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     *   the correlation ID that should currently hold the lock
     */
   def release(correlationId: String): Unit = {
+    require(correlationId != null && correlationId.trim.nonEmpty, "correlationId must not be null or blank")
     logger.debug(s"Releasing lock for index '$indexName' (correlationId='$correlationId')")
     val releaseStart = System.currentTimeMillis()
     readLock() match {
@@ -337,6 +339,7 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     *   the correlation ID that should currently hold the lock
     */
   def refresh(correlationId: String): Unit = {
+    require(correlationId != null && correlationId.trim.nonEmpty, "correlationId must not be null or blank")
     logger.debug(s"Refreshing lock for index '$indexName' (correlationId='$correlationId')")
     val refreshStart = System.currentTimeMillis()
     readLock() match {

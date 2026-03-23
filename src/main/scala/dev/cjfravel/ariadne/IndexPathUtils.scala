@@ -39,7 +39,10 @@ object IndexPathUtils {
     * @return
     *   The prefixed file list identifier
     */
-  def fileListName(name: String): String = s"[ariadne_index] $name"
+  def fileListName(name: String): String = {
+    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
+    s"[ariadne_index] $name"
+  }
 
   /** Checks whether an index with the given name exists.
     *
@@ -59,6 +62,7 @@ object IndexPathUtils {
     *   true if the index exists
     */
   def exists(name: String)(implicit sparkSession: SparkSession): Boolean = {
+    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
     val contextUser = new AriadneContextUser {
       implicit def spark: SparkSession = sparkSession
     }
@@ -89,6 +93,7 @@ object IndexPathUtils {
     *   if the index does not exist
     */
   def remove(name: String)(implicit sparkSession: SparkSession): Boolean = {
+    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
     if (!exists(name)(sparkSession)) {
       throw new IndexNotFoundException(name)
     }

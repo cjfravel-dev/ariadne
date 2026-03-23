@@ -111,6 +111,7 @@ trait IndexMetadataOperations extends AriadneContextUser {
     *   if the write fails (the error is logged before propagating)
     */
   protected def writeMetadata(metadata: IndexMetadata): Unit = {
+    require(metadata != null, "metadata must not be null")
     logger.debug(s"Entering writeMetadata for index '${name}'")
     val directoryPath = metadataFilePath.getParent
     if (!exists(directoryPath)) fs.mkdirs(directoryPath)

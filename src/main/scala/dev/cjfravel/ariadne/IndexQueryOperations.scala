@@ -89,7 +89,9 @@ trait IndexQueryOperations extends IndexJoinOperations {
         Some(spark.read.format("delta").load(columnPath.toString))
       else None
     } catch {
-      case _: Exception => None
+      case e: Exception =>
+        logger.warn(s"Failed to load large index for column '$colName' in index '$name': ${e.getMessage}")
+        None
     }
   }
 
@@ -179,6 +181,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
     *   if no matches are found or no index exists
     */
   def locateFiles(indexes: Map[String, Array[Any]]): Set[String] = {
+    require(indexes != null, "columnValues must not be null")
     val locateStart = System.currentTimeMillis()
     logger.warn(s"locateFiles: querying columns ${indexes.keys.mkString(", ")} with ${indexes.values.map(_.length).sum} total values")
     index match {
@@ -596,6 +599,8 @@ trait IndexQueryOperations extends IndexJoinOperations {
       columnMappings: Map[String, String],
       joinColumns: Seq[String]
   ): Set[String] = {
+    require(valuesDf != null, "DataFrame must not be null")
+    require(columnMappings != null && columnMappings.nonEmpty, "columnMappings must not be null or empty")
     val locateStart = System.currentTimeMillis()
     logger.warn(s"locateFilesFromDataFrame: querying columns ${joinColumns.mkString(", ")}")
     index match {

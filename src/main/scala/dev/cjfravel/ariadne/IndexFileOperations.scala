@@ -67,6 +67,7 @@ trait IndexFileOperations extends IndexMetadataOperations {
     *   if the stored format is not csv, parquet, or json (propagated from [[createBaseDataFrame]])
     */
   protected def readFiles(files: Set[String]): DataFrame = {
+    require(files != null, "files must not be null")
     logger.warn(s"Reading ${files.size} files in format '${metadata.format}'")
     if (debugEnabled) {
       logger.warn(s"[debug] readFiles: reading ${files.size} files, format: $format")

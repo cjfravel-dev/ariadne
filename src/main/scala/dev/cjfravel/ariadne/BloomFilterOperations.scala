@@ -239,6 +239,9 @@ trait BloomFilterOperations extends IndexFileOperations {
       values: Array[Any],
       indexDf: DataFrame
   ): Set[String] = {
+    require(column != null && column.trim.nonEmpty, "column must not be null or blank")
+    require(values != null, "values must not be null")
+    require(indexDf != null, "indexDf must not be null")
     val bloomColumn = bloomColumnPrefix + column
     logger.warn(s"Querying bloom filter for column '$column' with ${values.length} values")
 
@@ -289,6 +292,9 @@ trait BloomFilterOperations extends IndexFileOperations {
       valuesDf: DataFrame,
       indexDf: DataFrame
   ): Set[String] = {
+    require(column != null && column.trim.nonEmpty, "column must not be null or blank")
+    require(valuesDf != null, "valuesDf must not be null")
+    require(indexDf != null, "indexDf must not be null")
     val bloomColumn = bloomColumnPrefix + column
 
     if (!indexDf.columns.contains(bloomColumn)) {

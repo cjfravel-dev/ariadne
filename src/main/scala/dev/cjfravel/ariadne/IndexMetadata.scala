@@ -147,7 +147,12 @@ object IndexMetadata {
     if (jsonString == null || jsonString.trim.isEmpty) {
       throw new MetadataMissingOrCorruptException()
     }
-    val indexMetadata = new Gson().fromJson(jsonString, classOf[IndexMetadata])
+    val indexMetadata = try {
+      new Gson().fromJson(jsonString, classOf[IndexMetadata])
+    } catch {
+      case e: com.google.gson.JsonSyntaxException =>
+        throw new MetadataMissingOrCorruptException(e)
+    }
     if (indexMetadata == null) {
       throw new MetadataMissingOrCorruptException()
     }

@@ -22,7 +22,9 @@ class IndexPathUtilsTests extends SparkTests with Matchers {
   test("fileListName should format correctly") {
     IndexPathUtils.fileListName("test_index") should be("[ariadne_index] test_index")
     IndexPathUtils.fileListName("my-index") should be("[ariadne_index] my-index")
-    IndexPathUtils.fileListName("") should be("[ariadne_index] ")
+    assertThrows[IllegalArgumentException] {
+      IndexPathUtils.fileListName("")
+    }
   }
 
   test("cleanFileName should handle special characters") {

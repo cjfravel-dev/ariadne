@@ -68,8 +68,8 @@ trait AriadneContextUser {
     val limit = try {
       spark.conf.get("spark.ariadne.largeIndexLimit", "500000").toLong
     } catch {
-      case _: NumberFormatException =>
-        logger.warn("Invalid spark.ariadne.largeIndexLimit value, using default 500000")
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.largeIndexLimit value, using default 500000: ${e.getMessage}")
         500000L
     }
     val validated = if (limit <= 0) {
@@ -92,8 +92,8 @@ trait AriadneContextUser {
     val threshold = try {
       spark.conf.get("spark.ariadne.stagingConsolidationThreshold", "50").toInt
     } catch {
-      case _: NumberFormatException =>
-        logger.warn("Invalid spark.ariadne.stagingConsolidationThreshold value, using default 50")
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.stagingConsolidationThreshold value, using default 50: ${e.getMessage}")
         50
     }
     logger.warn(s"stagingConsolidationThreshold initialized: $threshold")
@@ -111,8 +111,8 @@ trait AriadneContextUser {
       try {
         Some(v.toInt)
       } catch {
-        case _: NumberFormatException =>
-          logger.warn("Invalid spark.ariadne.indexRepartitionCount value, ignoring")
+        case e: NumberFormatException =>
+          logger.warn(s"Invalid spark.ariadne.indexRepartitionCount value, ignoring: ${e.getMessage}")
           None
       }
     }
@@ -128,8 +128,8 @@ trait AriadneContextUser {
     val enabled = try {
       spark.conf.get("spark.ariadne.debug", "false").toBoolean
     } catch {
-      case _: IllegalArgumentException =>
-        logger.warn("Invalid spark.ariadne.debug value, using default false")
+      case e: IllegalArgumentException =>
+        logger.warn(s"Invalid spark.ariadne.debug value, using default false: ${e.getMessage}")
         false
     }
     if (enabled) logger.warn("Debug mode enabled")
@@ -146,8 +146,8 @@ trait AriadneContextUser {
     val enabled = try {
       spark.conf.get("spark.ariadne.repartitionDataFiles", "false").toBoolean
     } catch {
-      case _: IllegalArgumentException =>
-        logger.warn("Invalid spark.ariadne.repartitionDataFiles value, using default false")
+      case e: IllegalArgumentException =>
+        logger.warn(s"Invalid spark.ariadne.repartitionDataFiles value, using default false: ${e.getMessage}")
         false
     }
     if (enabled) logger.warn("repartitionDataFiles enabled — data files will be repartitioned")
@@ -173,21 +173,30 @@ trait AriadneContextUser {
     * @param path The Hadoop Path to check
     * @return true if the path exists
     */
-  def exists(path: Path): Boolean = fs.exists(path)
+  def exists(path: Path): Boolean = {
+    require(path != null, "path must not be null")
+    fs.exists(path)
+  }
 
   /** Deletes a path recursively from the filesystem.
     *
     * @param path The Hadoop Path to delete
     * @return true if the path was successfully deleted
     */
-  def delete(path: Path): Boolean = fs.delete(path, true)
+  def delete(path: Path): Boolean = {
+    require(path != null, "path must not be null")
+    fs.delete(path, true)
+  }
 
   /** Opens an input stream to read from a path on the filesystem.
     *
     * @param path The Hadoop Path to open for reading
     * @return An FSDataInputStream for reading the file contents
     */
-  def open(path: Path): FSDataInputStream = fs.open(path)
+  def open(path: Path): FSDataInputStream = {
+    require(path != null, "path must not be null")
+    fs.open(path)
+  }
 
   /** Returns a [[io.delta.tables.DeltaTable]] if the path exists and contains valid Delta metadata.
     *
@@ -220,8 +229,8 @@ trait AriadneContextUser {
     val value = try {
       spark.conf.get("spark.ariadne.lockTimeout", "1800").toLong
     } catch {
-      case _: NumberFormatException =>
-        logger.warn("Invalid spark.ariadne.lockTimeout value, using default 1800")
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.lockTimeout value, using default 1800: ${e.getMessage}")
         1800L
     }
     logger.warn(s"lockTimeout initialized: $value")
@@ -235,8 +244,8 @@ trait AriadneContextUser {
     val value = try {
       spark.conf.get("spark.ariadne.lockRetryInterval", "60").toLong
     } catch {
-      case _: NumberFormatException =>
-        logger.warn("Invalid spark.ariadne.lockRetryInterval value, using default 60")
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.lockRetryInterval value, using default 60: ${e.getMessage}")
         60L
     }
     logger.warn(s"lockRetryInterval initialized: $value")
@@ -250,8 +259,8 @@ trait AriadneContextUser {
     val value = try {
       spark.conf.get("spark.ariadne.lockMaxWait", "3600").toLong
     } catch {
-      case _: NumberFormatException =>
-        logger.warn("Invalid spark.ariadne.lockMaxWait value, using default 3600")
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.lockMaxWait value, using default 3600: ${e.getMessage}")
         3600L
     }
     logger.warn(s"lockMaxWait initialized: $value")
@@ -265,8 +274,8 @@ trait AriadneContextUser {
     val value = try {
       spark.conf.get("spark.ariadne.lockRefreshInterval", "1").toInt
     } catch {
-      case _: NumberFormatException =>
-        logger.warn("Invalid spark.ariadne.lockRefreshInterval value, using default 1")
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.lockRefreshInterval value, using default 1: ${e.getMessage}")
         1
     }
     logger.warn(s"lockRefreshInterval initialized: $value")
@@ -283,8 +292,8 @@ trait AriadneContextUser {
       try {
         Some(v.toInt)
       } catch {
-        case _: NumberFormatException =>
-          logger.warn("Invalid spark.ariadne.autoCompactThreshold value, ignoring")
+        case e: NumberFormatException =>
+          logger.warn(s"Invalid spark.ariadne.autoCompactThreshold value, ignoring: ${e.getMessage}")
           None
       }
     }
@@ -301,11 +310,17 @@ trait AriadneContextUser {
     val value = try {
       spark.conf.get("spark.ariadne.autoBloomFpr", "0.01").toDouble
     } catch {
-      case _: NumberFormatException =>
-        logger.warn("Invalid spark.ariadne.autoBloomFpr value, using default 0.01")
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.autoBloomFpr value, using default 0.01: ${e.getMessage}")
         0.01
     }
-    logger.warn(s"autoBloomFpr initialized: $value")
-    value
+    val validated = if (value <= 0.0 || value >= 1.0) {
+      logger.warn(s"autoBloomFpr value $value is out of valid range (0, 1), using default 0.01")
+      0.01
+    } else {
+      value
+    }
+    logger.warn(s"autoBloomFpr initialized: $validated")
+    validated
   }
 }

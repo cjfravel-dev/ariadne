@@ -134,6 +134,7 @@ object IndexCatalog {
     * @throws IndexNotFoundException if the index does not exist
     */
   def describe(name: String)(implicit spark: SparkSession): IndexSummary = {
+    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
     if (!exists(name)) {
       throw new IndexNotFoundException(name)
     }
@@ -182,6 +183,7 @@ object IndexCatalog {
     *         or empty if the file is not found in any index
     */
   def findIndexes(fileName: String)(implicit spark: SparkSession): Seq[String] = {
+    require(fileName != null && fileName.trim.nonEmpty, "fileName must not be null or blank")
     val names = list()
     logger.warn(s"IndexCatalog: searching ${names.size} index(es) for file '$fileName'")
     names.filter { name =>
@@ -284,6 +286,7 @@ object IndexCatalog {
     * @throws IndexNotFoundException if the index does not exist
     */
   def remove(name: String)(implicit spark: SparkSession): Boolean = {
+    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
     if (!exists(name)) {
       throw new IndexNotFoundException(name)
     }
@@ -305,7 +308,8 @@ object IndexCatalog {
         FileList.remove(fileListName)
       } else false
     } catch {
-      case _: FileListNotFoundException =>
+      case e: FileListNotFoundException =>
+        logger.debug(s"FileList not found during removal of index '$name' — may have been already removed: ${e.getMessage}")
         false
     }
 

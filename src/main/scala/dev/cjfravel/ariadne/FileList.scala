@@ -144,6 +144,8 @@ case class FileList private (
     *   one or more file paths to add
     * @throws IllegalArgumentException
     *   if fileNames is null or any individual file name is null or blank
+    * @note Collects all existing filenames to the driver for duplicate detection.
+    *   May cause driver OOM for indexes tracking millions of files.
     */
   def addFile(fileNames: String*): Unit = addFile(spark, fileNames: _*)
 
@@ -154,8 +156,12 @@ case class FileList private (
     *
     * @param fileNames
     *   one or more file paths to remove
+    * @throws IllegalArgumentException
+    *   if fileNames is null or empty, or any individual file name is null or blank
     */
   def removeFile(fileNames: String*): Unit = {
+    require(fileNames != null && fileNames.nonEmpty, "fileNames must not be null or empty")
+    require(fileNames.forall(f => f != null && f.trim.nonEmpty), "fileNames must not contain null or blank entries")
     logger.warn(
       s"removeFile called on FileList '$name' with ${fileNames.size} file(s)"
     )
@@ -181,9 +187,13 @@ case class FileList private (
     *   the file path to check
     * @return
     *   true if the file exists in the list
+    * @throws IllegalArgumentException
+    *   if fileName is null or blank
     */
-  def hasFile(fileName: String): Boolean =
+  def hasFile(fileName: String): Boolean = {
+    require(fileName != null && fileName.trim.nonEmpty, "fileName must not be null or blank")
     !files.filter(col("filename") === fileName).isEmpty
+  }
 
   /** Persists the current in-memory file list to the Delta table.
     *
@@ -244,6 +254,7 @@ object FileList {
     *   true if the Delta table directory exists
     */
   def exists(name: String)(implicit sparkSession: SparkSession): Boolean = {
+    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
     val contextUser = new AriadneContextUser {
       implicit def spark: SparkSession = sparkSession
     }
@@ -262,6 +273,7 @@ object FileList {
     *   if the file list does not exist
     */
   def remove(name: String)(implicit sparkSession: SparkSession): Boolean = {
+    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
     if (!exists(name)(sparkSession)) {
       throw new FileListNotFoundException(name)
     }
@@ -281,6 +293,7 @@ object FileList {
     *   a new FileList backed by a Delta table at `storagePath/name`
     */
   def apply(name: String)(implicit spark: SparkSession): FileList = {
+    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
     new FileList(name)(spark)
   }
 }

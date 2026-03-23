@@ -19,6 +19,9 @@ import java.util.{Collections, UUID}
   * in Spark using Delta Lake. It supports schema enforcement, metadata
   * persistence, and file tracking.
   *
+  * @note Index instances are NOT safe for concurrent use from multiple threads.
+  *       Each thread should use its own Index instance.
+  *
   * @constructor
   *   Private: use the factory methods in the companion object.
   * @param spark
@@ -166,6 +169,7 @@ case class Index private (
     */
   def addIndex(index: String): Unit = {
     require(index != null && index.trim.nonEmpty, "index column name must not be null or blank")
+    logger.warn(s"Adding regular index on column '$index' for index '$name'")
 
     if (!metadata.indexes.contains(index)) {
       // Check mutual exclusivity with bloom indexes
@@ -219,6 +223,7 @@ case class Index private (
     require(column != null && column.trim.nonEmpty, "bloom index column name must not be null or blank")
     // Validate FPR range
     require(fpr > 0 && fpr < 1, s"FPR must be between 0 and 1, got: $fpr")
+    logger.warn(s"Adding bloom index on column '$column' for index '$name'")
 
     if (!metadata.bloom_indexes.asScala.exists(_.column == column)) {
       // Check mutual exclusivity with regular indexes
@@ -283,6 +288,7 @@ case class Index private (
     require(arrayColumn != null && arrayColumn.trim.nonEmpty, "arrayColumn must not be null or blank")
     require(fieldPath != null && fieldPath.trim.nonEmpty, "fieldPath must not be null or blank")
     require(asColumn != null && asColumn.trim.nonEmpty, "asColumn must not be null or blank")
+    logger.warn(s"Adding exploded field index '$asColumn' on column '$arrayColumn' for index '$name'")
 
     if (!metadata.exploded_field_indexes.asScala.exists(_.as_column == asColumn)) {
       // Mutual exclusivity checks
@@ -358,6 +364,7 @@ case class Index private (
   def addComputedIndex(name: String, sql_expression: String): Unit = {
     require(name != null && name.trim.nonEmpty, "computed index name must not be null or blank")
     require(sql_expression != null && sql_expression.trim.nonEmpty, "sql_expression must not be null or blank")
+    logger.warn(s"Adding computed index '$name' for index '${this.name}'")
 
     if (!metadata.computed_indexes.containsKey(name)) {
       // Mutual exclusivity checks
@@ -412,6 +419,7 @@ case class Index private (
   def addTemporalIndex(column: String, timestampColumn: String): Unit = {
     require(column != null && column.trim.nonEmpty, "temporal index column must not be null or blank")
     require(timestampColumn != null && timestampColumn.trim.nonEmpty, "timestampColumn must not be null or blank")
+    logger.warn(s"Adding temporal index on column '$column' for index '$name'")
 
     if (!metadata.temporal_indexes.asScala.exists(_.column == column)) {
       // Mutual exclusivity checks
@@ -471,6 +479,7 @@ case class Index private (
     */
   def addRangeIndex(column: String): Unit = {
     require(column != null && column.trim.nonEmpty, "range index column must not be null or blank")
+    logger.warn(s"Adding range index on column '$column' for index '$name'")
 
     if (!metadata.range_indexes.asScala.exists(_.column == column)) {
       // Mutual exclusivity checks
@@ -521,7 +530,8 @@ case class Index private (
     *   One or more filenames to remove from the index.
     */
   def deleteFiles(filenames: String*): Unit = {
-    if (filenames.nonEmpty) {
+    require(filenames != null && filenames.nonEmpty, "filenames must not be null or empty")
+    require(filenames.forall(f => f != null && f.trim.nonEmpty), "filenames must not contain null or blank entries")
       val startTime = System.currentTimeMillis()
       logger.warn(s"Deleting ${filenames.size} file(s) from index '$name'")
       val lock = IndexLock(updateLockPath, name)
@@ -591,7 +601,6 @@ case class Index private (
       logger.warn(s"Successfully deleted ${filenames.size} file(s) from index '$name' in ${System.currentTimeMillis() - startTime}ms")
     } finally {
       lock.release(correlationId)
-    }
     }
   }
 
@@ -721,12 +730,14 @@ case class Index private (
     * @param retentionHours number of hours of history to retain (default 168 = 7 days)
     */
   def vacuum(retentionHours: Int = 168): Unit = {
+    val startTime = System.currentTimeMillis()
     logger.warn(s"Vacuuming index '$name' with retention=$retentionHours hours")
     val lock = IndexLock(updateLockPath, name)
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
     try {
       vacuumDeltaTables(retentionHours)
+      logger.warn(s"Vacuum complete for index '$name' in ${System.currentTimeMillis() - startTime}ms")
     } finally {
       lock.release(correlationId)
     }
@@ -799,71 +810,92 @@ case class Index private (
     // Compute file sizes from HDFS and add as a column
     val fileSizes = getFileSizes(files)
     val fileSizesBroadcast = spark.sparkContext.broadcast(fileSizes)
-    val fileSizeUdf = udf((filename: String) => fileSizesBroadcast.value.getOrElse(filename, 0L))
+    try {
+      val fileSizeUdf = udf((filename: String) => fileSizesBroadcast.value.getOrElse(filename, 0L))
 
-    // Build regular indexes
-    val regularIndexesDf = buildRegularIndexes(withFilename)
-    val withExploded = buildExplodedFieldIndexes(withFilename, regularIndexesDf)
-    
-    // Build bloom filter indexes
-    val bloomDf = buildBloomFilterIndexes(withFilename)
+      // Build regular indexes
+      val regularIndexesDf = buildRegularIndexes(withFilename)
+      val withExploded = buildExplodedFieldIndexes(withFilename, regularIndexesDf)
 
-    // Build temporal indexes (struct arrays with value + max_ts)
-    val temporalDf = buildTemporalIndexes(withFilename)
-    
-    // Combine all index types
-    var combinedDf = withExploded
+      // Build bloom filter indexes
+      val bloomDf = buildBloomFilterIndexes(withFilename)
 
-    if (bloomIndexConfigs.nonEmpty && combinedDf.columns.length > 1) {
-      combinedDf = combinedDf.join(bloomDf, Seq("filename"), "full_outer")
-    } else if (bloomIndexConfigs.nonEmpty) {
-      combinedDf = bloomDf
-    }
+      // Build temporal indexes (struct arrays with value + max_ts)
+      val temporalDf = buildTemporalIndexes(withFilename)
 
-    val temporalConfigs = metadata.temporal_indexes.asScala.toSeq
-    if (temporalConfigs.nonEmpty && combinedDf.columns.length > 1) {
-      combinedDf = combinedDf.join(temporalDf, Seq("filename"), "full_outer")
-    } else if (temporalConfigs.nonEmpty) {
-      combinedDf = temporalDf
-    }
+      // Combine all index types
+      var combinedDf = withExploded
 
-    // Build range indexes (struct with min/max per file)
-    val rangeDf = buildRangeIndexes(withFilename)
-
-    val rangeConfigs = metadata.range_indexes.asScala.toSeq
-    if (rangeConfigs.nonEmpty && combinedDf.columns.length > 1) {
-      combinedDf = combinedDf.join(rangeDf, Seq("filename"), "full_outer")
-    } else if (rangeConfigs.nonEmpty) {
-      combinedDf = rangeDf
-    }
-
-    // Build auto-bloom filters for columns that exceed largeIndexLimit
-    combinedDf = buildAutoBloomIndexes(combinedDf)
-
-    combinedDf = combinedDf.withColumn("file_size", fileSizeUdf(col("filename")))
-
-    handleLargeIndexes(combinedDf)
-    appendToStaging(combinedDf)
-
-    // Clean up cached DataFrame from auto-bloom processing
-    lastAutoBloomCache.foreach(_.unpersist())
-    lastAutoBloomCache = None
-
-    // Update total indexed file size (skip for backfill — already counted)
-    if (!isBackfill) {
-      val batchFileSize = fileSizes.values.sum
-      if (metadata.total_indexed_file_size < 0) {
-        metadata.total_indexed_file_size = batchFileSize
-      } else {
-        metadata.total_indexed_file_size = metadata.total_indexed_file_size + batchFileSize
+      if (bloomIndexConfigs.nonEmpty && combinedDf.columns.length > 1) {
+        combinedDf = combinedDf.join(bloomDf, Seq("filename"), "full_outer")
+      } else if (bloomIndexConfigs.nonEmpty) {
+        combinedDf = bloomDf
       }
+
+      val temporalConfigs = metadata.temporal_indexes.asScala.toSeq
+      if (temporalConfigs.nonEmpty && combinedDf.columns.length > 1) {
+        combinedDf = combinedDf.join(temporalDf, Seq("filename"), "full_outer")
+      } else if (temporalConfigs.nonEmpty) {
+        combinedDf = temporalDf
+      }
+
+      // Build range indexes (struct with min/max per file)
+      val rangeDf = buildRangeIndexes(withFilename)
+
+      val rangeConfigs = metadata.range_indexes.asScala.toSeq
+      if (rangeConfigs.nonEmpty && combinedDf.columns.length > 1) {
+        combinedDf = combinedDf.join(rangeDf, Seq("filename"), "full_outer")
+      } else if (rangeConfigs.nonEmpty) {
+        combinedDf = rangeDf
+      }
+
+      // Build auto-bloom filters for columns that exceed largeIndexLimit
+      combinedDf = buildAutoBloomIndexes(combinedDf)
+
+      combinedDf = combinedDf.withColumn("file_size", fileSizeUdf(col("filename")))
+
+      handleLargeIndexes(combinedDf)
+      appendToStaging(combinedDf)
+
+      // Update total indexed file size (skip for backfill — already counted)
+      if (!isBackfill) {
+        val batchFileSize = fileSizes.values.sum
+        if (metadata.total_indexed_file_size < 0) {
+          metadata.total_indexed_file_size = batchFileSize
+        } else {
+          metadata.total_indexed_file_size = metadata.total_indexed_file_size + batchFileSize
+        }
+      }
+
+      // Persist any metadata changes (e.g., auto-bloom column detection) after data is safely staged
+      writeMetadata(metadata)
+      logger.warn(s"Single batch of ${files.size} files completed in ${System.currentTimeMillis() - singleBatchStart}ms")
+    } finally {
+      // Clean up cached DataFrame from auto-bloom processing
+      lastAutoBloomCache.foreach(_.unpersist())
+      lastAutoBloomCache = None
+      fileSizesBroadcast.destroy()
     }
+  }
 
-    fileSizesBroadcast.destroy()
-
-    // Persist any metadata changes (e.g., auto-bloom column detection) after data is safely staged
-    writeMetadata(metadata)
-    logger.warn(s"Single batch of ${files.size} files completed in ${System.currentTimeMillis() - singleBatchStart}ms")
+  /** Joins the indexed data with the provided DataFrame.
+    *
+    * Validates inputs then delegates to the inherited join implementation.
+    *
+    * @param df The DataFrame to join against indexed data
+    * @param usingColumns The column names to join on (must be indexed columns)
+    * @param joinType The Spark join type (default: "inner")
+    * @return The joined DataFrame
+    * @throws IllegalArgumentException if df is null or usingColumns is null/empty
+    */
+  override def join(
+      df: DataFrame,
+      usingColumns: Seq[String],
+      joinType: String = "inner"
+  ): DataFrame = {
+    require(df != null, "DataFrame must not be null")
+    require(usingColumns != null && usingColumns.nonEmpty, "usingColumns must not be null or empty")
+    super.join(df, usingColumns, joinType)
   }
 }
 
@@ -996,6 +1028,7 @@ object Index {
       allowSchemaMismatch: Boolean = false,
       readOptions: Option[Map[String, String]] = None
   )(implicit spark: SparkSession): Index = {
+    require(name != null && name.trim.nonEmpty, "index name must not be null or blank")
     val index = Index(name, schema)(spark)
 
     val metadataExists = index.metadataExists

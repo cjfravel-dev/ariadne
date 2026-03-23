@@ -77,6 +77,8 @@ trait IndexJoinOperations extends IndexBuildOperations {
     *   if join columns are not in the selected columns, schema, or indexes
     */
   protected def joinDf(df: DataFrame, usingColumns: Seq[String]): DataFrame = {
+    require(df != null, "DataFrame must not be null")
+    require(usingColumns != null && usingColumns.nonEmpty, "usingColumns must not be null or empty")
     val joinStart = System.currentTimeMillis()
     def elapsed(): String = {
       val ms = System.currentTimeMillis() - joinStart
@@ -293,19 +295,25 @@ trait IndexJoinOperations extends IndexBuildOperations {
       joinType: String = "inner"
   ): DataFrame = {
     logger.warn(s"Index.join on index '$name': $joinType join on columns ${usingColumns.mkString(", ")}")
-    val outerJoinStart = System.currentTimeMillis()
-    val indexDf = joinDf(df, usingColumns)
-    if (debugEnabled) {
-      logger.warn(s"[debug] joinDf returned in ${System.currentTimeMillis() - outerJoinStart}ms, now performing $joinType join")
+    try {
+      val outerJoinStart = System.currentTimeMillis()
+      val indexDf = joinDf(df, usingColumns)
+      if (debugEnabled) {
+        logger.warn(s"[debug] joinDf returned in ${System.currentTimeMillis() - outerJoinStart}ms, now performing $joinType join")
+      }
+      val result = indexDf.join(df, usingColumns, joinType)
+      logger.warn(s"Index.join on index '$name': $joinType join setup completed in ${System.currentTimeMillis() - outerJoinStart}ms")
+      if (debugEnabled) {
+        logger.warn(s"[debug] Index.join complete in ${System.currentTimeMillis() - outerJoinStart}ms")
+        logger.warn(s"[debug] result physical plan:")
+        result.queryExecution.executedPlan.toString().split("\n").foreach(line =>
+          logger.warn(s"[debug]   $line"))
+      }
+      result
+    } catch {
+      case e: Exception =>
+        logger.warn(s"Join failed for index '$name' with columns [${usingColumns.mkString(", ")}]: ${e.getMessage}")
+        throw e
     }
-    val result = indexDf.join(df, usingColumns, joinType)
-    logger.warn(s"Index.join on index '$name': $joinType join setup completed in ${System.currentTimeMillis() - outerJoinStart}ms")
-    if (debugEnabled) {
-      logger.warn(s"[debug] Index.join complete in ${System.currentTimeMillis() - outerJoinStart}ms")
-      logger.warn(s"[debug] result physical plan:")
-      result.queryExecution.executedPlan.toString().split("\n").foreach(line =>
-        logger.warn(s"[debug]   $line"))
-    }
-    result
   }
 }

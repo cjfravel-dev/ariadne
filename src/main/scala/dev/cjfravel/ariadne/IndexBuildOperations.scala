@@ -72,6 +72,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
         case e: java.io.IOException =>
           logger.warn(s"I/O error computing file size for $f: ${e.getMessage}, skipping")
           None
+        case e: Exception =>
+          logger.warn(s"Unexpected error computing file size for $f: ${e.getMessage}", e)
+          None
       }
     }.toMap
   }
@@ -430,6 +433,13 @@ trait IndexBuildOperations extends BloomFilterOperations {
     * same filenames are removed via Delta MERGE to prevent duplicates (important
     * during column backfill or re-indexing).
     *
+    * @note The `count()` call before the write is intentional: it materializes the
+    *       DataFrame to determine whether any large-index rows exist for this column,
+    *       avoiding the overhead of a Delta MERGE + write when no rows qualify. This
+    *       results in a double computation (count + write), but the alternative—writing
+    *       unconditionally—would create empty Delta commits and unnecessary MERGE
+    *       operations for columns that are within the limit.
+    *
     * @param df the combined index DataFrame with array columns
     */
   protected def appendToLargeIndex(df: DataFrame): Unit = {
@@ -576,6 +586,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
       }
       } catch {
         case e: Exception =>
+          logger.warn(s"Failed to build auto-bloom indexes for $name: ${e.getMessage}", e)
           cachedDf.unpersist()
           throw e
       }
