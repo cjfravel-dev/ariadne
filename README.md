@@ -393,6 +393,13 @@ IndexCatalog.toDF().show()
 
 // Remove an index by name
 IndexCatalog.remove("myIndex")
+
+// Find all indexes that track a specific file
+val affected: Seq[String] = IndexCatalog.findIndexes("s3a://bucket/data/file1.parquet")
+// Clean up references after a file is deleted
+affected.foreach { name =>
+  IndexCatalog.get(name).deleteFiles("s3a://bucket/data/file1.parquet")
+}
 ```
 
 ## Error Handling

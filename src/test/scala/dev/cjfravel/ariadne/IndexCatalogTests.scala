@@ -243,6 +243,49 @@ class IndexCatalogTests extends SparkTests {
     assert(fetched.indexes.contains("Id"))
   }
 
+  // --- findIndexes ---
+
+  test("findIndexes returns empty for file not tracked by any index") {
+    Index("catalog_find_none", schema1, "parquet")
+    val result = IndexCatalog.findIndexes("nonexistent/file.parquet")
+    assert(result.isEmpty)
+  }
+
+  test("findIndexes returns indexes that track a given file") {
+    val file = resourcePath("/data/table1_part0.csv")
+
+    val idx1 = Index("catalog_find_a", schema1, "parquet")
+    idx1.addIndex("Id")
+    idx1.addFile(file)
+
+    val idx2 = Index("catalog_find_b", schema1, "parquet")
+    idx2.addIndex("Id")
+    idx2.addFile(file)
+
+    val idx3 = Index("catalog_find_c", schema1, "parquet")
+    idx3.addIndex("Id")
+    // idx3 does NOT have the file
+
+    val result = IndexCatalog.findIndexes(file)
+    assert(result.contains("catalog_find_a"))
+    assert(result.contains("catalog_find_b"))
+    assert(!result.contains("catalog_find_c"))
+  }
+
+  test("findIndexes returns results in sorted order") {
+    val file = resourcePath("/data/table1_part1.csv")
+
+    val idxZ = Index("catalog_find_z", schema1, "parquet")
+    idxZ.addFile(file)
+    val idxA = Index("catalog_find_aa", schema1, "parquet")
+    idxA.addFile(file)
+
+    val result = IndexCatalog.findIndexes(file)
+    val relevant = result.filter(_.startsWith("catalog_find_a"))
+    assert(relevant.nonEmpty)
+    assert(result == result.sorted)
+  }
+
   // --- toDF ---
 
   test("toDF returns correct schema") {

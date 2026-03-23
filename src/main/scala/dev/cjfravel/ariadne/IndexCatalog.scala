@@ -157,6 +157,33 @@ object IndexCatalog {
     }
   }
 
+  /** Returns the names of all indexes that track a given file.
+    *
+    * Scans every index's file list to check whether `fileName` is present.
+    * This is useful for determining which indexes need a `deleteFiles` call
+    * when a source file has been removed from storage.
+    *
+    * {{{
+    * val affected: Seq[String] = IndexCatalog.findIndexes("s3a://bucket/data/file1.parquet")
+    * affected.foreach { name =>
+    *   IndexCatalog.get(name).deleteFiles("s3a://bucket/data/file1.parquet")
+    * }
+    * }}}
+    *
+    * @param fileName the file path to search for across all indexes
+    * @param spark    implicit SparkSession
+    * @return alphabetically sorted names of indexes that track the file,
+    *         or empty if the file is not found in any index
+    */
+  def findIndexes(fileName: String)(implicit spark: SparkSession): Seq[String] = {
+    val names = list()
+    logger.warn(s"IndexCatalog: searching ${names.size} index(es) for file '$fileName'")
+    names.filter { name =>
+      val fileListName = IndexPathUtils.fileListName(name)
+      FileList.exists(fileListName) && FileList(fileListName).hasFile(fileName)
+    }
+  }
+
   /** Fetches an [[Index]] instance by reconnecting to an existing index.
     *
     * This is equivalent to calling `Index(name)` directly; it is provided
