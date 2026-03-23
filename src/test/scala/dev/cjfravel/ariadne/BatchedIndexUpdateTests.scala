@@ -6,6 +6,9 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
 
+/** Tests for batched index updates, verifying that files are grouped into optimal
+  * batches based on distinct value limits and staged correctly before consolidation.
+  */
 class BatchedIndexUpdateTests extends SparkTests with Matchers {
 
   val testSchema = StructType(

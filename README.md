@@ -26,6 +26,7 @@ Additional format-specific options can be provided via `readOptions` when creati
    - **Bloom filter indexes** – Space-efficient probabilistic indexes for high-cardinality columns (`addBloomIndex("column_name", fpr)`)
    - **Temporal indexes** – Version-aware indexes that deduplicate by recency (`addTemporalIndex("column_name", "timestamp_column")`)
    - **Computed indexes** – Index derived values using SQL expressions (`addComputedIndex("alias", "expression")`)
+   - **Range indexes** – Min/max pruning for ordered columns (`addRangeIndex("column_name")`)
    - **Exploded field indexes** – Index elements within array columns (`addExplodedFieldIndex("array_column", "field_path", "alias")`)
 3. **Add files** – Register files with the index.
 4. **Update the index** – Run updates whenever you add new files or indexed columns.
@@ -65,8 +66,8 @@ val joinedWithoutIndex = otherDf.join(table, Seq("version", "id"), "left_semi")
 // ensure spark.sparkContext.hadoopConfiguration has access to this location
 spark.conf.set("spark.ariadne.storagePath", s"abfss://${container}@${storageAccount}.dfs.core.windows.net/ariadne")
 
-import dev.cjfravel.ariadne
-
+import dev.cjfravel.ariadne.Index
+import dev.cjfravel.ariadne.Index._  // for df.join(index, ...) implicit
 // Create and configure the index
 val index = Index("table", tableSchema, "parquet")
 index.addIndex("version")
@@ -298,3 +299,169 @@ Ariadne uses per-index file-based locks to prevent concurrent updates from corru
 - **Auto-healing:** If a lock's `lastRefreshedAt` timestamp is older than `spark.ariadne.lockTimeout`, it is considered stale (e.g., the holding job crashed) and is automatically broken so the new job can proceed
 
 **Lock file format:** JSON files stored at `{indexStoragePath}/.filelist.lock` and `{indexStoragePath}/.update.lock`, containing a correlation ID, timestamps, and the Spark application ID of the lock holder for diagnostics.
+
+## API Reference
+
+### Index Lifecycle
+
+```scala
+// Check if an index exists
+val exists: Boolean = Index.exists("myIndex")
+
+// Remove an index and all its data (index, large indexes, staging, file list, metadata)
+// Throws IndexNotFoundException if the index does not exist
+val removed: Boolean = Index.remove("myIndex")
+```
+
+### Factory Methods
+
+```scala
+// Basic: name, schema, format
+val index = Index("myIndex", schema, "parquet")
+
+// With schema mismatch tolerance (allows updating schema while preserving indexes)
+val index = Index("myIndex", newSchema, "parquet", allowSchemaMismatch = true)
+
+// With format-specific read options
+val index = Index("myIndex", schema, "json", readOptions = Map("multiLine" -> "true"))
+
+// Reconnect to an existing index (no schema/format needed if metadata exists)
+val index = Index("myIndex")
+```
+
+### Querying & Inspection
+
+```scala
+// Get the set of all indexed column names (across all index types)
+val cols: Set[String] = index.indexes
+
+// Check if a specific file is tracked by this index
+val tracked: Boolean = index.hasFile("data/file1.parquet")
+
+// Get index statistics (file count, per-column min/max/avg/median/stddev of array sizes)
+val statsDF: DataFrame = index.stats()
+statsDF.show()
+
+// Locate files matching specific values without performing a full join
+val files: Set[String] = index.locateFiles(Map(
+  "user_id" -> Array("u1", "u2", "u3")
+))
+
+// Refresh cached metadata from disk (useful if another job updated the index)
+index.refreshMetadata()
+
+// Access index properties
+val fmt: String = index.format         // e.g., "parquet"
+val sch: StructType = index.storedSchema  // the stored schema
+```
+
+## Error Handling
+
+All Ariadne exceptions extend `AriadneException` (a `RuntimeException`), so you can catch them with a single handler:
+
+```scala
+import dev.cjfravel.ariadne.exceptions._
+
+try {
+  val index = Index("myIndex", schema, "parquet")
+  index.update
+} catch {
+  case e: AriadneException => // handle any Ariadne error
+}
+```
+
+### Exception Reference
+
+| Exception | When Thrown |
+|-----------|------------|
+| `SchemaNotProvidedException` | Creating a new index without providing a schema |
+| `SchemaMismatchException` | Schema differs from stored metadata and `allowSchemaMismatch` is `false` |
+| `FormatMismatchException` | Format differs from stored metadata |
+| `IndexNotFoundException` | Calling `Index.remove()` on a non-existent index |
+| `IndexNotFoundInNewSchemaException` | Using `allowSchemaMismatch = true` but the new schema is missing a previously indexed column |
+| `ColumnNotFoundException` | Calling `select()` or `addBloomIndex()` with a column that doesn't exist in the schema |
+| `IndexLockException` | Lock acquisition timed out after `lockMaxWait` seconds |
+| `MetadataMissingOrCorruptException` | Index metadata file is unreadable or corrupt — delete and re-create the index |
+| `IllegalArgumentException` | Adding a column that already has a different index type (mutual exclusivity violation) |
+
+## Troubleshooting
+
+### `FetchFailedException` During Joins
+
+**Symptom:** `org.apache.spark.shuffle.FetchFailedException` when joining against indexes with very large arrays of values.
+
+**Cause:** Default Spark partitioning can concentrate large index arrays on too few executors, causing OOM during the shuffle phase.
+
+**Fix:** Set `indexRepartitionCount` to spread the work across more partitions:
+
+```scala
+spark.conf.set("spark.ariadne.indexRepartitionCount", "500")
+```
+
+If data files are also large, enable data file repartitioning:
+
+```scala
+spark.conf.set("spark.ariadne.repartitionDataFiles", "true")
+```
+
+### Lock Contention / `IndexLockException`
+
+**Symptom:** `IndexLockException: Could not acquire lock for index '...'`
+
+**Cause:** Another job holds the lock and hasn't released it within `lockMaxWait` seconds, or a crashed job left a stale lock.
+
+**Fix:**
+1. **Stale locks auto-heal:** If the lock holder crashed, the lock will be automatically broken after `lockTimeout` seconds (default: 30 minutes). Wait and retry.
+2. **Increase wait time** if contention is expected:
+   ```scala
+   spark.conf.set("spark.ariadne.lockMaxWait", "7200")  // wait up to 2 hours
+   ```
+3. **Manual recovery:** Delete the lock file from storage if you're certain no other job is running:
+   ```
+   {storagePath}/{indexName}/.update.lock
+   {storagePath}/{indexName}/.filelist.lock
+   ```
+
+### Out of Memory on Large Indexes
+
+**Symptom:** OOM errors during `update` when indexing files with very high cardinality columns.
+
+**Cause:** A single file has more distinct values than `largeIndexLimit`, causing large in-memory arrays.
+
+**Fix:**
+1. **Lower `largeIndexLimit`** so high-cardinality columns are stored as exploded rows in separate Delta tables:
+   ```scala
+   spark.conf.set("spark.ariadne.largeIndexLimit", "100000")
+   ```
+2. **Use bloom indexes** instead of regular indexes for high-cardinality columns:
+   ```scala
+   index.addBloomIndex("high_cardinality_col", fpr = 0.01)
+   ```
+3. **Reduce batch size** by lowering `stagingConsolidationThreshold` for more frequent staging checkpoints:
+   ```scala
+   spark.conf.set("spark.ariadne.stagingConsolidationThreshold", "10")
+   ```
+
+### `MetadataMissingOrCorruptException`
+
+**Symptom:** `Index metadata is missing or corrupt. Delete and re-create the index.`
+
+**Cause:** The `metadata.json` file in the index storage path is unreadable, typically due to a partial write or manual tampering.
+
+**Fix:** Remove the index and re-create it:
+
+```scala
+Index.remove("myIndex")
+val index = Index("myIndex", schema, "parquet")
+// re-add indexes and files, then update
+```
+
+### `SchemaMismatchException` After Schema Evolution
+
+**Symptom:** `Schema provided does not match stored schema` when the data schema has changed.
+
+**Fix:** Use `allowSchemaMismatch = true` to update the schema while preserving existing indexes. All indexed columns must still exist in the new schema:
+
+```scala
+val index = Index("myIndex", newSchema, "parquet", allowSchemaMismatch = true)
+```

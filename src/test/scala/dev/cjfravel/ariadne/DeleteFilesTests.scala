@@ -5,6 +5,9 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.Row
 import org.apache.hadoop.fs.Path
 
+/** Tests for `deleteFiles` covering single and multi-file deletion from the main index,
+  * large index table cleanup, and file list removal.
+  */
 class DeleteFilesTests extends SparkTests with Matchers {
 
   val table1Schema = StructType(

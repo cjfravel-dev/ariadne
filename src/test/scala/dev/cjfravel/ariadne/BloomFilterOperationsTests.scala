@@ -7,6 +7,9 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
 
+/** Tests for [[BloomFilterOperations]] covering bloom filter index creation,
+  * custom false-positive-rate validation, and bloom-filter-based file location queries.
+  */
 class BloomFilterOperationsTests extends SparkTests with Matchers {
 
   val testSchema = StructType(

@@ -288,7 +288,11 @@ case class Index private (
   }
 
   /** Returns all column names that can be used in joins across all index types.
-    * @return Set of joinable column names (regular, computed, exploded, bloom, temporal, range)
+    *
+    * Includes regular, computed, exploded field, bloom, temporal, and range
+    * index columns.
+    *
+    * @return Set of all joinable column names
     */
   def indexes: Set[String] =
     metadata.indexes.asScala.toSet ++
@@ -535,6 +539,7 @@ case class Index private (
 
   /** Updates the index with new files and backfills newly added columns. */
   def update: Unit = {
+    batchesSinceCompact = 0
     val startTime = System.currentTimeMillis()
     val lock = IndexLock(updateLockPath, name)
     val correlationId = UUID.randomUUID().toString
@@ -661,6 +666,7 @@ case class Index private (
     * @param correlationId The correlation ID for lock refresh
     */
   private def updateBatched(files: Set[String], lock: IndexLock, correlationId: String, isBackfill: Boolean = false): Unit = {
+    val updateBatchedStart = System.currentTimeMillis()
     logger.warn(s"Using intelligent batched update for ${files.size} files")
 
     // Perform pre-flight analysis to determine optimal batching
@@ -673,8 +679,10 @@ case class Index private (
     var batchesSinceRefresh = 0
 
     batches.zipWithIndex.foreach { case (batch, idx) =>
+      val batchStart = System.currentTimeMillis()
       logger.warn(s"Processing batch ${idx + 1}/${batches.size} with ${batch.size} files")
       updateSingleBatch(batch, isBackfill)
+      logger.warn(s"Batch ${idx + 1}/${batches.size} completed in ${System.currentTimeMillis() - batchStart}ms")
       batchesSinceConsolidation += 1
       batchesSinceRefresh += 1
       batchesSinceCompact += 1
@@ -701,7 +709,7 @@ case class Index private (
       maybeAutoCompact()
     }
 
-    logger.warn(s"Completed batched update of ${files.size} files in ${batches.size} batches")
+    logger.warn(s"Completed batched update of ${files.size} files in ${batches.size} batches in ${System.currentTimeMillis() - updateBatchedStart}ms")
   }
 
   /** Updates the index with a single batch of files.
@@ -709,6 +717,8 @@ case class Index private (
     * @param files Set of files to process in this batch
     */
   private def updateSingleBatch(files: Set[String], isBackfill: Boolean = false): Unit = {
+    val singleBatchStart = System.currentTimeMillis()
+    logger.warn(s"Processing single batch of ${files.size} files")
     val baseDf = createBaseDataFrame(files)
     val withComputedIndexes = applyComputedIndexes(baseDf)
     val withFilename = addFilenameColumn(withComputedIndexes, files)
@@ -780,6 +790,7 @@ case class Index private (
 
     // Persist any metadata changes (e.g., auto-bloom column detection) after data is safely staged
     writeMetadata(metadata)
+    logger.warn(s"Single batch of ${files.size} files completed in ${System.currentTimeMillis() - singleBatchStart}ms")
   }
 }
 
@@ -805,15 +816,13 @@ object Index {
     */
   def remove(name: String)(implicit spark: SparkSession): Boolean = IndexPathUtils.remove(name)
 
-  /** Factory method to create an Index instance.
-    * @param name
-    *   The name of the index.
-    * @param schema
-    *   The schema.
-    * @param format
-    *   The format.
-    * @return
-    *   An Index instance.
+  /** Convenience factory: creates or reconnects with schema, format, and no schema mismatch.
+    *
+    * @param name   Unique index name
+    * @param schema Spark schema of the data files
+    * @param format Data file format (e.g., "parquet")
+    * @return A fully initialized Index instance
+    * @see [[apply(name:String,schema:Option[StructType],format:Option[String],allowSchemaMismatch:Boolean,readOptions:Option[Map[String,String]])*]]
     */
   def apply(
       name: String,
@@ -821,17 +830,14 @@ object Index {
       format: String
   )(implicit spark: SparkSession): Index = apply(name, Some(schema), Some(format), false)
 
-  /** Factory method to create an Index instance.
-    * @param name
-    *   The name of the index.
-    * @param schema
-    *   The schema.
-    * @param format
-    *   The format.
-    * @param allowSchemaMismatch
-    *   The allows schema to be a mismatch.
-    * @return
-    *   An Index instance.
+  /** Convenience factory: creates or reconnects with optional schema mismatch tolerance.
+    *
+    * @param name               Unique index name
+    * @param schema             Spark schema of the data files
+    * @param format             Data file format (e.g., "parquet")
+    * @param allowSchemaMismatch When true, allows updating the stored schema
+    * @return A fully initialized Index instance
+    * @see [[apply(name:String,schema:Option[StructType],format:Option[String],allowSchemaMismatch:Boolean,readOptions:Option[Map[String,String]])*]]
     */
   def apply(
       name: String,
@@ -840,17 +846,14 @@ object Index {
       allowSchemaMismatch: Boolean
   )(implicit spark: SparkSession): Index = apply(name, Some(schema), Some(format), allowSchemaMismatch)
 
-  /** Factory method to create an Index instance with read options.
-    * @param name
-    *   The name of the index.
-    * @param schema
-    *   The schema.
-    * @param format
-    *   The format.
-    * @param readOptions
-    *   Map of read options for format-specific configuration.
-    * @return
-    *   An Index instance.
+  /** Convenience factory: creates or reconnects with read options.
+    *
+    * @param name        Unique index name
+    * @param schema      Spark schema of the data files
+    * @param format      Data file format (e.g., "parquet")
+    * @param readOptions Format-specific read options (e.g., CSV delimiter)
+    * @return A fully initialized Index instance
+    * @see [[apply(name:String,schema:Option[StructType],format:Option[String],allowSchemaMismatch:Boolean,readOptions:Option[Map[String,String]])*]]
     */
   def apply(
       name: String,
@@ -859,19 +862,15 @@ object Index {
       readOptions: Map[String, String]
   )(implicit spark: SparkSession): Index = apply(name, Some(schema), Some(format), false, Some(readOptions))
 
-  /** Factory method to create an Index instance with read options.
-    * @param name
-    *   The name of the index.
-    * @param schema
-    *   The schema.
-    * @param format
-    *   The format.
-    * @param allowSchemaMismatch
-    *   The allows schema to be a mismatch.
-    * @param readOptions
-    *   Map of read options for format-specific configuration.
-    * @return
-    *   An Index instance.
+  /** Convenience factory: creates or reconnects with schema mismatch tolerance and read options.
+    *
+    * @param name               Unique index name
+    * @param schema             Spark schema of the data files
+    * @param format             Data file format (e.g., "parquet")
+    * @param allowSchemaMismatch When true, allows updating the stored schema
+    * @param readOptions        Format-specific read options (e.g., CSV delimiter)
+    * @return A fully initialized Index instance
+    * @see [[apply(name:String,schema:Option[StructType],format:Option[String],allowSchemaMismatch:Boolean,readOptions:Option[Map[String,String]])*]]
     */
   def apply(
       name: String,
@@ -1000,13 +999,11 @@ object Index {
       case Some(options) =>
         if (metadataExists) {
           // Merge with existing options, with new options taking precedence
-          import collection.JavaConverters._
           options.foreach { case (key, value) =>
             metadata.read_options.put(key, value)
           }
         } else {
           // Set initial options
-          import collection.JavaConverters._
           options.foreach { case (key, value) =>
             metadata.read_options.put(key, value)
           }
@@ -1018,20 +1015,25 @@ object Index {
     index
   }
 
-  /** Implicit class enabling DataFrame-to-Index join syntax.
-    * Allows calling df.join(index, columns, joinType) directly.
+  /** Implicit enrichment enabling `df.join(index, columns, joinType)` syntax.
+    *
+    * This provides the reverse join direction compared to [[Index.join]]:
+    * the driving DataFrame is on the left and the index-located data is on the right.
+    *
+    * @param df The DataFrame to enrich with implicit join capability
     */
   implicit class DataFrameOps(df: DataFrame) {
 
-    /** Joins the DataFrame with an Index.
-      * @param index
-      *   The Index instance.
-      * @param usingColumns
-      *   The columns to use for the join.
-      * @param joinType
-      *   The type of join (default is "inner").
-      * @return
-      *   The joined DataFrame.
+    /** Joins this DataFrame with the data files identified by the Index.
+      *
+      * Locates relevant data files via the index, reads them, applies temporal
+      * deduplication if configured, and joins the result with this DataFrame.
+      *
+      * @param index       The Index instance to join against
+      * @param usingColumns Column names to join on (must be indexed columns)
+      * @param joinType    Spark join type: "inner", "left_outer", etc. (default "inner")
+      * @return The joined DataFrame
+      * @throws ColumnNotFoundException if join columns are not in the schema or indexes
       */
     def join(
         index: Index,

@@ -7,6 +7,9 @@ import dev.cjfravel.ariadne.exceptions._
 import java.util
 import java.util.Collections
 
+/** Tests for [[IndexMetadataOperations]] covering metadata read/write round-trips,
+  * format handling, schema storage, and configuration of regular, exploded, and computed indexes.
+  */
 class IndexMetadataOperationsTests extends SparkTests with Matchers {
 
   val testSchema = StructType(

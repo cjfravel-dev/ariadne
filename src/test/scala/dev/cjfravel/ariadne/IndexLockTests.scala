@@ -8,6 +8,9 @@ import java.nio.charset.StandardCharsets
 import java.time.Instant
 import scala.io.Source
 
+/** Tests for [[IndexLock]] covering lock acquisition, release, refresh,
+  * stale lock auto-healing, and contention behavior.
+  */
 class IndexLockTests extends SparkTests {
 
   private val gson = new Gson()

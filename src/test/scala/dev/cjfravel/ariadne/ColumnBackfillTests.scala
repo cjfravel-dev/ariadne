@@ -6,6 +6,9 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
 
+/** Tests for column backfill functionality, verifying that newly added regular
+  * and computed index columns are correctly populated for previously indexed files.
+  */
 class ColumnBackfillTests extends SparkTests with Matchers {
 
   val testSchema = StructType(

@@ -7,6 +7,9 @@ import org.apache.hadoop.fs.Path
 import scala.collection.JavaConverters._
 import java.nio.charset.StandardCharsets
 
+/** Tests for automatic bloom filter creation on large index columns, verifying
+  * that auto-bloom filters are built during `update` and used to pre-filter large index queries.
+  */
 class AutoBloomLargeIndexTests extends SparkTests with Matchers {
 
   val testSchema = StructType(

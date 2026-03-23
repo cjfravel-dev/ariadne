@@ -7,7 +7,7 @@ package dev.cjfravel.ariadne.exceptions
   *
   * @param message A descriptive error message including index name and lock holder details
   */
-class IndexLockException(message: String) extends Exception(message) {
+class IndexLockException(message: String) extends AriadneException(message) {
   def this(indexName: String, holderCorrelationId: String, holderOwner: String) =
     this(
       s"Could not acquire lock for index '$indexName'. Currently held by correlationId='$holderCorrelationId', owner='$holderOwner'"

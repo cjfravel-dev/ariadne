@@ -5,4 +5,4 @@ package dev.cjfravel.ariadne.exceptions
   * @param name The name of the index that was not found
   */
 class IndexNotFoundException(name: String)
-    extends Exception(s"Index $name was not found")
+    extends AriadneException(s"Index $name was not found")

@@ -7,6 +7,9 @@ import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.types._
 import dev.cjfravel.ariadne.exceptions.IndexNotFoundException
 
+/** Tests for index path utility methods covering file list naming, special character
+  * handling in file names, path existence checks, and directory removal.
+  */
 class IndexPathUtilsTests extends SparkTests with Matchers {
 
   val basicSchema = StructType(

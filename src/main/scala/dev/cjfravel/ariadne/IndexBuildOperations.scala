@@ -1,26 +1,63 @@
 package dev.cjfravel.ariadne
 
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import org.apache.hadoop.fs.Path
-import io.delta.tables.DeltaTable
 import scala.collection.JavaConverters._
 
-/** Trait providing index building and maintenance operations for Index instances.
+/** Trait providing index building and maintenance operations for [[Index]] instances.
   *
-  * Handles the core data pipeline for building indexes:
-  * - Pre-flight file analysis for optimal batching
-  * - Regular, exploded, temporal, range, and auto-bloom index construction
-  * - Staging and large index management
-  * - Delta table compaction and vacuuming
+  * This trait implements the core data pipeline for building and maintaining file-level
+  * indexes. It is mixed into [[Index]] via the trait hierarchy and handles the complete
+  * update lifecycle:
   *
-  * Large indexes (columns exceeding `largeIndexLimit` distinct values) are
-  * automatically separated into dedicated Delta tables under `large_indexes/`.
+  * Update pipeline (data flow):
+  *  1. [[analyzeFiles]] — Pre-flight scan that computes per-file distinct value
+  *     counts for all indexed columns. This information drives batching decisions.
+  *  2. [[createOptimalBatches]] — Groups files into batches so that the sum of
+  *     `maxDistinctCount` per batch stays below `largeIndexLimit`.
+  *     Files that individually exceed the limit are isolated into single-file batches.
+  *  3. Per-batch processing (in `updateSingleBatch`):
+  *     - Read source files, apply computed indexes, add filename column
+  *     - Build regular indexes (array aggregation per file)
+  *     - Build exploded field, bloom filter, temporal, and range indexes
+  *     - Build auto-bloom filters for columns exceeding `largeIndexLimit`
+  *     - [[appendToStaging]] (small columns to staging Delta table)
+  *     - [[appendToLargeIndex]] (large columns to per-column Delta tables)
+  *  4. Periodic consolidation — Every `stagingConsolidationThreshold`
+  *     batches, [[consolidateStaging]] merges staging into the main index via Delta
+  *     MERGE (upsert on filename). Auto-compaction may follow via [[maybeAutoCompact]].
+  *  5. Final consolidation — After all batches complete, any remaining staged data
+  *     is consolidated and the staging table is deleted.
+  *
+  * Batching strategy:
+  * Files are sorted by `maxDistinctCount` (largest first) and packed sequentially into
+  * batches. This greedy approach keeps each batch under the large index limit while
+  * maximizing batch sizes for efficiency.
+  *
+  * Staging:
+  * Each batch is appended to a transient staging Delta table. Periodic consolidation
+  * merges staged rows into the main index, providing fault tolerance (partially
+  * processed updates can be recovered).
+  *
+  * Large index handling:
+  * Columns whose array size exceeds `largeIndexLimit` for any file are stored in
+  * separate Delta tables under `large_indexes/{column}/` as exploded (one row per
+  * value) rather than array-per-file. Auto-bloom filters are built for these columns
+  * in the main index to enable pre-filtering at query time.
+  *
+  * @see [[BloomFilterOperations]] for bloom filter creation and querying
+  * @see [[Index.update]] for the public entry point
   */
 trait IndexBuildOperations extends BloomFilterOperations {
   self: Index =>
 
-  /** Computes file sizes in bytes for the given files using HDFS FileSystem.
+  /** Computes file sizes in bytes for the given files using the Hadoop FileSystem.
+    *
+    * Files that cannot be found or read are silently skipped with a warning log.
+    *
+    * @param files set of fully-qualified file paths to measure
+    * @return map from file path to size in bytes; missing/unreadable files are omitted
     */
   protected def getFileSizes(files: Set[String]): Map[String, Long] = {
     logger.warn(s"Computing file sizes for ${files.size} files")
@@ -39,20 +76,27 @@ trait IndexBuildOperations extends BloomFilterOperations {
     }.toMap
   }
 
-  /** Hadoop root path for large index delta tables */
+  /** Hadoop root path for large index Delta tables (`{storagePath}/large_indexes/`). */
   protected def largeIndexesFilePath: Path =
     new Path(storagePath, "large_indexes")
 
-  /** Hadoop path for the index delta table */
+  /** Hadoop path for the main index Delta table (`{storagePath}/index/`). */
   protected def indexFilePath: Path = new Path(storagePath, "index")
 
-  /** Hadoop path for the staging delta table (used during batch processing) */
+  /** Hadoop path for the staging Delta table (`{storagePath}/staging/`).
+    *
+    * The staging table accumulates batch results during [[Index.update update]] and
+    * is merged into the main index by [[consolidateStaging]].
+    */
   protected def stagingFilePath: Path = new Path(storagePath, "staging")
 
-  /** Helper function to get the storage column names for internal use.
+  /** Returns the set of all storage column names across regular, computed,
+    * exploded-field, and temporal index types.
     *
-    * @return
-    *   Set of column names used for internal storage
+    * This is used internally to determine which columns to check for large-index
+    * separation and to build aggregation expressions.
+    *
+    * @return set of column names used for index storage (excludes bloom, range, and auto-bloom)
     */
   protected def storageColumns: Set[String] =
     metadata.indexes.asScala.toSet ++
@@ -60,7 +104,10 @@ trait IndexBuildOperations extends BloomFilterOperations {
       metadata.exploded_field_indexes.asScala.map(_.array_column).toSet ++
       metadata.temporal_indexes.asScala.map(_.column).toSet
 
-  /** Get the set of range index storage column names (with prefix) */
+  /** Returns the set of range index storage column names (each prefixed with `range_`).
+    *
+    * @return set of prefixed column names (e.g., `range_event_date`)
+    */
   protected def rangeStorageColumns: Set[String] =
     metadata.range_indexes.asScala.map(c => s"range_${c.column}").toSet
 
@@ -78,12 +125,22 @@ trait IndexBuildOperations extends BloomFilterOperations {
 
   /** Performs pre-flight analysis on unindexed files to determine optimal batching strategy.
     *
-    * @param files Set of file names to analyze
-    * @return Sequence of FileAnalysis objects with distinct count information
+    * Reads the source files, applies computed indexes, and counts distinct values per
+    * indexed column per file. The resulting [[FileAnalysis]] objects are used by
+    * [[createOptimalBatches]] to group files into batches that stay under the
+    * `largeIndexLimit`.
+    *
+    * If no storage columns are configured (e.g., only bloom or range indexes), returns
+    * trivial analyses with zero distinct counts.
+    *
+    * @param files set of file paths to analyze
+    * @return sequence of [[FileAnalysis]] objects with per-column distinct counts;
+    *         empty if `files` is empty
     */
   protected def analyzeFiles(files: Set[String]): Seq[FileAnalysis] = {
     if (files.isEmpty) return Seq.empty
     
+    val startTime = System.currentTimeMillis()
     logger.warn(s"Performing pre-flight analysis on ${files.size} files")
     
     val allStorageColumns = storageColumns
@@ -108,7 +165,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
     
     val analysisResults = fileAnalysisDf.collect()
     
-    analysisResults.map { row =>
+    val results = analysisResults.map { row =>
       val filename = row.getAs[String]("filename")
       val distinctCounts = analysisColumns.map { colName =>
         colName -> row.getAs[Long](s"${colName}_distinct")
@@ -117,13 +174,22 @@ trait IndexBuildOperations extends BloomFilterOperations {
       
       FileAnalysis(filename, distinctCounts, maxCount)
     }.toSeq
+
+    logger.warn(s"Pre-flight analysis of ${files.size} files completed in ${System.currentTimeMillis() - startTime}ms")
+    results
   }
 
-  /** Groups files into batches based on their distinct value counts to stay under largeIndexLimit.
-    * Uses simplified sequential batching based on maxDistinctCount sum for performance.
+  /** Groups files into batches whose aggregate `maxDistinctCount` stays below
+    * `largeIndexLimit`.
     *
-    * @param fileAnalyses Sequence of FileAnalysis objects
-    * @return Sequence of file batches, where each batch is a set of filenames
+    * The algorithm sorts files by `maxDistinctCount` (largest first) and packs them
+    * sequentially into batches. When adding a file would push the batch total past
+    * the limit, a new batch is started. Files that individually exceed the limit
+    * are placed into single-file batches to guarantee progress.
+    *
+    * @param fileAnalyses sequence of [[FileAnalysis]] objects from [[analyzeFiles]]
+    * @return sequence of file batches (each a `Set[String]` of filenames);
+    *         empty if `fileAnalyses` is empty
     */
   protected def createOptimalBatches(fileAnalyses: Seq[FileAnalysis]): Seq[Set[String]] = {
     if (fileAnalyses.isEmpty) return Seq.empty
@@ -184,10 +250,14 @@ trait IndexBuildOperations extends BloomFilterOperations {
     allBatches
   }
 
-  /** Builds regular indexes DataFrame from the base data.
+  /** Builds regular (array-aggregated) indexes for all configured regular and computed columns.
     *
-    * @param df The base DataFrame with filename column
-    * @return DataFrame with regular indexes aggregated by filename
+    * Groups the input data by filename and collects distinct values into arrays via
+    * `collect_set`. If no regular or computed indexes are configured, returns a
+    * distinct filename-only DataFrame.
+    *
+    * @param df the base DataFrame with `filename` column and all indexed source columns
+    * @return DataFrame with `filename` plus one array column per regular/computed index
     */
   protected def buildRegularIndexes(df: DataFrame): DataFrame = {
     val regularIndexes = metadata.indexes.asScala.toSet ++
@@ -203,11 +273,15 @@ trait IndexBuildOperations extends BloomFilterOperations {
     }
   }
 
-  /** Builds exploded field indexes and joins them to the result DataFrame.
+  /** Builds exploded field indexes and joins them onto the result DataFrame.
     *
-    * @param baseData The base DataFrame with all columns
-    * @param resultDf The initial result DataFrame to join with
-    * @return DataFrame with exploded field indexes joined
+    * For each configured exploded field index, extracts the nested field path from
+    * the array column, explodes it, collects distinct values back into an array per
+    * file, and joins the result onto `resultDf`.
+    *
+    * @param baseData the full base DataFrame with all source columns
+    * @param resultDf the accumulating result DataFrame to join with (must have `filename`)
+    * @return DataFrame with exploded field index columns joined via `full_outer`
     */
   protected def buildExplodedFieldIndexes(baseData: DataFrame, resultDf: DataFrame): DataFrame = {
     val explodedFieldMappings = metadata.exploded_field_indexes.asScala.toSeq
@@ -223,13 +297,16 @@ trait IndexBuildOperations extends BloomFilterOperations {
     }
   }
 
-  /** Builds temporal indexes storing Array[Struct(value, max_ts)] per file.
+  /** Builds temporal indexes storing `Array[Struct(value, max_ts)]` per file.
     *
-    * For each temporal index config, groups by (filename, value_column) to find
-    * the max timestamp per value per file, then collects into struct arrays.
+    * For each temporal index configuration, groups by `(filename, value_column)` to
+    * find the maximum timestamp per value per file, then collects the
+    * `(value, max_ts)` structs into an array per file. This enables temporal
+    * deduplication at query time.
     *
-    * @param df The base DataFrame with filename column and source data
-    * @return DataFrame with temporal struct array columns, or filename-only if none configured
+    * @param df the base DataFrame with `filename`, value, and timestamp columns
+    * @return DataFrame with `filename` plus one struct-array column per temporal index;
+    *         filename-only DataFrame if no temporal indexes are configured
     */
   protected def buildTemporalIndexes(df: DataFrame): DataFrame = {
     val temporalConfigs = metadata.temporal_indexes.asScala.toSeq
@@ -250,13 +327,15 @@ trait IndexBuildOperations extends BloomFilterOperations {
     }
   }
 
-  /** Builds range indexes storing Struct(min, max) per file.
+  /** Builds range indexes storing `Struct(min, max)` per file.
     *
-    * For each range index config, groups by filename and computes
-    * the min and max of the column per file.
+    * For each range index configuration, groups by `filename` and computes the
+    * `min` and `max` of the column per file. The result is a struct column named
+    * `range_{column}`.
     *
-    * @param df The base DataFrame with filename column and source data
-    * @return DataFrame with range struct columns, or filename-only if none configured
+    * @param df the base DataFrame with `filename` column and range-indexed source columns
+    * @return DataFrame with `filename` plus one range struct column per configured range index;
+    *         filename-only DataFrame if no range indexes are configured
     */
   protected def buildRangeIndexes(df: DataFrame): DataFrame = {
     val rangeConfigs = metadata.range_indexes.asScala.toSeq
@@ -279,9 +358,10 @@ trait IndexBuildOperations extends BloomFilterOperations {
     }
   }
 
-  /** Handles large indexes by appending directly to large_indexes/{column}.
+  /** Checks all storage columns for arrays exceeding `largeIndexLimit`
+    * and delegates to [[appendToLargeIndex]] for separation.
     *
-    * @param df The DataFrame to process for large indexes
+    * @param df the combined index DataFrame with array columns
     */
   protected def handleLargeIndexes(df: DataFrame): Unit = {
     val allStorageColumns = storageColumns
@@ -293,7 +373,11 @@ trait IndexBuildOperations extends BloomFilterOperations {
 
   /** Appends the processed DataFrame to the staging Delta table.
     *
-    * @param df The DataFrame to append to staging
+    * Before writing, any column whose array size meets or exceeds `largeIndexLimit`
+    * is nulled out (those values are stored separately via [[appendToLargeIndex]]).
+    * The DataFrame is written in append mode with schema merge enabled.
+    *
+    * @param df the combined index DataFrame to stage
     */
   protected def appendToStaging(df: DataFrame): Unit = {
     val allStorageColumns = storageColumns
@@ -312,6 +396,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
       df
     }
 
+    val rowCount = smallGroupedDf.count()
+    logger.warn(s"Appending $rowCount rows to staging at $stagingFilePath")
+
     smallGroupedDf.write
       .format("delta")
       .option("mergeSchema", "true")
@@ -319,11 +406,15 @@ trait IndexBuildOperations extends BloomFilterOperations {
       .save(stagingFilePath.toString)
   }
 
-  /** Appends large index data directly to large_indexes/{column} Delta tables.
-    * When files already exist in the large index (e.g., during column backfill),
-    * existing rows for those files are removed before appending to prevent duplicates.
+  /** Appends large index data to per-column Delta tables under `large_indexes/`.
     *
-    * @param df The DataFrame with large index data to append
+    * For each storage column, identifies rows where the array size meets or exceeds
+    * `largeIndexLimit`, explodes those arrays into individual rows, and writes them
+    * to `large_indexes/{column}/`. Before appending, any existing rows for the
+    * same filenames are removed via Delta MERGE to prevent duplicates (important
+    * during column backfill or re-indexing).
+    *
+    * @param df the combined index DataFrame with array columns
     */
   protected def appendToLargeIndex(df: DataFrame): Unit = {
     val allStorageColumns = storageColumns
@@ -351,7 +442,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
       
       if (!columnData.isEmpty) {
         val columnPath = new Path(largeIndexesFilePath, colName)
-        logger.warn(s"Appending large index data for column $colName to ${columnPath}")
+        val rowCount = columnData.count()
+        logger.warn(s"Appending $rowCount rows to large index for column '$colName' at $columnPath")
         
         // Remove existing rows for these files to prevent duplicates during re-indexing
         delta(columnPath) match {
@@ -372,33 +464,51 @@ trait IndexBuildOperations extends BloomFilterOperations {
     }
   }
 
-  /** Column name prefix for auto-bloom filter storage */
+  /** Column name prefix for auto-bloom filter storage in the main index table. */
   protected val autoBloomColumnPrefix = "auto_bloom_"
 
-  /** Get the set of auto-bloom storage column names (with prefix) */
+  /** Returns the set of auto-bloom storage column names (each prefixed with `auto_bloom_`).
+    *
+    * @return set of prefixed column names (e.g., `auto_bloom_user_id`)
+    */
   protected def autoBloomStorageColumns: Set[String] =
     metadata.auto_bloom_indexes.asScala.map(c => autoBloomColumnPrefix + c).toSet
 
-  /** Get the set of columns eligible for auto-bloom filtering (excludes temporal columns) */
+  /** Returns the set of columns eligible for auto-bloom filtering.
+    *
+    * Eligible columns are regular, computed, and exploded-field indexes. Temporal
+    * indexes are excluded because they use struct arrays rather than simple value arrays.
+    *
+    * @return set of eligible column names
+    */
   private def autoBloomEligibleColumns: Set[String] =
     metadata.indexes.asScala.toSet ++
       metadata.computed_indexes.keySet().asScala ++
       metadata.exploded_field_indexes.asScala.map(_.array_column).toSet
 
-  /** Tracks the cached DataFrame from buildAutoBloomIndexes for deferred cleanup. */
+  /** Tracks the cached DataFrame from [[buildAutoBloomIndexes]] for deferred cleanup.
+    *
+    * Set during auto-bloom processing and unpersisted after staging is complete.
+    */
   @transient protected var lastAutoBloomCache: Option[DataFrame] = None
 
   /** Builds auto-bloom filters for columns that exceed the large index limit.
     *
-    * When a column's array exceeds largeIndexLimit for any file, a bloom filter
-    * is automatically built and stored in the main index with the auto_bloom_ prefix.
-    * At query time, this bloom filter is used to pre-filter which files need to
-    * load large index data.
+    * Scans the combined DataFrame to identify columns with any file whose array size
+    * meets or exceeds `largeIndexLimit`. For each such column, a bloom filter is
+    * built from the full array and stored in the main index with the `auto_bloom_`
+    * prefix. At query time, these bloom filters enable fast pre-filtering to determine
+    * which files need to load large index data.
     *
-    * @param combinedDf The combined index DataFrame with array columns
-    * @return DataFrame with auto-bloom columns added for large columns
+    * The input DataFrame is cached during processing to avoid redundant computation;
+    * the cache reference is stored in [[lastAutoBloomCache]] for deferred cleanup.
+    *
+    * @param combinedDf the combined index DataFrame with array columns
+    * @return DataFrame with `auto_bloom_{column}` binary columns added for columns
+    *         exceeding the limit; unchanged DataFrame if no columns qualify
     */
   protected def buildAutoBloomIndexes(combinedDf: DataFrame): DataFrame = {
+    val startTime = System.currentTimeMillis()
     val eligible = autoBloomEligibleColumns
     if (eligible.isEmpty) return combinedDf
 
@@ -429,6 +539,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
 
     if (autoBloomColumns.isEmpty) {
       cachedDf.unpersist()
+      logger.warn(s"Auto-bloom: no columns to build, completed in ${System.currentTimeMillis() - startTime}ms")
       return combinedDf
     }
 
@@ -441,13 +552,15 @@ trait IndexBuildOperations extends BloomFilterOperations {
       df.withColumn(bloomColumn, bloomUdf(col(colName)))
     }
     lastAutoBloomCache = Some(cachedDf)
+    logger.warn(s"Auto-bloom: build completed in ${System.currentTimeMillis() - startTime}ms")
     result
   }
 
-  /** Compacts all Delta tables (main index and large index tables) using OPTIMIZE.
+  /** Compacts all Delta tables (main index and large index tables) using Delta OPTIMIZE.
     *
-    * Runs Delta Lake's OPTIMIZE command on the main index table and all
-    * large index column tables to consolidate small files for better read performance.
+    * Runs Delta Lake's OPTIMIZE command to consolidate small files into larger ones,
+    * improving read performance. Processes the main index table first, then each
+    * large index column table.
     */
   protected def compactDeltaTables(): Unit = {
     delta(indexFilePath).foreach { dt =>
@@ -469,15 +582,18 @@ trait IndexBuildOperations extends BloomFilterOperations {
   }
 
   /** Counter tracking batches processed since the last auto-compaction.
-    * Reset to zero after each compaction cycle.
+    *
+    * Incremented after each batch in `updateBatched` and reset to zero after each
+    * compaction cycle or at the start of each [[Index.update update]] call to prevent
+    * stale counts from a previous `update` from triggering premature compaction.
     */
   protected var batchesSinceCompact: Int = 0
 
   /** Triggers compaction if the auto-compact threshold has been reached.
     *
-    * Checks the `batchesSinceCompact` counter against the configured
-    * `autoCompactThreshold`. If the threshold is met, compacts all Delta tables
-    * and resets the counter.
+    * Checks the [[batchesSinceCompact]] counter against the configured
+    * `autoCompactThreshold`. If the threshold is met,
+    * compacts all Delta tables and resets the counter to zero.
     */
   protected def maybeAutoCompact(): Unit = {
     autoCompactThreshold.foreach { threshold =>
@@ -490,6 +606,10 @@ trait IndexBuildOperations extends BloomFilterOperations {
   }
 
   /** Vacuums all Delta tables (main index and large index tables) to remove old files.
+    *
+    * Uses Delta Lake's VACUUM command to delete data files no longer referenced by
+    * the transaction log. Temporarily disables the retention duration safety check
+    * when `retentionHours` is zero or negative.
     *
     * @param retentionHours number of hours of history to retain (default 168 = 7 days)
     */
@@ -521,20 +641,26 @@ trait IndexBuildOperations extends BloomFilterOperations {
 
   /** Consolidates staged data into the main index table.
     *
-    * Merges all data accumulated in the staging Delta table into the main
-    * index table, then deletes the staging table.
+    * Delegates to [[consolidateMainStaging]] which performs a Delta MERGE (upsert)
+    * of all staged rows into the main index, then deletes the staging table. Logs
+    * the total time taken.
     */
   protected def consolidateStaging(): Unit = {
+    val startTime = System.currentTimeMillis()
     logger.warn("Starting consolidation of staged data")
     consolidateMainStaging()
     
-    logger.warn("Consolidation complete")
+    logger.warn(s"Consolidation complete in ${System.currentTimeMillis() - startTime}ms")
   }
 
-  /** Consolidates the main staging table into the main index.
+  /** Consolidates the main staging table into the main index via Delta MERGE.
     *
-    * Performs a Delta MERGE (upsert) of staging rows into the main index,
-    * matching on filename. Creates the main index if it does not yet exist.
+    * Performs an upsert (match on `filename`): existing rows are updated, new rows
+    * are inserted. Creates the main index if it does not yet exist by writing the
+    * staging data directly. Schema auto-merge is temporarily enabled to support
+    * new columns added since the index was first created.
+    *
+    * After successful merge, the staging Delta table is deleted.
     */
   private def consolidateMainStaging(): Unit = {
     if (!exists(stagingFilePath)) {

@@ -4,4 +4,4 @@ package dev.cjfravel.ariadne.exceptions
   *
   * @param column The name of the column that was not found
   */
-class ColumnNotFoundException(column: String) extends Exception(s"Column $column was not found in the dataframe")
+class ColumnNotFoundException(column: String) extends AriadneException(s"Column $column was not found in the dataframe")

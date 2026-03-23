@@ -1,50 +1,85 @@
 package dev.cjfravel.ariadne
 
 import com.google.common.hash.{BloomFilter, Funnels}
-import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types._
 import org.apache.spark.sql.expressions.UserDefinedFunction
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.nio.charset.StandardCharsets
 import scala.collection.JavaConverters._
 
-/** Trait providing bloom filter operations for Index instances.
+/** Trait providing bloom filter operations for [[Index]] instances.
   *
-  * This trait handles:
-  * - Building bloom filters during index updates
-  * - Serializing/deserializing bloom filters for Delta storage
-  * - Querying bloom filters for file location
+  * Bloom filters are probabilistic data structures used to test set membership.
+  * This trait handles the full lifecycle of bloom filter indexes:
   *
-  * Bloom filters are probabilistic data structures that provide:
-  * - Guaranteed NO false negatives (if filter says "no", value definitely absent)
-  * - Configurable false positive rate (if filter says "yes", value MIGHT be present)
-  * - Space-efficient storage (approximately 10 bits per element at 1% FPR)
+  * '''Building''': During index updates, bloom filters are created per file per
+  * configured column via [[buildBloomFilterIndexes]]. Values are hashed into a
+  * Guava `BloomFilter[CharSequence]` and serialized to `Array[Byte]` for storage
+  * in the Delta index table.
+  *
+  * '''Querying''': At query time, [[locateFilesWithBloom]] and
+  * [[locateFilesWithBloomFromDataFrame]] deserialize stored bloom filters and
+  * test candidate values, returning the set of files that might contain matches.
+  *
+  * '''Serialization''': Bloom filters are serialized/deserialized via Guava's
+  * `writeTo`/`readFrom` methods using a `StringFunnel` with UTF-8 encoding.
+  * All indexed values are converted to strings before hashing.
+  *
+  * Bloom filters provide:
+  *  - Guaranteed no false negatives (if filter says "no", value is definitely absent)
+  *  - Configurable false positive rate (if filter says "yes", value might be present)
+  *  - Space-efficient storage (approximately 10 bits per element at 1% FPR)
+  *
+  * UDF mechanics: Bloom filter creation and querying are performed inside Spark UDFs
+  * ([[createBloomFilterUdf]] and [[bloomContainsUdf]]) so they can execute on worker
+  * nodes. The false positive rate is captured as a local `Double` to ensure
+  * serializability across the Spark closure boundary.
+  *
+  * @see [[BloomIndexConfig]] for per-column configuration
+  * @see [[IndexBuildOperations]] for the build pipeline that invokes these operations
   */
 trait BloomFilterOperations extends IndexFileOperations {
   self: Index =>
 
-  /** Column name prefix for bloom filter storage */
+  /** Column name prefix used when storing bloom filter binary data in the index Delta table. */
   protected val bloomColumnPrefix = "bloom_"
 
-  /** Get bloom index configurations from metadata */
+  /** Returns the bloom index configurations from the current index metadata.
+    *
+    * @return sequence of [[BloomIndexConfig]] objects, one per bloom-indexed column
+    */
   protected def bloomIndexConfigs: Seq[BloomIndexConfig] =
     metadata.bloom_indexes.asScala.toSeq
 
-  /** Get the set of bloom index column names */
+  /** Returns the set of source column names that have bloom indexes configured.
+    *
+    * @return set of column names (without the `bloom_` prefix)
+    */
   protected def bloomColumns: Set[String] =
     metadata.bloom_indexes.asScala.map(_.column).toSet
 
-  /** Get the set of bloom storage column names (with prefix) */
+  /** Returns the set of storage column names used for bloom filter binary data.
+    *
+    * Each name is the source column name prefixed with [[bloomColumnPrefix]].
+    *
+    * @return set of prefixed column names (e.g., `bloom_user_id`)
+    */
   protected def bloomStorageColumns: Set[String] =
     metadata.bloom_indexes.asScala.map(c => bloomColumnPrefix + c.column).toSet
 
   /** Builds bloom filter indexes for all configured bloom columns.
     *
-    * @param df
-    *   DataFrame with filename column and source data
-    * @return
-    *   DataFrame with bloom filter binary columns added
+    * For each [[BloomIndexConfig]], this method:
+    *  1. Groups the input data by filename
+    *  2. Collects distinct values per file into a set
+    *  3. Creates a bloom filter from the collected values using [[createBloomFilterUdf]]
+    *  4. Joins the resulting bloom column back onto the accumulating DataFrame
+    *
+    * If no bloom indexes are configured, returns a distinct filename-only DataFrame.
+    *
+    * @param df DataFrame containing a `filename` column and all bloom-indexed source columns
+    * @return DataFrame with `filename` plus one `bloom_{column}` binary column per configured bloom index
     */
   protected def buildBloomFilterIndexes(df: DataFrame): DataFrame = {
     val configs = bloomIndexConfigs
@@ -68,13 +103,20 @@ trait BloomFilterOperations extends IndexFileOperations {
     }
   }
 
-  /** Creates a UDF that converts an array of values to a serialized bloom
-    * filter.
+  /** Creates a Spark UDF that converts a collected set of values into a serialized bloom filter.
     *
-    * @param fprValue
-    *   False positive rate (captured as a serializable value)
-    * @return
-    *   UDF that takes Array[Any] and returns Array[Byte]
+    * The UDF is designed for use inside `agg(bloomUdf(collect_set(...)))`. It:
+    *  1. Filters out null values from the input sequence
+    *  2. Creates a Guava `BloomFilter` sized for the actual number of non-null elements
+    *  3. Inserts each value (converted to `String`) into the filter
+    *  4. Serializes the filter to `Array[Byte]` via `ByteArrayOutputStream`
+    *
+    * The `fprValue` parameter is captured as a local `val` to ensure it is
+    * serializable when the UDF closure is shipped to Spark executors.
+    *
+    * @param fprValue the desired false positive rate (e.g., 0.01 for 1%)
+    * @return a UDF that accepts `Seq[Any]` (from `collect_set`) and returns `Array[Byte]`,
+    *         or `null` if the input is null or contains only nulls
     */
   protected def createBloomFilterUdf(fprValue: Double): UserDefinedFunction = {
     // Capture the FPR as a local constant to ensure it's serializable
@@ -108,12 +150,14 @@ trait BloomFilterOperations extends IndexFileOperations {
     }
   }
 
-  /** Deserializes a bloom filter from bytes.
+  /** Deserializes a Guava bloom filter from its byte representation.
     *
-    * @param bytes
-    *   Serialized bloom filter
-    * @return
-    *   BloomFilter instance
+    * Uses `BloomFilter.readFrom` with a UTF-8 `StringFunnel`, which must match
+    * the funnel used during creation in [[createBloomFilterUdf]].
+    *
+    * @param bytes serialized bloom filter bytes (produced by `BloomFilter.writeTo`)
+    * @return a `BloomFilter[CharSequence]` instance ready for membership queries
+    * @throws java.io.IOException if the byte array is malformed or corrupted
     */
   protected def deserializeBloomFilter(
       bytes: Array[Byte]
@@ -124,12 +168,12 @@ trait BloomFilterOperations extends IndexFileOperations {
 
   /** Checks if a value might be contained in a serialized bloom filter.
     *
-    * @param bloomBytes
-    *   Serialized bloom filter
-    * @param value
-    *   Value to check
-    * @return
-    *   true if value MIGHT be present, false if DEFINITELY not present
+    * Deserializes the bloom filter and performs a `mightContain` check. Returns
+    * `false` if either argument is `null`.
+    *
+    * @param bloomBytes serialized bloom filter bytes
+    * @param value the value to test for membership (converted to `String` internally)
+    * @return `true` if the value might be present (probabilistic), `false` if definitely absent
     */
   protected def bloomMightContain(bloomBytes: Array[Byte], value: Any): Boolean = {
     if (bloomBytes == null || value == null) return false
@@ -137,10 +181,13 @@ trait BloomFilterOperations extends IndexFileOperations {
     bf.mightContain(value.toString)
   }
 
-  /** Creates a UDF for checking bloom filter membership.
+  /** Creates a Spark UDF for checking bloom filter membership at query time.
     *
-    * @return
-    *   UDF that takes (bloom_bytes, value) and returns Boolean
+    * The returned UDF accepts a serialized bloom filter (`Array[Byte]`) and a
+    * candidate value (`String`), and returns `true` if the bloom filter indicates
+    * the value might be present.
+    *
+    * @return UDF with signature `(Array[Byte], String) => Boolean`
     */
   protected def bloomContainsUdf: UserDefinedFunction = {
     udf { (bloomBytes: Array[Byte], value: String) =>
@@ -152,16 +199,17 @@ trait BloomFilterOperations extends IndexFileOperations {
     }
   }
 
-  /** Locates files that might contain the given values using bloom filters.
+  /** Locates files that might contain any of the given values using bloom filters.
     *
-    * @param column
-    *   The bloom index column name
-    * @param values
-    *   Values to search for
-    * @param indexDf
-    *   The index DataFrame to search
-    * @return
-    *   Set of filenames that might contain any of the values
+    * Collects all rows from the index, deserializes each file's bloom filter for the
+    * specified column, and tests every candidate value. A file is included in the
+    * result if any value passes the `mightContain` check.
+    *
+    * @param column the source column name (without `bloom_` prefix)
+    * @param values array of candidate values to search for
+    * @param indexDf the index DataFrame containing bloom filter binary columns
+    * @return set of filenames whose bloom filters indicate a possible match;
+    *         empty set if the bloom column does not exist in the index
     */
   protected def locateFilesWithBloom(
       column: String,
@@ -195,17 +243,16 @@ trait BloomFilterOperations extends IndexFileOperations {
     matchingFiles
   }
 
-  /** Locates files that might contain values from a DataFrame using bloom
-    * filters.
+  /** Locates files that might contain values from a DataFrame using bloom filters.
     *
-    * @param column
-    *   The bloom index column name
-    * @param valuesDf
-    *   DataFrame containing values to search for
-    * @param indexDf
-    *   The index DataFrame to search
-    * @return
-    *   Set of filenames that might contain any of the values
+    * Collects distinct non-null values from the specified column of `valuesDf`,
+    * then delegates to [[locateFilesWithBloom]] for the actual bloom filter check.
+    *
+    * @param column the source column name (without `bloom_` prefix)
+    * @param valuesDf DataFrame containing the candidate values to search for
+    * @param indexDf the index DataFrame containing bloom filter binary columns
+    * @return set of filenames whose bloom filters indicate a possible match;
+    *         empty set if no non-null values exist or the bloom column is missing
     */
   protected def locateFilesWithBloomFromDataFrame(
       column: String,

@@ -1,5 +1,8 @@
 package dev.cjfravel.ariadne
 
+/** Tests for [[FileList]] covering file addition (single and batch), existence
+  * checks, and removal from the tracked file list.
+  */
 class FileListTests extends SparkTests {
   test("addFile") {
     val filelist = FileList("test")

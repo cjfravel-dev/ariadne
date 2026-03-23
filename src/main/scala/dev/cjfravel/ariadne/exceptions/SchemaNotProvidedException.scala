@@ -4,4 +4,4 @@ package dev.cjfravel.ariadne.exceptions
   * to create a new index.
   */
 class SchemaNotProvidedException
-    extends Exception("No existing metadata found, schema must be provided")
+    extends AriadneException("No existing metadata found, schema must be provided")

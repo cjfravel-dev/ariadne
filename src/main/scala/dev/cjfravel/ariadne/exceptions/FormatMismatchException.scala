@@ -4,4 +4,4 @@ package dev.cjfravel.ariadne.exceptions
   * the format stored in the index metadata.
   */
 class FormatMismatchException
-    extends Exception("Format provided does not match stored format")
+    extends AriadneException("Format provided does not match stored format")

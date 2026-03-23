@@ -4,6 +4,9 @@ import org.scalatest.matchers.should.Matchers
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.Row
 
+/** Tests for multi-column index intersection logic, verifying that `locateFiles`
+  * correctly computes the set intersection of matching files across multiple indexed columns.
+  */
 class MultiColumnIntersectTests extends SparkTests with Matchers {
 
   val testSchema = StructType(

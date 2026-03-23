@@ -4,4 +4,4 @@ package dev.cjfravel.ariadne.exceptions
   * into a valid Spark StructType.
   */
 class SchemaParseException
-    extends Exception("Schema was found, but could not be parsed")
+    extends AriadneException("Schema was found, but could not be parsed")

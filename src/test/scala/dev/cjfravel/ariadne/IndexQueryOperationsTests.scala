@@ -6,6 +6,9 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
 
+/** Tests for [[IndexQueryOperations]] covering `locateFiles` queries against
+  * single and multiple index values, including empty-result scenarios.
+  */
 class IndexQueryOperationsTests extends SparkTests with Matchers {
 
   val testSchema = StructType(

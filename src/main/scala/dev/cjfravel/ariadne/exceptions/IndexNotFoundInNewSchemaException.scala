@@ -6,4 +6,4 @@ package dev.cjfravel.ariadne.exceptions
   * @param col The name of the indexed column missing from the new schema
   */
 class IndexNotFoundInNewSchemaException(col: String)
-    extends Exception(s"Index $col was not found in new schema")
+    extends AriadneException(s"Index $col was not found in new schema")

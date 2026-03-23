@@ -8,6 +8,9 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
 import dev.cjfravel.ariadne.Index.DataFrameOps
 
+/** Tests for temporal index support covering index creation, idempotency,
+  * validation of key/value columns, and temporal deduplication during joins.
+  */
 class TemporalIndexTests extends SparkTests with Matchers {
 
   // Schema with Id, Value, and UpdatedAt timestamp

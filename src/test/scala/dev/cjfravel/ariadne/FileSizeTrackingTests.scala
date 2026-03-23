@@ -6,6 +6,9 @@ import org.apache.spark.sql.functions._
 import scala.io.Source
 import java.nio.charset.StandardCharsets
 
+/** Tests for file size tracking, verifying that `file_size` is stored in the
+  * index table during `update` and accessible via index metadata.
+  */
 class FileSizeTrackingTests extends SparkTests with Matchers {
 
   val table1Schema = StructType(

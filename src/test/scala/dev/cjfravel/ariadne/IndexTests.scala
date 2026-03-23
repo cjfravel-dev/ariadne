@@ -7,6 +7,9 @@ import org.apache.spark.sql.Row
 import dev.cjfravel.ariadne.Index.DataFrameOps
 import java.nio.file.Files
 
+/** Tests for the [[Index]] case class covering schema validation, index type
+  * mutual exclusivity, idempotent add operations, and configuration options.
+  */
 class IndexTests extends SparkTests {
   val table1Schema = StructType(
     Seq(

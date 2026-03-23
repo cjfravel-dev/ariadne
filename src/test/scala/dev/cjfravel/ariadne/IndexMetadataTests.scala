@@ -8,6 +8,9 @@ import java.nio.file.Paths
 import java.nio.file.Files
 import collection.JavaConverters._
 
+/** Tests for [[IndexMetadata]] JSON parsing and version migration logic,
+  * verifying forward-compatible deserialization from v1 through the latest schema version.
+  */
 class IndexMetadataTests extends AnyFunSuite {
   test("v1") {
     val stream = getClass.getResourceAsStream("/index_metadata/v1.json")

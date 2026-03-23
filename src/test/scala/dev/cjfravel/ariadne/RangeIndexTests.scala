@@ -8,6 +8,9 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
 import dev.cjfravel.ariadne.Index.DataFrameOps
 
+/** Tests for range index support covering index creation, idempotency,
+  * min/max value tracking per file, and range-based file location queries.
+  */
 class RangeIndexTests extends SparkTests with Matchers {
 
   // table1_part0.csv: Id=[1,2,3,1], Version=[1,1,1,2], Value=[5.0,3.0,4.0,4.5]

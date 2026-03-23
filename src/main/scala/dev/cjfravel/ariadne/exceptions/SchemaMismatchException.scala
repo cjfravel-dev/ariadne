@@ -4,4 +4,4 @@ package dev.cjfravel.ariadne.exceptions
   * the schema stored in the existing index metadata.
   */
 class SchemaMismatchException
-    extends Exception("Schema provided does not match stored schema")
+    extends AriadneException("Schema provided does not match stored schema")

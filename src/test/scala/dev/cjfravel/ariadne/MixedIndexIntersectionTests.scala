@@ -4,6 +4,9 @@ import org.scalatest.matchers.should.Matchers
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.Row
 
+/** Tests for intersection of heterogeneous index types (regular and bloom filter),
+  * verifying AND semantics when locating files across mixed index columns.
+  */
 class MixedIndexIntersectionTests extends SparkTests with Matchers {
 
   val testSchema = StructType(

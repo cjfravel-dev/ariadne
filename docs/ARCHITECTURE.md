@@ -252,8 +252,14 @@ case class Index private (
 - `addBloomIndex(column: String, fpr: Double = 0.01): Unit` - Add bloom filter index (mutually exclusive with regular index)
 - `addComputedIndex(name: String, sql_expression: String): Unit` - Add computed index
 - `addExplodedFieldIndex(arrayColumn: String, fieldPath: String, asColumn: String): Unit` - Add exploded field index
-- `indexes: Set[String]` - Get all available index column names (includes both regular and bloom indexes)
+- `addTemporalIndex(column: String, timestampColumn: String): Unit` - Add temporal index for version-aware deduplication
+- `addRangeIndex(column: String): Unit` - Add range index for min/max file pruning
+- `indexes: Set[String]` - Get all available index column names (includes regular, computed, exploded, bloom, temporal, and range indexes)
+- `select(columns: String*): Index` - Select specific columns for optimized reading (returns Index for chaining)
 - `update: Unit` - Update index with new files
+- `deleteFiles(filenames: String*): Unit` - Delete files from the index, large index tables, staging, and file list
+- `compact(): Unit` - Run Delta OPTIMIZE on all index Delta tables
+- `vacuum(retentionHours: Int = 168): Unit` - Run Delta VACUUM on all index Delta tables
 - `storagePath: Path` - Storage location for this index
 
 **Factory Methods** (in companion object):
@@ -261,6 +267,8 @@ case class Index private (
 - `Index(name: String, schema: StructType, format: String): Index`
 - `Index(name: String, schema: StructType, format: String, allowSchemaMismatch: Boolean): Index`
 - `Index(name: String, schema: StructType, format: String, readOptions: Map[String, String]): Index`
+- `Index(name: String, schema: StructType, format: String, allowSchemaMismatch: Boolean, readOptions: Map[String, String]): Index`
+- `Index(name: String): Index` - Reconnect to an existing index (metadata must exist)
 
 ### 10. IndexPathUtils (Object)
 
