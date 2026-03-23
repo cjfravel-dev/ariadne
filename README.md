@@ -215,6 +215,16 @@ spark.conf.set("spark.ariadne.autoCompactThreshold", "10")  // Compact every 10 
 index.update  // Automatically compacts during update
 ```
 
+### Pruning Metrics
+
+Ariadne tracks the file size of every indexed file and logs how much data each join pruned:
+
+```
+Index pruning: loaded 42 of 10000 files (1.23 GB of 45.67 GB) — 97% data pruned
+```
+
+File sizes are stored in the index table and totals are cached in metadata, so this metric adds no overhead. Existing indexes automatically backfill file sizes on the next `update()`.
+
 ## Configuration
 
 All configuration is done via Spark configuration properties. Set them before creating or using indexes.

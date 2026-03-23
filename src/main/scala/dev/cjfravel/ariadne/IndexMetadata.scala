@@ -117,6 +117,10 @@ object IndexMetadata {
     * - v1 → v2: Adds computed_indexes field if missing
     * - v2 → v3: Adds exploded_field_indexes field if missing
     * - v3 → v4: Adds read_options field if missing
+    * - v4 → v5: Adds bloom_indexes field if missing
+    * - v5 → v6: Adds temporal_indexes field if missing
+    * - v6 → v7: Adds range_indexes field if missing
+    * - v7 → v8: Adds auto_bloom_indexes field if missing
     * - v8 → v9: Adds total_indexed_file_size field if missing
     *
     * @param jsonString The JSON representation of the metadata

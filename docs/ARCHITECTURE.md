@@ -525,6 +525,7 @@ The system supports automatic migration between metadata versions:
 - v5 → v6: Adds temporal_indexes support
 - v6 → v7: Adds range_indexes support (RangeIndexConfig with column name and data type)
 - v7 → v8: Adds auto_bloom_indexes support (automatic bloom filters for large index columns)
+- v8 → v9: Adds total_indexed_file_size field (per-file size tracking and pruning metrics)
 
 ### Caching Strategy
 
@@ -580,6 +581,7 @@ Each trait can be tested independently with focused test suites:
 - `RangeIndexTests` - Tests range index build and query
 - `AutoBloomLargeIndexTests` - Tests automatic bloom filter generation
 - `MixedIndexIntersectionTests` - Tests cross-type intersection edge cases
+- `FileSizeTrackingTests` - Tests file size tracking, pruning metrics, and backfill
 
 ### 3. **Performance Optimization**
 
