@@ -398,7 +398,7 @@ case class Index private (
         val indexDf = dt.toDF
         if (indexDf.columns.contains("file_size")) {
           val result = indexDf
-            .where(col("filename").isin(filenames.map(lit(_)): _*))
+            .join(toDelete, Seq("filename"), "inner")
             .agg(sum("file_size"))
             .head()
           if (result.isNullAt(0)) 0L else result.getLong(0)
@@ -496,8 +496,9 @@ case class Index private (
               }
             }
 
-            // Update total
-            metadata.total_indexed_file_size = sizes.values.sum
+            // Update total from the full index table
+            val totalResult = dt.toDF.agg(sum("file_size")).head()
+            metadata.total_indexed_file_size = if (totalResult.isNullAt(0)) 0L else totalResult.getLong(0)
             writeMetadata(metadata)
 
             sizesBroadcast.destroy()
@@ -511,12 +512,12 @@ case class Index private (
       val needsColumnUpdate = filesNeedingColumnUpdate
       if (needsColumnUpdate.nonEmpty) {
         logger.warn(s"Backfilling ${needsColumnUpdate.size} files for new index columns")
-        updateBatched(needsColumnUpdate, lock, correlationId)
+        updateBatched(needsColumnUpdate, lock, correlationId, isBackfill = true)
       }
       val unindexed = unindexedFiles
       if (unindexed.nonEmpty) {
         logger.warn(s"Updating index for ${unindexed.size} files")
-        updateBatched(unindexed, lock, correlationId)
+        updateBatched(unindexed, lock, correlationId, isBackfill = false)
       }
       maybeAutoCompact()
 
@@ -579,7 +580,7 @@ case class Index private (
     * @param lock The update lock to refresh during processing
     * @param correlationId The correlation ID for lock refresh
     */
-  private def updateBatched(files: Set[String], lock: IndexLock, correlationId: String): Unit = {
+  private def updateBatched(files: Set[String], lock: IndexLock, correlationId: String, isBackfill: Boolean = false): Unit = {
     logger.warn(s"Using intelligent batched update for ${files.size} files")
 
     // Perform pre-flight analysis to determine optimal batching
@@ -593,7 +594,7 @@ case class Index private (
 
     batches.zipWithIndex.foreach { case (batch, idx) =>
       logger.warn(s"Processing batch ${idx + 1}/${batches.size} with ${batch.size} files")
-      updateSingleBatch(batch)
+      updateSingleBatch(batch, isBackfill)
       batchesSinceConsolidation += 1
       batchesSinceRefresh += 1
 
@@ -624,7 +625,7 @@ case class Index private (
     *
     * @param files Set of files to process in this batch
     */
-  private def updateSingleBatch(files: Set[String]): Unit = {
+  private def updateSingleBatch(files: Set[String], isBackfill: Boolean = false): Unit = {
     val baseDf = createBaseDataFrame(files)
     val withComputedIndexes = applyComputedIndexes(baseDf)
     val withFilename = addFilenameColumn(withComputedIndexes, files)
@@ -678,12 +679,18 @@ case class Index private (
     handleLargeIndexes(combinedDf)
     appendToStaging(combinedDf)
 
-    // Update total indexed file size
-    val batchFileSize = fileSizes.values.sum
-    if (metadata.total_indexed_file_size < 0) {
-      metadata.total_indexed_file_size = batchFileSize
-    } else {
-      metadata.total_indexed_file_size = metadata.total_indexed_file_size + batchFileSize
+    // Clean up cached DataFrame from auto-bloom processing
+    lastAutoBloomCache.foreach(_.unpersist())
+    lastAutoBloomCache = None
+
+    // Update total indexed file size (skip for backfill — already counted)
+    if (!isBackfill) {
+      val batchFileSize = fileSizes.values.sum
+      if (metadata.total_indexed_file_size < 0) {
+        metadata.total_indexed_file_size = batchFileSize
+      } else {
+        metadata.total_indexed_file_size = metadata.total_indexed_file_size + batchFileSize
+      }
     }
 
     fileSizesBroadcast.destroy()

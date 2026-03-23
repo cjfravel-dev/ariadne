@@ -365,6 +365,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
       metadata.computed_indexes.keySet().asScala ++
       metadata.exploded_field_indexes.asScala.map(_.array_column).toSet
 
+  /** Tracks the cached DataFrame from buildAutoBloomIndexes for deferred cleanup. */
+  @transient protected var lastAutoBloomCache: Option[DataFrame] = None
+
   /** Builds auto-bloom filters for columns that exceed the large index limit.
     *
     * When a column's array exceeds largeIndexLimit for any file, a bloom filter
@@ -382,44 +385,43 @@ trait IndexBuildOperations extends BloomFilterOperations {
     // Cache combinedDf to ensure consistent evaluation when checking column sizes
     // and building bloom filters
     val cachedDf = combinedDf.cache()
-    try {
-      val columnsExceedingLimit = eligible.filter { colName =>
-        cachedDf.columns.contains(colName) &&
-        cachedDf
-          .select("filename", colName)
-          .where(col(colName).isNotNull)
-          .where(size(col(colName)) >= largeIndexLimit)
-          .count() > 0
-      }
 
-      logger.warn(s"Auto-bloom: checked ${eligible.size} columns, ${columnsExceedingLimit.size} exceed limit")
-
-      columnsExceedingLimit.foreach { colName =>
-        if (!metadata.auto_bloom_indexes.contains(colName)) {
-          metadata.auto_bloom_indexes.add(colName)
-        }
-      }
-
-      val autoBloomColumns = metadata.auto_bloom_indexes.asScala.toSet
-        .intersect(eligible)
-        .filter(cachedDf.columns.contains)
-
-      if (autoBloomColumns.isEmpty) {
-        return combinedDf
-      }
-
-      logger.warn(s"Building auto-bloom filters for columns: ${autoBloomColumns.mkString(", ")}")
-      val fpr = autoBloomFpr
-      val result = autoBloomColumns.foldLeft(cachedDf) { (df, colName) =>
-        logger.warn(s"Auto-bloom: building filter for '$colName' with FPR=$fpr")
-        val bloomColumn = autoBloomColumnPrefix + colName
-        val bloomUdf = createBloomFilterUdf(fpr)
-        df.withColumn(bloomColumn, bloomUdf(col(colName)))
-      }
-      result
-    } finally {
-      cachedDf.unpersist()
+    val columnsExceedingLimit = eligible.filter { colName =>
+      cachedDf.columns.contains(colName) &&
+      cachedDf
+        .select("filename", colName)
+        .where(col(colName).isNotNull)
+        .where(size(col(colName)) >= largeIndexLimit)
+        .count() > 0
     }
+
+    logger.warn(s"Auto-bloom: checked ${eligible.size} columns, ${columnsExceedingLimit.size} exceed limit")
+
+    columnsExceedingLimit.foreach { colName =>
+      if (!metadata.auto_bloom_indexes.contains(colName)) {
+        metadata.auto_bloom_indexes.add(colName)
+      }
+    }
+
+    val autoBloomColumns = metadata.auto_bloom_indexes.asScala.toSet
+      .intersect(eligible)
+      .filter(cachedDf.columns.contains)
+
+    if (autoBloomColumns.isEmpty) {
+      cachedDf.unpersist()
+      return combinedDf
+    }
+
+    logger.warn(s"Building auto-bloom filters for columns: ${autoBloomColumns.mkString(", ")}")
+    val fpr = autoBloomFpr
+    val result = autoBloomColumns.foldLeft(cachedDf) { (df, colName) =>
+      logger.warn(s"Auto-bloom: building filter for '$colName' with FPR=$fpr")
+      val bloomColumn = autoBloomColumnPrefix + colName
+      val bloomUdf = createBloomFilterUdf(fpr)
+      df.withColumn(bloomColumn, bloomUdf(col(colName)))
+    }
+    lastAutoBloomCache = Some(cachedDf)
+    result
   }
 
   /** Compacts all Delta tables (main index and large index tables) using OPTIMIZE. */
@@ -442,24 +444,18 @@ trait IndexBuildOperations extends BloomFilterOperations {
     }
   }
 
-  /** Returns true when auto-compaction should run based on the number of Delta log files. */
-  protected def shouldAutoCompact: Boolean = {
-    autoCompactThreshold match {
-      case Some(threshold) =>
-        val logPath = new Path(indexFilePath, "_delta_log")
-        if (exists(logPath)) {
-          val logFileCount = fs.listStatus(logPath).count(_.getPath.getName.endsWith(".json"))
-          logFileCount >= threshold
-        } else false
-      case None => false
-    }
-  }
+  /** Counter tracking batches processed since the last auto-compaction. */
+  protected var batchesSinceCompact: Int = 0
 
   /** Runs compaction if auto-compact threshold is met. */
   protected def maybeAutoCompact(): Unit = {
-    if (shouldAutoCompact) {
-      logger.warn("Auto-compact threshold reached, compacting Delta tables")
-      compactDeltaTables()
+    autoCompactThreshold.foreach { threshold =>
+      batchesSinceCompact += 1
+      if (batchesSinceCompact >= threshold) {
+        logger.warn(s"Auto-compact threshold reached ($batchesSinceCompact batches), compacting Delta tables")
+        compactDeltaTables()
+        batchesSinceCompact = 0
+      }
     }
   }
 
