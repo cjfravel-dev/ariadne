@@ -20,6 +20,15 @@ import org.apache.logging.log4j.{Logger, LogManager}
 import java.time.Instant
 import java.sql.Timestamp
 
+/** Manages a tracked list of files associated with an Ariadne index.
+  *
+  * Files are stored as a Delta Lake table with filename and addedAt columns.
+  * The file list is used to track which files have been registered with an index
+  * and need to be processed during updates.
+  *
+  * @param name The name of this file list (typically "[ariadne_index] {indexName}")
+  * @param spark Implicit SparkSession for Delta Lake operations
+  */
 case class FileList private (
     name: String
 )(implicit val spark: SparkSession) extends AriadneContextUser {
@@ -44,6 +53,10 @@ case class FileList private (
     _files
   }
 
+  /** Returns the DataFrame of tracked files with filename and addedAt columns.
+    * Lazily loaded from the Delta table on first access.
+    * @return DataFrame with columns (filename: String, addedAt: Timestamp)
+    */
   def files: DataFrame = files(spark)
 
   private def addFile(spark: SparkSession, fileNames: String*): Unit = {
@@ -77,8 +90,14 @@ case class FileList private (
     logger.warn(s"Added ${toAdd.size} files to FileList $name")
   }
 
+  /** Registers new files in the file list. Files already present are silently skipped.
+    * @param fileNames One or more file paths to add
+    */
   def addFile(fileNames: String*): Unit = addFile(spark, fileNames: _*)
 
+  /** Removes files from the file list using a Delta merge-delete.
+    * @param fileNames One or more file paths to remove
+    */
   def removeFile(fileNames: String*): Unit = {
     delta(storagePath) match {
       case Some(dt) =>
@@ -96,6 +115,10 @@ case class FileList private (
     }
   }
 
+  /** Checks if a specific file is tracked in this file list.
+    * @param fileName The file path to check
+    * @return true if the file exists in the list
+    */
   def hasFile(fileName: String): Boolean =
     !files.filter(col("filename") === fileName).isEmpty
 
@@ -122,7 +145,15 @@ case class FileList private (
 
 }
 
+/** Factory and utility methods for FileList instances.
+  *
+  * Provides path resolution, existence checks, and removal operations
+  * for file lists stored as Delta tables.
+  */
 object FileList {
+  /** Returns the base storage path for all file lists.
+    * @return Hadoop Path to the filelists directory
+    */
   def storagePath(implicit sparkSession: SparkSession): Path = {
     val contextUser = new AriadneContextUser {
       implicit def spark: SparkSession = sparkSession
@@ -130,6 +161,10 @@ object FileList {
     new Path(contextUser.storagePath, "filelists")
   }
 
+  /** Checks if a file list exists.
+    * @param name The file list name
+    * @return true if the Delta table exists
+    */
   def exists(name: String)(implicit sparkSession: SparkSession): Boolean = {
     val contextUser = new AriadneContextUser {
       implicit def spark: SparkSession = sparkSession
@@ -137,6 +172,11 @@ object FileList {
     contextUser.exists(new Path(storagePath(sparkSession), name))
   }
 
+  /** Removes a file list's Delta table from storage.
+    * @param name The file list name
+    * @return true if deletion was successful
+    * @throws FileListNotFoundException if the file list does not exist
+    */
   def remove(name: String)(implicit sparkSession: SparkSession): Boolean = {
     if (!exists(name)(sparkSession)) {
       throw new FileListNotFoundException(name)
@@ -147,6 +187,10 @@ object FileList {
     contextUser.delete(new Path(storagePath(sparkSession), name))
   }
 
+  /** Creates a new FileList instance.
+    * @param name The file list name
+    * @return A new FileList instance
+    */
   def apply(name: String)(implicit spark: SparkSession): FileList = {
     new FileList(name)(spark)
   }

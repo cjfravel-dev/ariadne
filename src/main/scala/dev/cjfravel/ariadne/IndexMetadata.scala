@@ -3,6 +3,7 @@ package dev.cjfravel.ariadne
 import com.google.gson.annotations.SerializedName
 import java.util
 import com.google.gson.Gson
+import dev.cjfravel.ariadne.exceptions.MetadataMissingOrCorruptException
 
 /** Configuration for a bloom filter index.
   *
@@ -134,6 +135,9 @@ object IndexMetadata {
     * }}}
     */
   def apply(jsonString: String): IndexMetadata = {
+    if (jsonString == null || jsonString.trim.isEmpty) {
+      throw new MetadataMissingOrCorruptException()
+    }
     val indexMetadata = new Gson().fromJson(jsonString, classOf[IndexMetadata])
     // v1 -> v2
     if (indexMetadata.computed_indexes == null) {

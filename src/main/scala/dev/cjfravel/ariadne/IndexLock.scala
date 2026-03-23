@@ -10,6 +10,13 @@ import java.nio.charset.StandardCharsets
 import java.time.{Duration, Instant}
 import scala.io.Source
 
+/** Metadata stored in lock files to track lock ownership and freshness.
+  *
+  * @param correlationId Unique identifier for the lock holder's operation
+  * @param acquiredAt ISO-8601 timestamp when the lock was first acquired
+  * @param lastRefreshedAt ISO-8601 timestamp of the last lock refresh
+  * @param owner Spark application ID or hostname of the lock holder
+  */
 case class LockInfo(
     correlationId: String,
     acquiredAt: String,
@@ -17,6 +24,16 @@ case class LockInfo(
     owner: String
 )
 
+/** File-based distributed lock for index operations.
+  *
+  * Provides mutual exclusion for index operations (update, compact, vacuum)
+  * using lock files on HDFS/cloud storage. Supports automatic stale lock
+  * detection and healing based on configurable timeouts.
+  *
+  * @param lockPath Path to the lock file on the filesystem
+  * @param indexName Name of the index being locked (for logging)
+  * @param spark Implicit SparkSession for filesystem access
+  */
 case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: SparkSession)
     extends AriadneContextUser {
 
@@ -84,7 +101,13 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: Spar
       }
 
       val sleepSeconds = math.min(lockRetryInterval.toDouble * math.pow(2, math.min(currentAttempt, 6)), 60.0).toLong
-      Thread.sleep(sleepSeconds * 1000)
+      try {
+        Thread.sleep(sleepSeconds * 1000)
+      } catch {
+        case _: InterruptedException =>
+          Thread.currentThread().interrupt()
+          throw new IndexLockException(s"Lock acquisition interrupted for index '$indexName'")
+      }
       currentAttempt += 1
 
       readLock() match {

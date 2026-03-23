@@ -182,6 +182,17 @@ val result = index.join(queryDf, Seq("event_date", "user_id"), "inner")
 - **Supported types**: Works with any comparable Spark type (DateType, TimestampType, IntegerType, LongType, DoubleType, StringType, etc.)
 - **Mutually exclusive**: A column can have only one index type
 
+### Column Selection
+
+You can optimize reads by selecting only the columns you need:
+
+```scala
+// Only read specific columns from indexed files
+val result = index.select("user_id", "name", "email").join(queryDf, Seq("user_id"), "inner")
+```
+
+When columns are selected, only those columns are read from the data files during joins, reducing I/O and memory usage. Join columns must always be included in the selection.
+
 ## Index Maintenance
 
 ### Deleting Files

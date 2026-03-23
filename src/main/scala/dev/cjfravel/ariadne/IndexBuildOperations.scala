@@ -6,7 +6,16 @@ import org.apache.hadoop.fs.Path
 import io.delta.tables.DeltaTable
 import scala.collection.JavaConverters._
 
-/** Trait providing index building operations for Index instances.
+/** Trait providing index building and maintenance operations for Index instances.
+  *
+  * Handles the core data pipeline for building indexes:
+  * - Pre-flight file analysis for optimal batching
+  * - Regular, exploded, temporal, range, and auto-bloom index construction
+  * - Staging and large index management
+  * - Delta table compaction and vacuuming
+  *
+  * Large indexes (columns exceeding `largeIndexLimit` distinct values) are
+  * automatically separated into dedicated Delta tables under `large_indexes/`.
   */
 trait IndexBuildOperations extends BloomFilterOperations {
   self: Index =>
@@ -14,6 +23,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
   /** Computes file sizes in bytes for the given files using HDFS FileSystem.
     */
   protected def getFileSizes(files: Set[String]): Map[String, Long] = {
+    logger.warn(s"Computing file sizes for ${files.size} files")
     files.toSeq.flatMap { f =>
       try {
         val path = new org.apache.hadoop.fs.Path(f)
@@ -21,6 +31,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
       } catch {
         case _: java.io.FileNotFoundException =>
           logger.warn(s"File not found when computing size, skipping: $f")
+          None
+        case e: java.io.IOException =>
+          logger.warn(s"I/O error computing file size for $f: ${e.getMessage}, skipping")
           None
       }
     }.toMap
@@ -431,7 +444,11 @@ trait IndexBuildOperations extends BloomFilterOperations {
     result
   }
 
-  /** Compacts all Delta tables (main index and large index tables) using OPTIMIZE. */
+  /** Compacts all Delta tables (main index and large index tables) using OPTIMIZE.
+    *
+    * Runs Delta Lake's OPTIMIZE command on the main index table and all
+    * large index column tables to consolidate small files for better read performance.
+    */
   protected def compactDeltaTables(): Unit = {
     delta(indexFilePath).foreach { dt =>
       val compactStart = System.currentTimeMillis()
@@ -451,10 +468,17 @@ trait IndexBuildOperations extends BloomFilterOperations {
     }
   }
 
-  /** Counter tracking batches processed since the last auto-compaction. */
+  /** Counter tracking batches processed since the last auto-compaction.
+    * Reset to zero after each compaction cycle.
+    */
   protected var batchesSinceCompact: Int = 0
 
-  /** Runs compaction if auto-compact threshold is met. */
+  /** Triggers compaction if the auto-compact threshold has been reached.
+    *
+    * Checks the `batchesSinceCompact` counter against the configured
+    * `autoCompactThreshold`. If the threshold is met, compacts all Delta tables
+    * and resets the counter.
+    */
   protected def maybeAutoCompact(): Unit = {
     autoCompactThreshold.foreach { threshold =>
       if (batchesSinceCompact >= threshold) {
@@ -495,7 +519,11 @@ trait IndexBuildOperations extends BloomFilterOperations {
     }
   }
 
-  /** Consolidates staged data into the main index table. */
+  /** Consolidates staged data into the main index table.
+    *
+    * Merges all data accumulated in the staging Delta table into the main
+    * index table, then deletes the staging table.
+    */
   protected def consolidateStaging(): Unit = {
     logger.warn("Starting consolidation of staged data")
     consolidateMainStaging()
@@ -503,7 +531,11 @@ trait IndexBuildOperations extends BloomFilterOperations {
     logger.warn("Consolidation complete")
   }
 
-  /** Consolidates the main staging table into the main index. */
+  /** Consolidates the main staging table into the main index.
+    *
+    * Performs a Delta MERGE (upsert) of staging rows into the main index,
+    * matching on filename. Creates the main index if it does not yet exist.
+    */
   private def consolidateMainStaging(): Unit = {
     if (!exists(stagingFilePath)) {
       logger.warn("No staging data to consolidate for main index")

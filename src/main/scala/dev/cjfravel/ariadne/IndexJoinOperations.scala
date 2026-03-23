@@ -6,17 +6,30 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.expressions.Window
 import scala.collection.JavaConverters._
 
-/** Trait providing join operations for Index instances.
+/** Trait providing join operations between DataFrames and indexed data.
+  *
+  * Orchestrates the join workflow:
+  * 1. Maps join columns to their storage column names
+  * 2. Locates relevant files using the index (via [[IndexQueryOperations]])
+  * 3. Reads the located data files
+  * 4. Applies temporal deduplication if applicable
+  * 5. Performs the final DataFrame join
+  *
+  * Supports inner, left, right, left_semi, left_anti, and other standard join types.
   */
 trait IndexJoinOperations extends IndexBuildOperations {
   self: Index =>
 
   /** Maps join column names to their corresponding storage column names.
     *
+    * Bloom filter columns are prefixed with the bloom prefix, range columns are
+    * prefixed with "range_", exploded field columns are mapped to their backing
+    * array column, and all other columns map to themselves.
+    *
     * @param joinColumns
     *   The column names used in joins
     * @return
-    *   Map from join column to storage column
+    *   Map from each join column name to its storage column name in the index
     */
   protected def mapJoinColumnsToStorage(
       joinColumns: Seq[String]
@@ -231,15 +244,17 @@ trait IndexJoinOperations extends IndexBuildOperations {
     }
   }
 
-  /** Joins a DataFrame with the index.
-    * @param df
-    *   The DataFrame to join.
-    * @param usingColumns
-    *   The columns to use for the join.
-    * @param joinType
-    *   The type of join (default is "inner").
-    * @return
-    *   The resulting joined DataFrame.
+  /** Joins a DataFrame with indexed data files.
+    *
+    * This is the primary public API for index-based joins. The index locates
+    * which files contain matching values, reads only those files, applies
+    * temporal deduplication if applicable, then performs the join.
+    *
+    * @param df The DataFrame to join against indexed data
+    * @param usingColumns The column names to join on (must be indexed)
+    * @param joinType The join type: "inner", "left", "right", "left_semi", "left_anti", etc. (default: "inner")
+    * @return The joined DataFrame
+    * @throws ColumnNotFoundException if join columns are not in the schema or indexes
     */
   def join(
       df: DataFrame,

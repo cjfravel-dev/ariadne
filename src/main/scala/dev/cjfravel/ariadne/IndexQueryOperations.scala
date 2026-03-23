@@ -8,7 +8,17 @@ import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.Path
 import scala.collection.JavaConverters._
 
-/** Trait providing query operations for Index instances.
+/** Trait providing query and file location operations for Index instances.
+  *
+  * This is the top-level trait in the Index trait hierarchy, providing:
+  * - File location via regular, bloom, temporal, range, and auto-bloom indexes
+  * - Multi-column intersection with AND semantics across index types
+  * - Index statistics and diagnostics
+  * - Delta table management (repartitioning, large index loading)
+  *
+  * File location uses a staged collection strategy: distinct filenames are
+  * written to temporary CSV storage before collection to avoid executor
+  * memory pressure on large result sets.
   */
 trait IndexQueryOperations extends IndexJoinOperations {
   self: Index =>
@@ -151,13 +161,20 @@ trait IndexQueryOperations extends IndexJoinOperations {
     }
   }
 
-  /** Locates files based on index values. Handles both regular indexes (using
-    * explode) and bloom filter indexes (using probabilistic matching).
+  /** Locates files matching the given index values across all index types.
+    *
+    * Queries regular, bloom, temporal, range, and auto-bloom indexes in
+    * parallel and intersects results with AND semantics. Each index type
+    * independently returns candidate files, and only files present in all
+    * queried categories are included in the final result.
     *
     * @param indexes
-    *   A map of index column names to their values.
+    *   A map of index column names to arrays of values to search for.
+    *   Columns are automatically routed to the appropriate index type
+    *   (bloom, temporal, range, or regular).
     * @return
-    *   A set of file names matching the criteria.
+    *   A set of file paths matching all query criteria, or an empty set
+    *   if no matches are found or no index exists
     */
   def locateFiles(indexes: Map[String, Array[Any]]): Set[String] = {
     logger.warn(s"locateFiles: querying columns ${indexes.keys.mkString(", ")} with ${indexes.values.map(_.length).sum} total values")
@@ -237,14 +254,17 @@ trait IndexQueryOperations extends IndexJoinOperations {
     }
   }
 
-  /** Collects filenames via staging through temp storage. This separates the
-    * distinct operation from collect to avoid executor failures on large result
-    * sets.
+  /** Collects filenames via staging through temporary CSV storage.
+    *
+    * Separates the distributed distinct operation from the driver-side collect
+    * to avoid executor memory pressure on large result sets. Writes distinct
+    * filenames to a temporary CSV path, then reads them back and collects.
+    * The temporary path is cleaned up in a finally block.
     *
     * @param resultDF
-    *   DataFrame containing filename column to collect
+    *   DataFrame containing a "filename" column to collect
     * @return
-    *   Set of distinct filenames
+    *   Set of distinct filenames collected from the staged CSV
     */
   private def collectFilenamesViaStaging(resultDF: DataFrame): Set[String] = {
     val stagingStart = System.currentTimeMillis()
@@ -360,14 +380,18 @@ trait IndexQueryOperations extends IndexJoinOperations {
     getAutoBloomCandidates(storageColumn, values, indexDf)
   }
 
-  /** Locates files using regular (non-bloom) indexes.
+  /** Locates files using regular (non-bloom, non-temporal, non-range) indexes.
+    *
+    * For each column, explodes the index arrays and filters to matching values,
+    * optionally using auto-bloom pre-filtering. When multiple columns are queried,
+    * results are intersected (AND semantics) via inner joins on filename.
     *
     * @param indexes
-    *   A map of index column names to their values.
+    *   A map of storage column names to arrays of values to match
     * @param df
-    *   The index DataFrame.
+    *   The main index DataFrame
     * @return
-    *   A set of file names matching the criteria.
+    *   Set of filenames matching all specified column values
     */
   private def locateFilesRegular(
       indexes: Map[String, Array[Any]],
@@ -399,10 +423,13 @@ trait IndexQueryOperations extends IndexJoinOperations {
   /** Locates files using temporal indexes, pruning to only files containing
     * the latest version of each value (by max timestamp).
     *
+    * Uses a window function partitioned by value, ordered by max_ts descending,
+    * keeping only rank 1 to ensure only the most recent file per value is returned.
+    *
     * @param column The temporal index value column name
-    * @param values Values to search for
-    * @param df The index DataFrame
-    * @return Set of filenames containing the latest versions
+    * @param values Array of values to search for in the temporal index
+    * @param df The main index DataFrame containing temporal struct arrays
+    * @return Set of filenames containing the latest version of any matching value
     */
   private def locateFilesWithTemporal(
       column: String,
@@ -428,10 +455,13 @@ trait IndexQueryOperations extends IndexJoinOperations {
   /** Locates files using range indexes by checking if any query value falls
     * within the file's [min, max] range.
     *
+    * Builds an OR condition across all values, checking file_min <= value AND
+    * file_max >= value for each. Logs a warning when value count exceeds 1000.
+    *
     * @param column The range index column name
-    * @param values Values to search for
-    * @param df The index DataFrame
-    * @return Set of filenames whose range overlaps with query values
+    * @param values Array of values to check against per-file min/max ranges
+    * @param indexDf The main index DataFrame containing range struct columns
+    * @return Set of filenames whose stored range contains at least one query value
     */
   private def locateFilesWithRange(
       column: String,
@@ -594,10 +624,13 @@ trait IndexQueryOperations extends IndexJoinOperations {
   /** Locates files using temporal indexes from a DataFrame of values, pruning
     * to only files containing the latest version of each value.
     *
+    * Joins the exploded temporal index with distinct query values, then applies
+    * a window function to keep only the file with the highest max_ts per value.
+    *
     * @param column The temporal index value column name
-    * @param valuesDf DataFrame containing values to search for
-    * @param indexDf The index DataFrame
-    * @return Set of filenames containing the latest versions
+    * @param valuesDf DataFrame containing a column named `column` with values to search for
+    * @param indexDf The main index DataFrame (should already be repartitioned if needed)
+    * @return Set of filenames containing the latest version of any matching value
     */
   private def locateFilesWithTemporalFromDataFrame(
       column: String,
@@ -624,13 +657,14 @@ trait IndexQueryOperations extends IndexJoinOperations {
 
   /** Locates files using range indexes from a DataFrame of values.
     *
-    * Computes the min/max of the incoming query values and filters index rows
-    * where the file's stored range overlaps: file_max >= query_min AND file_min <= query_max.
+    * Collects up to 10,000 distinct query values. For sets exceeding 1,000 values,
+    * falls back to a bounding-box optimization (query min/max vs file min/max).
+    * For smaller sets, checks per-value containment for precise pruning.
     *
     * @param column The range index column name
-    * @param valuesDf DataFrame containing values to search for
-    * @param indexDf The index DataFrame
-    * @return Set of filenames whose range overlaps with query values
+    * @param valuesDf DataFrame containing a column named `column` with values to search for
+    * @param indexDf The main index DataFrame containing range struct columns
+    * @return Set of filenames whose stored range overlaps with the query values
     */
   private def locateFilesWithRangeFromDataFrame(
       column: String,
@@ -641,6 +675,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
     if (!indexDf.columns.contains(rangeCol)) return Set.empty
 
     // Collect distinct query values (bounded to avoid driver OOM)
+    val rawCount = valuesDf.select(col(column)).distinct().count()
+    if (rawCount > 10000) {
+      logger.warn(s"Range query on '$column': truncating $rawCount distinct values to 10000 for per-value pruning")
+    }
     val distinctValues = valuesDf
       .select(col(column))
       .distinct()
@@ -693,8 +731,14 @@ trait IndexQueryOperations extends IndexJoinOperations {
     }
   }
 
-  /** Returns a DataFrame of statistics for each indexed column (based on array
-    * length per file) and file count.
+  /** Returns a DataFrame of per-column index statistics and total file count.
+    *
+    * For each indexed column, computes statistics on the array length (number of
+    * distinct values per file): min, max, avg, median, and standard deviation.
+    * Also includes the total number of indexed files.
+    *
+    * @return Single-row DataFrame with FileCount and per-column stat structs,
+    *         or an empty DataFrame if no index exists
     */
   def stats(): DataFrame = {
     index match {
@@ -724,10 +768,12 @@ trait IndexQueryOperations extends IndexJoinOperations {
     }
   }
 
-  /** Prints the index DataFrame to the console, including its schema.
+  /** Prints the index DataFrame to the console for debugging.
     *
-    * This method retrieves the latest version of the index stored in Delta
-    * Lake, displays its contents, and prints its schema.
+    * Displays the contents and schema of the main index Delta table.
+    * This is an internal/diagnostic method.
+    *
+    * @param truncate Whether to truncate long values in the display (default: false)
     */
   private[ariadne] def printIndex(truncate: Boolean = false): Unit = {
     index match {
@@ -735,6 +781,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
         df.show(truncate)
         df.printSchema()
       case None =>
+        logger.warn(s"No index data found for index '$name'")
     }
   }
 

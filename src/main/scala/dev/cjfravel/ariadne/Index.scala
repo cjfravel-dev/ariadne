@@ -71,8 +71,16 @@ case class Index private (
   /** Gets the currently selected columns for reading. */
   private[ariadne] def getSelectedColumns: Option[Seq[String]] = selectedColumns
 
+  /** Checks if a file is tracked by this index's file list.
+    * @param fileName The file path to check
+    * @return true if the file is in the file list
+    */
   def hasFile(fileName: String): Boolean = fileList.hasFile(fileName)
 
+  /** Adds files to the index's file list for future indexing.
+    * Acquires a file list lock to prevent concurrent modifications.
+    * @param fileNames One or more file paths to register
+    */
   def addFile(fileNames: String*): Unit = {
     val lock = IndexLock(fileListLockPath, name)
     val correlationId = UUID.randomUUID().toString
@@ -279,10 +287,8 @@ case class Index private (
     writeMetadata(metadata)
   }
 
-  /** Helper function to get all index column names that can be used in joins.
-    *
-    * @return
-    *   Set of all column names that can be used in joins
+  /** Returns all column names that can be used in joins across all index types.
+    * @return Set of joinable column names (regular, computed, exploded, bloom, temporal, range)
     */
   def indexes: Set[String] =
     metadata.indexes.asScala.toSet ++
@@ -292,6 +298,11 @@ case class Index private (
       metadata.temporal_indexes.asScala.map(_.column).toSet ++
       metadata.range_indexes.asScala.map(_.column).toSet
 
+  /** Adds a computed index derived from a SQL expression.
+    * @param name The alias name for the computed column
+    * @param sql_expression The SQL expression to compute the column value
+    * @throws IllegalArgumentException if name conflicts with another index type
+    */
   def addComputedIndex(name: String, sql_expression: String): Unit = {
     // Idempotency check
     if (metadata.computed_indexes.containsKey(name)) return
@@ -542,33 +553,35 @@ case class Index private (
             logger.warn(s"Backfilling file sizes for ${nullSizeFiles.size} files")
             val sizes = getFileSizes(nullSizeFiles)
             val sizesBroadcast = spark.sparkContext.broadcast(sizes)
-            val sizeUdf = udf((filename: String) => sizesBroadcast.value.getOrElse(filename, 0L))
-
-            import spark.implicits._
-            val updateDf = nullSizeFiles.toSeq.toDF("filename")
-              .withColumn("file_size", sizeUdf(col("filename")))
-
-            val previousAutoMerge = spark.conf.getOption("spark.databricks.delta.schema.autoMerge.enabled")
-            spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
             try {
-              dt.as("target")
-                .merge(updateDf.as("source"), "target.filename = source.filename")
-                .whenMatched()
-                .update(Map("file_size" -> col("source.file_size")))
-                .execute()
-            } finally {
-              previousAutoMerge match {
-                case Some(v) => spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", v)
-                case None => spark.conf.unset("spark.databricks.delta.schema.autoMerge.enabled")
+              val sizeUdf = udf((filename: String) => sizesBroadcast.value.getOrElse(filename, 0L))
+
+              import spark.implicits._
+              val updateDf = nullSizeFiles.toSeq.toDF("filename")
+                .withColumn("file_size", sizeUdf(col("filename")))
+
+              val previousAutoMerge = spark.conf.getOption("spark.databricks.delta.schema.autoMerge.enabled")
+              spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+              try {
+                dt.as("target")
+                  .merge(updateDf.as("source"), "target.filename = source.filename")
+                  .whenMatched()
+                  .update(Map("file_size" -> col("source.file_size")))
+                  .execute()
+              } finally {
+                previousAutoMerge match {
+                  case Some(v) => spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", v)
+                  case None => spark.conf.unset("spark.databricks.delta.schema.autoMerge.enabled")
+                }
               }
+
+              // Update total from the full index table
+              val totalResult = dt.toDF.agg(sum("file_size")).head()
+              metadata.total_indexed_file_size = if (totalResult.isNullAt(0)) 0L else totalResult.getLong(0)
+              writeMetadata(metadata)
+            } finally {
+              sizesBroadcast.destroy()
             }
-
-            // Update total from the full index table
-            val totalResult = dt.toDF.agg(sum("file_size")).head()
-            metadata.total_indexed_file_size = if (totalResult.isNullAt(0)) 0L else totalResult.getLong(0)
-            writeMetadata(metadata)
-
-            sizesBroadcast.destroy()
             logger.warn(s"Backfilled file sizes for ${nullSizeFiles.size} files")
           }
         }
@@ -773,10 +786,23 @@ case class Index private (
 /** Companion object for the Index class.
   */
 object Index {
+  /** Returns the file list name for an index.
+    * @param name The index name
+    * @return The file list identifier
+    */
   def fileListName(name: String): String = IndexPathUtils.fileListName(name)
 
+  /** Checks if an index exists.
+    * @param name The index name
+    * @return true if the index exists
+    */
   def exists(name: String)(implicit spark: SparkSession): Boolean = IndexPathUtils.exists(name)
 
+  /** Removes an index and its associated data.
+    * @param name The index name
+    * @return true if removal was successful
+    * @throws IndexNotFoundException if the index does not exist
+    */
   def remove(name: String)(implicit spark: SparkSession): Boolean = IndexPathUtils.remove(name)
 
   /** Factory method to create an Index instance.
@@ -908,11 +934,39 @@ object Index {
         if (metadataExists) {
           if (allowSchemaMismatch) {
             if (metadata.schema != s.json) {
+              // Validate regular indexes
               metadata.indexes.forEach(col => {
                 if (!SchemaHelper.fieldExists(s, col)) {
                   throw new IndexNotFoundInNewSchemaException(col)
                 }
               })
+              // Validate bloom indexes
+              metadata.bloom_indexes.asScala.foreach { bi =>
+                if (!SchemaHelper.fieldExists(s, bi.column)) {
+                  throw new IndexNotFoundInNewSchemaException(bi.column)
+                }
+              }
+              // Validate temporal indexes
+              metadata.temporal_indexes.asScala.foreach { ti =>
+                if (!SchemaHelper.fieldExists(s, ti.column)) {
+                  throw new IndexNotFoundInNewSchemaException(ti.column)
+                }
+                if (!SchemaHelper.fieldExists(s, ti.timestamp_column)) {
+                  throw new IndexNotFoundInNewSchemaException(ti.timestamp_column)
+                }
+              }
+              // Validate range indexes
+              metadata.range_indexes.asScala.foreach { ri =>
+                if (!SchemaHelper.fieldExists(s, ri.column)) {
+                  throw new IndexNotFoundInNewSchemaException(ri.column)
+                }
+              }
+              // Validate computed indexes
+              metadata.computed_indexes.keySet().asScala.foreach { ci =>
+                // Computed indexes use SQL expressions, not schema fields directly
+                // We validate the output column name exists conceptually but
+                // cannot validate the expression references without executing it
+              }
             }
             metadata.schema = s.json
           } else if (metadata.schema != s.json) {
@@ -964,8 +1018,8 @@ object Index {
     index
   }
 
-  /** Implicit class for enhancing DataFrame operations with index based
-    * operations.
+  /** Implicit class enabling DataFrame-to-Index join syntax.
+    * Allows calling df.join(index, columns, joinType) directly.
     */
   implicit class DataFrameOps(df: DataFrame) {
 

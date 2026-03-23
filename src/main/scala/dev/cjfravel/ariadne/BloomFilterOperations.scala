@@ -48,7 +48,7 @@ trait BloomFilterOperations extends IndexFileOperations {
     */
   protected def buildBloomFilterIndexes(df: DataFrame): DataFrame = {
     val configs = bloomIndexConfigs
-    if (configs.isEmpty) return spark.emptyDataFrame
+    if (configs.isEmpty) return df.select("filename").distinct()
 
     // For each bloom column, create aggregation that produces binary bloom filter
     configs.foldLeft(df.select("filename").distinct) { (accumDf, config) =>
@@ -169,6 +169,7 @@ trait BloomFilterOperations extends IndexFileOperations {
       indexDf: DataFrame
   ): Set[String] = {
     val bloomColumn = bloomColumnPrefix + column
+    logger.warn(s"Querying bloom filter for column '$column' with ${values.length} values")
 
     if (!indexDf.columns.contains(bloomColumn)) {
       logger.warn(s"Bloom column $bloomColumn not found in index")
@@ -190,6 +191,7 @@ trait BloomFilterOperations extends IndexFileOperations {
       .map(_.getString(0))
       .toSet
 
+    logger.warn(s"Bloom filter for '$column': ${matchingFiles.size} files matched out of total index rows")
     matchingFiles
   }
 
@@ -227,6 +229,7 @@ trait BloomFilterOperations extends IndexFileOperations {
 
     if (values.isEmpty) return Set.empty
 
+    logger.warn(s"Bloom filter query for '$column': ${values.length} distinct values from DataFrame")
     // Use the existing method with collected values
     locateFilesWithBloom(column, values, indexDf)
   }

@@ -6,17 +6,30 @@ import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.sql.functions._
 import scala.collection.JavaConverters._
 
-/** Trait providing file operations for Index instances.
+/** Trait providing file I/O operations for Index instances.
+  *
+  * Handles reading data files in supported formats (CSV, Parquet, JSON),
+  * applying computed indexes and exploded field transformations, and
+  * managing column selection for optimized reads.
   */
 trait IndexFileOperations extends IndexMetadataOperations {
   self: Index =>
 
-  /** Returns the stored schema of the index. */
-  def storedSchema: StructType =
+  /** Returns the stored schema of the index.
+    *
+    * @return The StructType schema parsed from metadata
+    * @throws MissingSchemaException if the schema is null in metadata
+    * @throws SchemaParseException if the schema string cannot be parsed as a StructType
+    */
+  def storedSchema: StructType = {
+    if (metadata.schema == null) {
+      throw new dev.cjfravel.ariadne.exceptions.MissingSchemaException()
+    }
     DataType.fromJson(metadata.schema) match {
       case st: StructType => st
       case _ => throw new SchemaParseException()
     }
+  }
 
   /** Reads a set of files into a DataFrame based on the specified format.
     *
@@ -94,8 +107,14 @@ trait IndexFileOperations extends IndexMetadataOperations {
     }
   }
 
-  /** Adds a stable filename column, falling back to the source path for
-    * single-file reads when Spark reports an empty filename.
+  /** Adds a stable filename column to the DataFrame.
+    *
+    * Uses `input_file_name()` to capture the source file path. For single-file
+    * reads where Spark may report an empty filename, falls back to the known file path.
+    *
+    * @param df The DataFrame to add the filename column to
+    * @param files The set of file paths being read
+    * @return DataFrame with a `filename` column added
     */
   protected def addFilenameColumn(df: DataFrame, files: Set[String]): DataFrame = {
     if (files.size == 1) {
