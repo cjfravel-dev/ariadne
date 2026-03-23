@@ -539,7 +539,7 @@ case class Index private (
 
   /** Updates the index with new files and backfills newly added columns. */
   def update: Unit = {
-    batchesSinceCompact = 0
+    batchesSinceCompact = metadata.batches_since_compact
     val startTime = System.currentTimeMillis()
     val lock = IndexLock(updateLockPath, name)
     val correlationId = UUID.randomUUID().toString
@@ -619,6 +619,18 @@ case class Index private (
           logger.warn(f"Recalculated total indexed file size: ${totalSize / (1024.0 * 1024.0 * 1024.0)}%.2f GB")
         }
       }
+      // Persist batch counter for cross-job auto-compaction
+      metadata.batches_since_compact = batchesSinceCompact
+      writeMetadata(metadata)
+
+      // Warn if compaction is overdue and auto-compact is not configured
+      if (autoCompactThreshold.isEmpty && batchesSinceCompact >= 50) {
+        logger.warn(
+          s"Index '$name' has accumulated $batchesSinceCompact update batches without compaction. " +
+          "Consider running index.compact() or setting spark.ariadne.autoCompactThreshold to enable auto-compaction."
+        )
+      }
+
       logger.warn(s"Update complete for index '$name' in ${System.currentTimeMillis() - startTime}ms")
     } finally {
       lock.release(correlationId)
@@ -636,6 +648,9 @@ case class Index private (
     lock.acquire(correlationId)
     try {
       compactDeltaTables()
+      batchesSinceCompact = 0
+      metadata.batches_since_compact = 0
+      writeMetadata(metadata)
       logger.warn(s"Compaction complete in ${System.currentTimeMillis() - startTime}ms")
     } finally {
       lock.release(correlationId)
@@ -924,7 +939,8 @@ object Index {
         new util.HashMap[String, String](),
         new util.ArrayList[RangeIndexConfig](),
         new util.ArrayList[String](),
-        -1L
+        -1L,
+        0
       )
     }
 

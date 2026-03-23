@@ -84,6 +84,9 @@ case class ExplodedFieldMapping(
   * @param temporal_indexes List of temporal index configurations for version-aware deduplication
   * @param read_options Map of read options for format-specific configuration (e.g., "multiLine" -> "true" for JSON)
   * @param total_indexed_file_size Total size in bytes of all indexed files, or -1 if not yet computed (nullable for Gson compatibility)
+  * @param batches_since_compact Number of update batches processed since the last auto-compaction,
+  *                              persisted across Spark jobs so that `autoCompactThreshold` works
+  *                              correctly even when updates happen in separate runs (v10+, nullable for Gson)
   *
   * @note The field names use underscore notation to match JSON serialization format
   */
@@ -101,7 +104,8 @@ case class IndexMetadata(
     var read_options: util.Map[String, String],
     var range_indexes: util.List[RangeIndexConfig],
     var auto_bloom_indexes: util.List[String],
-    var total_indexed_file_size: java.lang.Long
+    var total_indexed_file_size: java.lang.Long,
+    var batches_since_compact: java.lang.Integer
 )
 
 /** Factory object for creating IndexMetadata instances from JSON.
@@ -123,6 +127,7 @@ object IndexMetadata {
     * - v6 → v7: Adds range_indexes field if missing
     * - v7 → v8: Adds auto_bloom_indexes field if missing
     * - v8 → v9: Adds total_indexed_file_size field if missing
+    * - v9 → v10: Adds batches_since_compact field if missing
     *
     * @param jsonString The JSON representation of the metadata
     * @return A fully initialized IndexMetadata instance
@@ -171,6 +176,10 @@ object IndexMetadata {
     // v8 -> v9
     if (indexMetadata.total_indexed_file_size == null) {
       indexMetadata.total_indexed_file_size = -1L
+    }
+    // v9 -> v10
+    if (indexMetadata.batches_since_compact == null) {
+      indexMetadata.batches_since_compact = 0
     }
     indexMetadata
   }

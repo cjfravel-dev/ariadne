@@ -594,6 +594,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
     * Checks the [[batchesSinceCompact]] counter against the configured
     * `autoCompactThreshold`. If the threshold is met,
     * compacts all Delta tables and resets the counter to zero.
+    * The counter is persisted to metadata so it survives across Spark jobs.
     */
   protected def maybeAutoCompact(): Unit = {
     autoCompactThreshold.foreach { threshold =>
@@ -601,6 +602,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
         logger.warn(s"Auto-compact threshold reached ($batchesSinceCompact batches), compacting Delta tables")
         compactDeltaTables()
         batchesSinceCompact = 0
+        metadata.batches_since_compact = 0
+        writeMetadata(metadata)
       }
     }
   }
