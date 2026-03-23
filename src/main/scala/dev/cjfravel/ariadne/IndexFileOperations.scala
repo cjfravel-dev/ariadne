@@ -17,8 +17,10 @@ trait IndexFileOperations extends IndexMetadataOperations {
 
   /** Returns the stored schema of the index.
     *
+    * Parses the JSON schema string from metadata into a Spark StructType.
+    *
     * @return The StructType schema parsed from metadata
-    * @throws MissingSchemaException if the schema is null in metadata
+    * @throws dev.cjfravel.ariadne.exceptions.MissingSchemaException if the schema is null in metadata
     * @throws SchemaParseException if the schema string cannot be parsed as a StructType
     */
   def storedSchema: StructType = {
@@ -75,12 +77,17 @@ trait IndexFileOperations extends IndexMetadataOperations {
   }
 
   /** Creates a base DataFrame from the provided files using the stored format
-    * and schema.
+    * and schema. Applies any read options configured in the index metadata.
+    *
+    * Returns an empty DataFrame (with the stored schema) if all file paths are
+    * blank after normalization.
     *
     * @param files
     *   Set of file paths to read
     * @return
     *   DataFrame with data from the specified files
+    * @throws IllegalArgumentException
+    *   if the stored format is not csv, parquet, or json
     */
   protected def createBaseDataFrame(files: Set[String]): DataFrame = {
     val normalizedFiles = files.map(_.trim).filter(_.nonEmpty)

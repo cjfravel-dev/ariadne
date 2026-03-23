@@ -268,6 +268,7 @@ trait IndexJoinOperations extends IndexBuildOperations {
       logger.warn(s"[debug] joinDf returned in ${System.currentTimeMillis() - outerJoinStart}ms, now performing $joinType join")
     }
     val result = indexDf.join(df, usingColumns, joinType)
+    logger.warn(s"Index.join: $joinType join setup completed in ${System.currentTimeMillis() - outerJoinStart}ms")
     if (debugEnabled) {
       logger.warn(s"[debug] Index.join complete in ${System.currentTimeMillis() - outerJoinStart}ms")
       logger.warn(s"[debug] result physical plan:")

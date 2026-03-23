@@ -1,7 +1,7 @@
 package dev.cjfravel.ariadne
 
 import org.apache.spark.sql.{DataFrame, Row}
-import org.apache.spark.sql.types.{StructType, StructField, StringType}
+
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.expressions.Window
 import io.delta.tables.DeltaTable
@@ -177,6 +177,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
     *   if no matches are found or no index exists
     */
   def locateFiles(indexes: Map[String, Array[Any]]): Set[String] = {
+    val locateStart = System.currentTimeMillis()
     logger.warn(s"locateFiles: querying columns ${indexes.keys.mkString(", ")} with ${indexes.values.map(_.length).sum} total values")
     index match {
       case Some(df) =>
@@ -195,6 +196,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
         }
 
         // Get files from bloom filters
+        val bloomStart = System.currentTimeMillis()
         val bloomFiles = if (bloomQueries.nonEmpty) {
           bloomQueries.map { case (col, values) =>
             locateFilesWithBloom(col, values, df)
@@ -202,8 +204,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
         } else {
           Set.empty[String]
         }
+        val bloomMs = System.currentTimeMillis() - bloomStart
 
         // Get files from temporal indexes (pruned to latest timestamp per value)
+        val temporalStart = System.currentTimeMillis()
         val temporalFiles = if (temporalQueries.nonEmpty) {
           temporalQueries.map { case (column, values) =>
             locateFilesWithTemporal(column, values, df)
@@ -211,8 +215,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
         } else {
           Set.empty[String]
         }
+        val temporalMs = System.currentTimeMillis() - temporalStart
 
         // Get files from range indexes
+        val rangeStart = System.currentTimeMillis()
         val rangeFiles = if (rangeQueries.nonEmpty) {
           rangeQueries.map { case (column, values) =>
             locateFilesWithRange(column, values, df)
@@ -220,13 +226,16 @@ trait IndexQueryOperations extends IndexJoinOperations {
         } else {
           Set.empty[String]
         }
+        val rangeMs = System.currentTimeMillis() - rangeStart
 
         // Get files from regular indexes
+        val regularStart = System.currentTimeMillis()
         val regularFiles = if (regularQueries.nonEmpty) {
           locateFilesRegular(regularQueries, df)
         } else {
           Set.empty[String]
         }
+        val regularMs = System.currentTimeMillis() - regularStart
 
         // Combine results - intersect across types that returned results (AND semantics)
         // Track which categories were queried (had input), not just which returned results
@@ -248,7 +257,11 @@ trait IndexQueryOperations extends IndexJoinOperations {
               s"range=${rangeFiles.size}, regular=${regularFiles.size} -> final=${allFiles.size}"
           )
         }
-        logger.warn(s"locateFiles: ${allFiles.size} files matched")
+        val totalMs = System.currentTimeMillis() - locateStart
+        logger.warn(
+          s"locateFiles: ${allFiles.size} files matched in ${totalMs}ms " +
+            s"(bloom=${bloomMs}ms, temporal=${temporalMs}ms, range=${rangeMs}ms, regular=${regularMs}ms)"
+        )
         if (allFiles.isEmpty) Set.empty else allFiles
       case None => Set()
     }
@@ -298,12 +311,11 @@ trait IndexQueryOperations extends IndexJoinOperations {
         .csv(tempPath.toString)
         .select("filename")
 
-      // Get count before collect for debugging
-      val fileCount = stagedFiles.count()
+      val collectedFiles = stagedFiles.collect()
+      val fileCount = collectedFiles.length
       logger.warn(s"Collecting $fileCount distinct filenames from staging")
 
-      val files = stagedFiles
-        .collect()
+      val files = collectedFiles
         .map(_.getString(0))
         .toSet
 
@@ -326,9 +338,22 @@ trait IndexQueryOperations extends IndexJoinOperations {
     }
   }
 
-  /** Gets candidate files from auto-bloom filter for a column.
-    * Returns None if no auto-bloom is available for the column.
-    * Files with null bloom filters are included as candidates (backward compat).
+  /** Gets candidate files from the auto-bloom filter for a specific column.
+    *
+    * Collects all bloom filter byte arrays from the index to the driver and
+    * tests each value against them. Files whose bloom filter is null are
+    * included as candidates for backward compatibility with indexes built
+    * before auto-bloom was added.
+    *
+    * @param column
+    *   The storage column name to check for auto-bloom filtering
+    * @param values
+    *   Array of values to probe against each file's bloom filter
+    * @param indexDf
+    *   The main index DataFrame containing auto-bloom binary columns
+    * @return
+    *   Some(set of candidate filenames) if an auto-bloom index exists for the
+    *   column, None otherwise
     */
   protected def getAutoBloomCandidates(
       column: String,
@@ -358,7 +383,24 @@ trait IndexQueryOperations extends IndexJoinOperations {
     Some(candidates)
   }
 
-  /** Gets candidate files from auto-bloom filter using values from a DataFrame. */
+  /** Gets candidate files from the auto-bloom filter using values extracted
+    * from a DataFrame.
+    *
+    * Collects distinct non-null values from the given DataFrame column, then
+    * delegates to [[getAutoBloomCandidates]] for the actual bloom filter probing.
+    *
+    * @param storageColumn
+    *   The storage column name in the index (used to look up the auto-bloom)
+    * @param joinColumn
+    *   The column name in `valuesDf` containing the query values
+    * @param valuesDf
+    *   DataFrame containing the values to probe against bloom filters
+    * @param indexDf
+    *   The main index DataFrame containing auto-bloom binary columns
+    * @return
+    *   Some(set of candidate filenames) if an auto-bloom index exists,
+    *   None otherwise
+    */
   protected def getAutoBloomCandidatesFromDf(
       storageColumn: String,
       joinColumn: String,
@@ -399,7 +441,17 @@ trait IndexQueryOperations extends IndexJoinOperations {
   ): Set[String] = {
     if (indexes.isEmpty) return Set.empty
 
-    val perColumnFiles = indexes.map { case (column, values) =>
+    // Filter null values from each column — isin() throws on an empty array
+    val filteredIndexes = indexes.map { case (column, values) =>
+      column -> values.filter(_ != null)
+    }
+    if (filteredIndexes.exists(_._2.isEmpty)) {
+      val emptyColumns = filteredIndexes.filter(_._2.isEmpty).keys.mkString(", ")
+      logger.debug(s"locateFilesRegular: columns [$emptyColumns] have no non-null values, returning empty result")
+      return Set.empty[String]
+    }
+
+    val perColumnFiles = filteredIndexes.map { case (column, values) =>
       val bloomCandidates = getAutoBloomCandidates(column, values, df)
       loadColumnIndex(df, column, bloomCandidates)
         .where(col(column).isin(values: _*))
