@@ -393,6 +393,18 @@ case class Index private (
       import spark.implicits._
       val toDelete = filenames.toDF("filename")
 
+      // Read file sizes before deleting (to update total)
+      val deletedFileSize = delta(indexFilePath).map { dt =>
+        val indexDf = dt.toDF
+        if (indexDf.columns.contains("file_size")) {
+          val result = indexDf
+            .where(col("filename").isin(filenames.map(lit(_)): _*))
+            .agg(sum("file_size"))
+            .head()
+          if (result.isNullAt(0)) 0L else result.getLong(0)
+        } else 0L
+      }.getOrElse(0L)
+
       // Remove from main index
       delta(indexFilePath).foreach { dt =>
         dt.as("target")
@@ -430,6 +442,12 @@ case class Index private (
         logger.warn(s"Deleted file(s) from staging table")
       }
 
+      // Update total indexed file size
+      if (metadata.total_indexed_file_size > 0) {
+        metadata.total_indexed_file_size = math.max(0L, metadata.total_indexed_file_size - deletedFileSize)
+        writeMetadata(metadata)
+      }
+
       // Remove from file list
       fileList.removeFile(filenames: _*)
       logger.warn(s"deleteFiles completed in ${System.currentTimeMillis() - startTime}ms")
@@ -444,6 +462,50 @@ case class Index private (
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
     try {
+      // Backfill file_size for existing index rows that don't have it
+      delta(indexFilePath).foreach { dt =>
+        val indexDf = dt.toDF
+        if (!indexDf.columns.contains("file_size") || indexDf.where(col("file_size").isNull).limit(1).count() > 0) {
+          val nullSizeFiles = if (indexDf.columns.contains("file_size")) {
+            indexDf.where(col("file_size").isNull).select("filename").collect().map(_.getString(0)).toSet
+          } else {
+            indexDf.select("filename").collect().map(_.getString(0)).toSet
+          }
+          if (nullSizeFiles.nonEmpty) {
+            logger.warn(s"Backfilling file sizes for ${nullSizeFiles.size} files")
+            val sizes = getFileSizes(nullSizeFiles)
+            val sizesBroadcast = spark.sparkContext.broadcast(sizes)
+            val sizeUdf = udf((filename: String) => sizesBroadcast.value.getOrElse(filename, 0L))
+
+            import spark.implicits._
+            val updateDf = nullSizeFiles.toSeq.toDF("filename")
+              .withColumn("file_size", sizeUdf(col("filename")))
+
+            val previousAutoMerge = spark.conf.getOption("spark.databricks.delta.schema.autoMerge.enabled")
+            spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+            try {
+              dt.as("target")
+                .merge(updateDf.as("source"), "target.filename = source.filename")
+                .whenMatched()
+                .update(Map("file_size" -> col("source.file_size")))
+                .execute()
+            } finally {
+              previousAutoMerge match {
+                case Some(v) => spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", v)
+                case None => spark.conf.unset("spark.databricks.delta.schema.autoMerge.enabled")
+              }
+            }
+
+            // Update total
+            metadata.total_indexed_file_size = sizes.values.sum
+            writeMetadata(metadata)
+
+            sizesBroadcast.destroy()
+            logger.warn(s"Backfilled file sizes for ${nullSizeFiles.size} files")
+          }
+        }
+      }
+
       // Backfill existing files for new columns first, so the index schema
       // is complete before processing new files
       val needsColumnUpdate = filesNeedingColumnUpdate
@@ -457,6 +519,21 @@ case class Index private (
         updateBatched(unindexed, lock, correlationId)
       }
       maybeAutoCompact()
+
+      // Recalculate total file size if it was unknown (migration from older version)
+      if (metadata.total_indexed_file_size < 0) {
+        delta(indexFilePath).foreach { dt =>
+          val totalSize = if (dt.toDF.columns.contains("file_size")) {
+            val result = dt.toDF.agg(sum("file_size")).head()
+            if (result.isNullAt(0)) 0L else result.getLong(0)
+          } else {
+            0L
+          }
+          metadata.total_indexed_file_size = totalSize
+          writeMetadata(metadata)
+          logger.warn(f"Recalculated total indexed file size: ${totalSize / (1024.0 * 1024.0 * 1024.0)}%.2f GB")
+        }
+      }
     } finally {
       lock.release(correlationId)
     }
@@ -552,6 +629,11 @@ case class Index private (
     val withComputedIndexes = applyComputedIndexes(baseDf)
     val withFilename = addFilenameColumn(withComputedIndexes, files)
 
+    // Compute file sizes from HDFS and add as a column
+    val fileSizes = getFileSizes(files)
+    val fileSizesBroadcast = spark.sparkContext.broadcast(fileSizes)
+    val fileSizeUdf = udf((filename: String) => fileSizesBroadcast.value.getOrElse(filename, 0L))
+
     // Build regular indexes
     val regularIndexesDf = buildRegularIndexes(withFilename)
     val withExploded = buildExplodedFieldIndexes(withFilename, regularIndexesDf)
@@ -591,8 +673,20 @@ case class Index private (
     // Build auto-bloom filters for columns that exceed largeIndexLimit
     combinedDf = buildAutoBloomIndexes(combinedDf)
 
+    combinedDf = combinedDf.withColumn("file_size", fileSizeUdf(col("filename")))
+
     handleLargeIndexes(combinedDf)
     appendToStaging(combinedDf)
+
+    // Update total indexed file size
+    val batchFileSize = fileSizes.values.sum
+    if (metadata.total_indexed_file_size < 0) {
+      metadata.total_indexed_file_size = batchFileSize
+    } else {
+      metadata.total_indexed_file_size = metadata.total_indexed_file_size + batchFileSize
+    }
+
+    fileSizesBroadcast.destroy()
 
     // Persist any metadata changes (e.g., auto-bloom column detection) after data is safely staged
     writeMetadata(metadata)
@@ -727,7 +821,8 @@ object Index {
         new util.ArrayList[TemporalIndexConfig](),
         new util.HashMap[String, String](),
         new util.ArrayList[RangeIndexConfig](),
-        new util.ArrayList[String]()
+        new util.ArrayList[String](),
+        -1L
       )
     }
 

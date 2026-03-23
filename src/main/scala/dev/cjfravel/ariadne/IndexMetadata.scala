@@ -82,6 +82,7 @@ case class ExplodedFieldMapping(
   * @param bloom_indexes List of bloom filter index configurations for probabilistic indexing
   * @param temporal_indexes List of temporal index configurations for version-aware deduplication
   * @param read_options Map of read options for format-specific configuration (e.g., "multiLine" -> "true" for JSON)
+  * @param total_indexed_file_size Total size in bytes of all indexed files, or -1 if not yet computed (nullable for Gson compatibility)
   *
   * @note The field names use underscore notation to match JSON serialization format
   */
@@ -98,7 +99,8 @@ case class IndexMetadata(
     var temporal_indexes: util.List[TemporalIndexConfig],
     var read_options: util.Map[String, String],
     var range_indexes: util.List[RangeIndexConfig],
-    var auto_bloom_indexes: util.List[String]
+    var auto_bloom_indexes: util.List[String],
+    var total_indexed_file_size: java.lang.Long
 )
 
 /** Factory object for creating IndexMetadata instances from JSON.
@@ -115,6 +117,7 @@ object IndexMetadata {
     * - v1 → v2: Adds computed_indexes field if missing
     * - v2 → v3: Adds exploded_field_indexes field if missing
     * - v3 → v4: Adds read_options field if missing
+    * - v8 → v9: Adds total_indexed_file_size field if missing
     *
     * @param jsonString The JSON representation of the metadata
     * @return A fully initialized IndexMetadata instance
@@ -156,6 +159,10 @@ object IndexMetadata {
     // v7 -> v8
     if (indexMetadata.auto_bloom_indexes == null) {
       indexMetadata.auto_bloom_indexes = new util.ArrayList[String]()
+    }
+    // v8 -> v9
+    if (indexMetadata.total_indexed_file_size == null) {
+      indexMetadata.total_indexed_file_size = -1L
     }
     indexMetadata
   }

@@ -11,6 +11,15 @@ import scala.collection.JavaConverters._
 trait IndexBuildOperations extends BloomFilterOperations {
   self: Index =>
 
+  /** Computes file sizes in bytes for the given files using HDFS FileSystem.
+    */
+  protected def getFileSizes(files: Set[String]): Map[String, Long] = {
+    files.toSeq.map { f =>
+      val path = new org.apache.hadoop.fs.Path(f)
+      f -> fs.getFileStatus(path).getLen
+    }.toMap
+  }
+
   /** Hadoop root path for large index delta tables */
   protected def largeIndexesFilePath: Path =
     new Path(storagePath, "large_indexes")

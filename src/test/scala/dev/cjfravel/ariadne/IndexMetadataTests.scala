@@ -329,4 +329,53 @@ class IndexMetadataTests extends AnyFunSuite {
     assert(metadata.range_indexes.size() === 0)
     assert(metadata.auto_bloom_indexes.size() === 0)
   }
+
+  test("v8 -> v9") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v8.json")
+    require(stream != null, "Resource not found: /index_metadata/v8.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.auto_bloom_indexes.size() === 2)
+    // v8 -> v9 migration should add total_indexed_file_size = -1
+    assert(metadata.total_indexed_file_size === -1L)
+  }
+
+  test("v9") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v9.json")
+    require(stream != null, "Resource not found: /index_metadata/v9.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 2)
+    assert(metadata.exploded_field_indexes.size() === 2)
+    assert(metadata.read_options.size() === 2)
+    assert(metadata.bloom_indexes.size() === 2)
+    assert(metadata.temporal_indexes.size() === 2)
+    assert(metadata.range_indexes.size() === 2)
+    assert(metadata.auto_bloom_indexes.size() === 2)
+    assert(metadata.total_indexed_file_size === 1048576L)
+  }
+
+  test("v1 -> v9 full migration") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v1.json")
+    require(stream != null, "Resource not found: /index_metadata/v1.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 0)
+    assert(metadata.exploded_field_indexes.size() === 0)
+    assert(metadata.read_options.size() === 0)
+    assert(metadata.bloom_indexes.size() === 0)
+    assert(metadata.temporal_indexes.size() === 0)
+    assert(metadata.range_indexes.size() === 0)
+    assert(metadata.auto_bloom_indexes.size() === 0)
+    assert(metadata.total_indexed_file_size === -1L)
+  }
 }

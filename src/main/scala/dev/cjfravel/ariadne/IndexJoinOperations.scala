@@ -117,6 +117,32 @@ trait IndexJoinOperations extends IndexBuildOperations {
       joinColumnsToUse
     )
     logger.warn(s"Found ${files.size} files in index")
+
+    // Log data pruning metrics using stored file sizes
+    try {
+      val totalIndexedSize = metadata.total_indexed_file_size
+      if (totalIndexedSize > 0 && files.nonEmpty) {
+        delta(indexFilePath).foreach { dt =>
+          val indexDf = dt.toDF
+          if (indexDf.columns.contains("file_size")) {
+            val totalFiles = indexDf.count()
+            val matchedSizeResult = indexDf
+              .where(col("filename").isin(files.toSeq.map(lit(_)): _*))
+              .agg(sum("file_size"))
+              .head()
+            val matchedSize = if (matchedSizeResult.isNullAt(0)) 0L else matchedSizeResult.getLong(0)
+            val totalGB = totalIndexedSize / (1024.0 * 1024.0 * 1024.0)
+            val matchedGB = matchedSize / (1024.0 * 1024.0 * 1024.0)
+            val savedPercent = if (totalIndexedSize > 0) ((totalIndexedSize - matchedSize) * 100.0 / totalIndexedSize).toInt else 0
+            logger.warn(f"Index pruning: loaded ${files.size}%d of $totalFiles%d files ($matchedGB%.2f GB of $totalGB%.2f GB) — $savedPercent%%  data pruned")
+          }
+        }
+      }
+    } catch {
+      case e: Exception =>
+        logger.warn(s"Failed to compute pruning metrics: ${e.getMessage}")
+    }
+
     if (debugEnabled) {
       logger.warn(s"[debug] locateFiles completed in ${elapsed()}, files: ${files.size}")
       try {
