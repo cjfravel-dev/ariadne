@@ -56,7 +56,7 @@ trait IndexMetadataOperations extends AriadneContextUser {
     * @throws MetadataMissingOrCorruptException
     *   if metadata is missing or cannot be parsed.
     */
-  protected def metadata: IndexMetadata = {
+  private[ariadne] def metadata: IndexMetadata = {
     if (_metadata == null) {
       refreshMetadata()
     }

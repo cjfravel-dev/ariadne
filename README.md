@@ -357,6 +357,44 @@ val fmt: String = index.format         // e.g., "parquet"
 val sch: StructType = index.storedSchema  // the stored schema
 ```
 
+### Index Catalog
+
+`IndexCatalog` provides a global view of all indexes under the configured storage path. Use it to discover, inspect, and manage indexes without knowing their names upfront.
+
+```scala
+import dev.cjfravel.ariadne.IndexCatalog
+
+// List all index names
+val names: Seq[String] = IndexCatalog.list()
+
+// Check if a specific index exists
+val exists: Boolean = IndexCatalog.exists("myIndex")
+
+// Get a summary of a single index (index types, file count, format)
+val summary: IndexSummary = IndexCatalog.describe("myIndex")
+println(s"Format: ${summary.format}")
+println(s"Regular indexes: ${summary.regularIndexes}")
+println(s"Bloom indexes: ${summary.bloomIndexes}")
+println(s"File count: ${summary.fileCount}")
+
+// Get summaries for all indexes at once
+val allSummaries: Seq[IndexSummary] = IndexCatalog.describeAll()
+
+// Fetch an Index instance by name (reconnects to existing index)
+val index: Index = IndexCatalog.get("myIndex")
+
+// View all indexes as a DataFrame (one row per index)
+IndexCatalog.toDF().show()
+// +--------+-------+---------------+-------------+---------+----------+
+// |    name| format|regular_indexes|bloom_indexes|file_count|        ...|
+// +--------+-------+---------------+-------------+---------+----------+
+// |myIndex |parquet|     Id, Version|             |       42|        ...|
+// +--------+-------+---------------+-------------+---------+----------+
+
+// Remove an index by name
+IndexCatalog.remove("myIndex")
+```
+
 ## Error Handling
 
 All Ariadne exceptions extend `AriadneException` (a `RuntimeException`), so you can catch them with a single handler:
