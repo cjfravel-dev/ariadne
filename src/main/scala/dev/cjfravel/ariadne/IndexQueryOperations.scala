@@ -42,10 +42,11 @@ trait IndexQueryOperations extends IndexJoinOperations {
     }
   }
 
-  /** Helper function to load the index
+  /** Helper function to load the index.
     *
     * @return
-    *   DataFrame containing latest version of the index
+    *   `Some(DataFrame)` containing the latest version of the index,
+    *   or `None` if the index Delta table does not yet exist
     */
   protected def index: Option[DataFrame] = {
     delta(indexFilePath).map(_.toDF)
@@ -883,6 +884,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
     * }}}
     */
   def stats(): DataFrame = {
+    val startTime = System.currentTimeMillis()
     logger.warn(s"Computing stats for index '$name'")
     index match {
       case Some(df) =>
@@ -896,7 +898,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
             min(lenCol).as("min"),
             max(lenCol).as("max"),
             avg(lenCol).as("avg"),
-            expr("percentile_approx(size(" + colName + "), 0.5)").as("median"),
+            expr(s"percentile_approx(size(`$colName`), 0.5)").as("median"),
             stddev(lenCol).as("stddev")
           ).as(colName)
         }
@@ -904,9 +906,12 @@ trait IndexQueryOperations extends IndexJoinOperations {
         // Build a single-row DataFrame with all stats
         val aggExprs =
           Seq(countDistinct("filename").as("FileCount")) ++ statCols
-        df.agg(aggExprs.head, aggExprs.tail: _*)
+        val result = df.agg(aggExprs.head, aggExprs.tail: _*)
+        logger.warn(s"Stats computation for index '$name' completed in ${System.currentTimeMillis() - startTime}ms")
+        result
 
       case None =>
+        logger.warn(s"No index data found for stats on '$name' (${System.currentTimeMillis() - startTime}ms)")
         spark.emptyDataFrame
     }
   }
@@ -930,8 +935,11 @@ trait IndexQueryOperations extends IndexJoinOperations {
 
   /** Prints the metadata associated with the index to the console.
     *
-    * This metadata contains details about the index, including its schema,
-    * format, and tracked files.
+    * Outputs the string representation of [[IndexMetadata]], which includes
+    * the index schema, format, read options, and all configured index types
+    * (regular, bloom, temporal, range, computed, exploded).
+    *
+    * @see [[IndexMetadataOperations.metadata]]
     */
   private[ariadne] def printMetadata: Unit = println(metadata)
 }

@@ -82,7 +82,9 @@ case class Index private (
     this
   }
 
-  /** Gets the currently selected columns for reading. */
+  /** Gets the currently selected columns for reading.
+    * @return the selected columns, or None if no column selection has been applied
+    */
   private[ariadne] def getSelectedColumns: Option[Seq[String]] = selectedColumns
 
   /** Checks if a file is tracked by this index's file list.
@@ -106,6 +108,7 @@ case class Index private (
   def addFile(fileNames: String*): Unit = {
     require(fileNames != null && fileNames.nonEmpty, "fileNames must not be null or empty")
     require(fileNames.forall(f => f != null && f.trim.nonEmpty), "each fileName must not be null or blank")
+    val startTime = System.currentTimeMillis()
     logger.warn(s"Adding ${fileNames.size} file(s) to index '$name'")
     val lock = IndexLock(fileListLockPath, name)
     val correlationId = UUID.randomUUID().toString
@@ -115,16 +118,30 @@ case class Index private (
     } finally {
       lock.release(correlationId)
     }
+    logger.warn(s"Added ${fileNames.size} file(s) to index '$name' in ${System.currentTimeMillis() - startTime}ms")
   }
 
-  /** Helper function to get a list of files that haven't yet been indexed
+  /** Returns file paths registered via [[addFile]] that have not yet been indexed.
+    *
+    * Delegates to [[unindexedFiles(spark:org\.apache\.spark\.sql\.SparkSession)* unindexedFiles(SparkSession)]].
     *
     * @note This method calls `collect()` on the driver, which can cause OOM
     *       if the number of unindexed files is very large.
-    * @return
-    *   Set of filenames
+    * @return Set[String] of file paths not yet present in the index
     */
   private[ariadne] def unindexedFiles: Set[String] = unindexedFiles(spark)
+
+  /** Returns file paths registered via [[addFile]] that have not yet been indexed,
+    * using the provided SparkSession for implicit conversions.
+    *
+    * Performs a `left_anti` join between the file list and the existing index table
+    * to identify files that still need to be processed.
+    *
+    * @note This method calls `collect()` on the driver, which can cause OOM
+    *       if the number of unindexed files is very large.
+    * @param spark The SparkSession to use for implicit conversions
+    * @return Set[String] of file paths not yet present in the index
+    */
   private[ariadne] def unindexedFiles(spark: SparkSession): Set[String] = {
     val files = fileList.files
     if (files.isEmpty) {
@@ -150,8 +167,7 @@ case class Index private (
     * Delta index table schema. If any metadata columns are missing from the table,
     * all indexed files need to be re-processed for the new columns.
     *
-    * @return
-    *   Set of filenames needing column backfill
+    * @return Set[String] of filenames needing column backfill, empty if no backfill needed
     */
   private[ariadne] def filesNeedingColumnUpdate: Set[String] = {
     import spark.implicits._
@@ -226,6 +242,7 @@ case class Index private (
       writeMetadata(metadata)
       logger.warn(s"Added regular index on column '$index' for index '$name'")
     }
+    logger.debug(s"addIndex completed for column '$index' on index '$name'")
   }
 
   /** Adds a bloom filter index for the specified column.
@@ -289,6 +306,7 @@ case class Index private (
       writeMetadata(metadata)
       logger.warn(s"Added bloom index for column '$column' with FPR=$fpr to index '$name'")
     }
+    logger.debug(s"addBloomIndex completed for column '$column' on index '$name'")
   }
 
   /** Adds an exploded field index for a nested field inside an array column.
@@ -379,6 +397,7 @@ case class Index private (
       writeMetadata(metadata)
       logger.warn(s"Added exploded field index '$asColumn' (array='$arrayColumn', path='$fieldPath') to index '$name'")
     }
+    logger.debug(s"addExplodedFieldIndex completed for column '$asColumn' on index '$name'")
   }
 
   /** Returns all column names that can be used in joins across all index types.
@@ -453,6 +472,7 @@ case class Index private (
       writeMetadata(metadata)
       logger.warn(s"Added computed index '$name' with expression to index '${this.name}'")
     }
+    logger.debug(s"addComputedIndex completed for column '$name' on index '${this.name}'")
   }
 
   /** Adds a temporal index for the specified column using a timestamp for versioning.
@@ -520,6 +540,7 @@ case class Index private (
       writeMetadata(metadata)
       logger.warn(s"Added temporal index for column '$column' (timestamp='$timestampColumn') to index '$name'")
     }
+    logger.debug(s"addTemporalIndex completed for column '$column' on index '$name'")
   }
 
   /** Adds a range index for the specified column.
@@ -578,6 +599,7 @@ case class Index private (
       writeMetadata(metadata)
       logger.warn(s"Added range index for column '$column' to index '$name'")
     }
+    logger.debug(s"addRangeIndex completed for column '$column' on index '$name'")
   }
 
   /** Deletes the specified files from the index, large index tables, and file list.
@@ -864,6 +886,8 @@ case class Index private (
     * @param files Set of files to process
     * @param lock The update lock to refresh during processing
     * @param correlationId The correlation ID for lock refresh
+    * @param isBackfill When true, indicates this is a column backfill rather than new file indexing;
+    *                   file sizes will not be re-counted toward the total
     */
   private def updateBatched(files: Set[String], lock: IndexLock, correlationId: String, isBackfill: Boolean = false): Unit = {
     val updateBatchedStart = System.currentTimeMillis()
@@ -915,6 +939,8 @@ case class Index private (
   /** Updates the index with a single batch of files.
     *
     * @param files Set of files to process in this batch
+    * @param isBackfill When true, indicates this is a column backfill rather than new file indexing;
+    *                   file sizes will not be re-counted toward the total
     */
   private def updateSingleBatch(files: Set[String], isBackfill: Boolean = false): Unit = {
     val singleBatchStart = System.currentTimeMillis()

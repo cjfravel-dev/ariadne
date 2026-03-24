@@ -404,6 +404,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
     * @param df the combined index DataFrame to stage
     */
   protected def appendToStaging(df: DataFrame): Unit = {
+    val startTime = System.currentTimeMillis()
     val allStorageColumns = storageColumns
     
     // Create small grouped DataFrame (filter out large indexes)
@@ -428,6 +429,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
       .option("mergeSchema", "true")
       .mode("append")
       .save(stagingFilePath.toString)
+    logger.warn(s"Staging append completed for '$name' ($rowCount rows) in ${System.currentTimeMillis() - startTime}ms")
   }
 
   /** Appends large index data to per-column Delta tables under `large_indexes/`.
@@ -448,6 +450,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
     * @param df the combined index DataFrame with array columns
     */
   protected def appendToLargeIndex(df: DataFrame): Unit = {
+    val startTime = System.currentTimeMillis()
     val allStorageColumns = storageColumns
     if (allStorageColumns.nonEmpty) {
     
@@ -493,6 +496,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
           .save(columnPath.toString)
       }
     }
+    logger.warn(s"Large index append completed for '$name' (${allStorageColumns.size} columns) in ${System.currentTimeMillis() - startTime}ms")
     }
   }
 
@@ -661,6 +665,11 @@ trait IndexBuildOperations extends BloomFilterOperations {
     * the transaction log. Temporarily disables the retention duration safety check
     * when `retentionHours` is zero or negative.
     *
+    * @note '''Thread-safety:''' This method temporarily mutates the shared SparkConf
+    *       (`retentionDurationCheck.enabled`). Concurrent `Index` instances sharing
+    *       the same `SparkSession` may race on this setting. The value is restored
+    *       in a `finally` block, but a TOCTOU window exists between set and restore.
+    *
     * @param retentionHours number of hours of history to retain (default 168 = 7 days)
     */
   protected def vacuumDeltaTables(retentionHours: Int = 168): Unit = {
@@ -731,8 +740,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
         case Some(deltaTable) =>
           logger.warn(s"Merging staging data into main index at ${indexFilePath}")
           // Enable schema auto-merge so new index columns evolve the target table.
-          // NOTE: SparkConf mutation is not thread-safe — concurrent Index instances
-          // sharing the same SparkSession could clobber each other's config values.
+          // NOTE: THREAD-SAFETY: SparkConf mutation is not thread-safe — concurrent
+          // Index instances sharing the same SparkSession may race on this setting.
+          // Delta MERGE requires the global config (per-writer .option does not apply).
           val previousAutoMerge = spark.conf.getOption("spark.databricks.delta.schema.autoMerge.enabled")
           spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
           try {

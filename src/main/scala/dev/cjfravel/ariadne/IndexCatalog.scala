@@ -208,12 +208,15 @@ object IndexCatalog {
     */
   def findIndexes(fileName: String)(implicit spark: SparkSession): Seq[String] = {
     require(fileName != null && fileName.trim.nonEmpty, "fileName must not be null or blank")
+    val startTime = System.currentTimeMillis()
     val names = list()
     logger.warn(s"IndexCatalog: searching ${names.size} index(es) for file '$fileName'")
-    names.filter { name =>
+    val result = names.filter { name =>
       val fileListName = IndexPathUtils.fileListName(name)
       FileList.exists(fileListName) && FileList(fileListName).hasFile(fileName)
     }
+    logger.warn(s"IndexCatalog: findIndexes completed for '$fileName' — found ${result.size} match(es) in ${System.currentTimeMillis() - startTime}ms")
+    result
   }
 
   /** Fetches an [[Index]] instance by reconnecting to an existing index.

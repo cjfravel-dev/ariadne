@@ -28,7 +28,18 @@ class IndexLockException(message: String) extends AriadneException(message) {
     )
 }
 
+/** Factory for [[IndexLockException]] instances.
+  *
+  * Provides a convenient `apply` method to create timeout-based lock exceptions
+  * without specifying holder details.
+  */
 object IndexLockException {
+
+  /** Creates an [[IndexLockException]] for a lock acquisition timeout.
+    *
+    * @param indexName the name of the index whose lock could not be acquired
+    * @return a new `IndexLockException` with a timeout message
+    */
   def apply(indexName: String): IndexLockException =
     new IndexLockException(s"Could not acquire lock for index '$indexName' within the configured timeout")
 }
