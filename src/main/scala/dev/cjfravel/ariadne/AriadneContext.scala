@@ -6,33 +6,83 @@ import org.apache.logging.log4j.{Logger, LogManager}
 import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.FSDataInputStream
 
-/** Provides context and helper methods for Ariadne operations using an implicit
-  * SparkSession. This trait should be mixed in by classes that need access to
-  * Ariadne resources.
+/** Provides Spark session context, HDFS access, and configuration for Ariadne operations.
+  *
+  * Mix this trait into any class that needs access to Ariadne infrastructure.
+  * All configuration is read lazily from `SparkConf` properties prefixed with
+  * `spark.ariadne.*` and logged at `warn` level on first access.
+  *
+  * '''Spark configuration keys:'''
+  * {{{
+  * spark.ariadne.storagePath                 (required) Base HDFS/filesystem path for index storage
+  * spark.ariadne.largeIndexLimit             (default: 500000) Max values before a column is "large"
+  * spark.ariadne.stagingConsolidationThreshold (default: 50) Batches between staging merges
+  * spark.ariadne.indexRepartitionCount       (optional) Repartition count for index DataFrames
+  * spark.ariadne.debug                       (default: false) Enable verbose join diagnostics
+  * spark.ariadne.repartitionDataFiles        (default: false) Repartition data files during joins
+  * spark.ariadne.lockTimeout                 (default: 1800) Seconds before a lock is considered stale
+  * spark.ariadne.lockRetryInterval           (default: 60) Base seconds between lock retries
+  * spark.ariadne.lockMaxWait                 (default: 3600) Max seconds to wait for a lock
+  * spark.ariadne.lockRefreshInterval         (default: 1) Batches between lock refreshes
+  * spark.ariadne.autoCompactThreshold        (optional) Delta log file count triggering auto-compact
+  * spark.ariadne.autoBloomFpr                (default: 0.01) FPR for auto-bloom filters on large columns
+  * }}}
+  *
+  * '''Thread safety:''' Lazy vals are initialized at most once per instance and
+  * are safe for concurrent reads after initialization. However, the underlying
+  * `SparkSession` and `FileSystem` are shared resources governed by Spark's own
+  * concurrency model.
   */
 trait AriadneContextUser {
-  val logger: Logger = LogManager.getLogger("ariadne")
+  /** Log4j logger shared by all Ariadne components. Uses the "ariadne" logger name.
+    * Marked `@transient lazy` so that `Index` (a case class) remains serializable
+    * across Spark stages — Log4j loggers are not `Serializable`.
+    */
+  @transient lazy val logger: Logger = LogManager.getLogger("ariadne")
 
-  /** Implicit SparkSession that must be provided by the mixing class */
+  /** Implicit SparkSession that must be provided by the mixing class. */
   implicit def spark: SparkSession
 
-  /** Path on FileSystem where Ariadne should create files. Reads from
-    * spark.ariadne.storagePath configuration.
+  /** Base path on the Hadoop-compatible filesystem where all Ariadne index data
+    * is stored. Each index creates a subdirectory under this path.
+    *
+    * Reads from `spark.ariadne.storagePath` (required — no default).
+    *
+    * @throws IllegalArgumentException if the configuration key is not set
     */
   lazy val storagePath: Path = {
-    val path = new Path(spark.conf.get("spark.ariadne.storagePath"))
+    val pathStr = spark.conf.getOption("spark.ariadne.storagePath")
+      .getOrElse(throw new IllegalArgumentException(
+        "Spark configuration 'spark.ariadne.storagePath' must be set. " +
+        "Set it via spark.conf.set(\"spark.ariadne.storagePath\", \"/path/to/storage\")"))
+    val path = new Path(pathStr)
     logger.warn(s"storagePath initialized: $path")
-    println(s"Ariadne storage path: $path")
     path
   }
 
-  /** Maximum number of records before an index is considered "large". Reads
-    * from spark.ariadne.largeIndexLimit configuration (default: 500000).
+  /** Maximum number of distinct values per file before an index column is promoted
+    * to a "large index" (stored in a separate exploded Delta table). Reads
+    * from `spark.ariadne.largeIndexLimit` (default: 500000).
+    *
+    * If the configured value is not a valid positive number, a warning is logged
+    * and the default of 500,000 is used.
     */
   lazy val largeIndexLimit: Long = {
-    val limit = spark.conf.get("spark.ariadne.largeIndexLimit", "500000").toLong
-    logger.warn(s"largeIndexLimit initialized: $limit")
-    limit
+    val limit = try {
+      spark.conf.get("spark.ariadne.largeIndexLimit", "500000").toLong
+    } catch {
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.largeIndexLimit value, using default 500000: ${e.getMessage}")
+        500000L
+    }
+    val validated = if (limit <= 0) {
+      logger.warn(s"spark.ariadne.largeIndexLimit must be positive (got $limit), using default 500000")
+      500000L
+    } else {
+      limit
+    }
+    logger.warn(s"largeIndexLimit initialized: $validated")
+    validated
   }
 
   /** Number of batches to process before consolidating staged data into the
@@ -42,10 +92,19 @@ trait AriadneContextUser {
     * 50).
     */
   lazy val stagingConsolidationThreshold: Int = {
-    val threshold =
+    val threshold = try {
       spark.conf.get("spark.ariadne.stagingConsolidationThreshold", "50").toInt
-    logger.warn(s"stagingConsolidationThreshold initialized: $threshold")
-    threshold
+    } catch {
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.stagingConsolidationThreshold value, using default 50: ${e.getMessage}")
+        50
+    }
+    val validated = if (threshold <= 0) {
+      logger.warn(s"spark.ariadne.stagingConsolidationThreshold must be positive (got $threshold), using default 50")
+      50
+    } else threshold
+    logger.warn(s"stagingConsolidationThreshold initialized: $validated")
+    validated
   }
 
   /** Optional number of partitions to use when repartitioning the index
@@ -55,8 +114,15 @@ trait AriadneContextUser {
     * spark.ariadne.indexRepartitionCount configuration (default: not set).
     */
   lazy val indexRepartitionCount: Option[Int] = {
-    val count =
-      spark.conf.getOption("spark.ariadne.indexRepartitionCount").map(_.toInt)
+    val count = spark.conf.getOption("spark.ariadne.indexRepartitionCount").flatMap { v =>
+      try {
+        Some(v.toInt)
+      } catch {
+        case e: NumberFormatException =>
+          logger.warn(s"Invalid spark.ariadne.indexRepartitionCount value, ignoring: ${e.getMessage}")
+          None
+      }
+    }
     count.foreach(c => logger.warn(s"indexRepartitionCount initialized: $c"))
     count
   }
@@ -66,53 +132,94 @@ trait AriadneContextUser {
     * spark.ariadne.debug configuration (default: false).
     */
   lazy val debugEnabled: Boolean = {
-    val enabled =
+    val enabled = try {
       spark.conf.get("spark.ariadne.debug", "false").toBoolean
+    } catch {
+      case e: IllegalArgumentException =>
+        logger.warn(s"Invalid spark.ariadne.debug value, using default false: ${e.getMessage}")
+        false
+    }
     if (enabled) logger.warn("Debug mode enabled")
     enabled
   }
 
-  /** When true (default), applies indexRepartitionCount repartitioning to the
+  /** When true, applies indexRepartitionCount repartitioning to the
     * data files read during joinDf. When false, data files keep their natural
     * parquet partitioning. Disable when column selection significantly reduces
     * data volume, making the repartition shuffle more expensive than useful.
-    * Reads from spark.ariadne.repartitionDataFiles configuration (default: true).
+    * Reads from spark.ariadne.repartitionDataFiles configuration (default: false).
     */
   lazy val repartitionDataFiles: Boolean = {
-    val enabled =
+    val enabled = try {
       spark.conf.get("spark.ariadne.repartitionDataFiles", "false").toBoolean
+    } catch {
+      case e: IllegalArgumentException =>
+        logger.warn(s"Invalid spark.ariadne.repartitionDataFiles value, using default false: ${e.getMessage}")
+        false
+    }
     if (enabled) logger.warn("repartitionDataFiles enabled — data files will be repartitioned")
     enabled
   }
 
-  /** Hadoop FileSystem instance associated with the storage path. */
+  /** Hadoop `FileSystem` instance resolved from the [[storagePath]] URI and
+    * the Spark Hadoop configuration. Used for all filesystem operations
+    * (existence checks, reads, deletes, lock files).
+    */
   lazy val fs: FileSystem = {
+    val fsUri = Option(storagePath.getParent).getOrElse(storagePath).toUri
     val filesystem = FileSystem.get(
-      storagePath.getParent.toUri,
+      fsUri,
       spark.sparkContext.hadoopConfiguration
     )
-    logger.warn(s"FileSystem initialized for: ${storagePath.getParent}")
+    logger.warn(s"FileSystem initialized for: $storagePath")
     filesystem
   }
 
-  /** Checks if a path exists on the filesystem */
-  def exists(path: Path): Boolean = fs.exists(path)
+  /** Checks if a path exists on the filesystem.
+    *
+    * @param path The Hadoop Path to check
+    * @return true if the path exists
+    */
+  def exists(path: Path): Boolean = {
+    require(path != null, "path must not be null")
+    fs.exists(path)
+  }
 
-  /** Deletes a path recursively from the filesystem */
-  def delete(path: Path): Boolean = fs.delete(path, true)
+  /** Deletes a path recursively from the filesystem.
+    *
+    * @param path The Hadoop Path to delete
+    * @return true if the path was successfully deleted
+    */
+  def delete(path: Path): Boolean = {
+    require(path != null, "path must not be null")
+    fs.delete(path, true)
+  }
 
-  /** Opens an input stream to read from a path */
-  def open(path: Path): FSDataInputStream = fs.open(path)
+  /** Opens an input stream to read from a path on the filesystem.
+    *
+    * @param path The Hadoop Path to open for reading
+    * @return An FSDataInputStream for reading the file contents
+    */
+  def open(path: Path): FSDataInputStream = {
+    require(path != null, "path must not be null")
+    fs.open(path)
+  }
 
-  /** Returns a DeltaTable if the path exists and is a valid Delta table. If the
-    * path exists but is not a valid Delta table, it will be deleted and None
-    * returned. If the path doesn't exist, None is returned.
+  /** Returns a [[io.delta.tables.DeltaTable]] if the path exists and contains valid Delta metadata.
+    *
+    * If the path exists but is ''not'' a valid Delta table (e.g., leftover partial
+    * write), the directory is deleted and `None` is returned so it can be
+    * recreated cleanly on the next write.
+    *
+    * @param path The Hadoop Path to check for a Delta table
+    * @return `Some(DeltaTable)` if a valid Delta table exists, `None` otherwise
     */
   def delta(path: Path): Option[DeltaTable] = {
     if (exists(path)) {
       if (DeltaTable.isDeltaTable(spark, path.toString)) {
         Some(DeltaTable.forPath(spark, path.toString))
       } else {
+        logger.warn(s"Path $path exists but is not a Delta table — deleting to allow re-creation")
         delete(path)
         None
       }
@@ -121,11 +228,18 @@ trait AriadneContextUser {
     }
   }
 
-  /** Time in seconds after lastRefreshedAt before a lock is considered stale and eligible for auto-heal.
-    * Reads from spark.ariadne.lockTimeout configuration (default: 1800).
+  /** Seconds since `lastRefreshedAt` before a lock is considered stale and
+    * eligible for auto-heal (forcible acquisition by another process).
+    * Reads from `spark.ariadne.lockTimeout` (default: 1800).
     */
   lazy val lockTimeout: Long = {
-    val value = spark.conf.get("spark.ariadne.lockTimeout", "1800").toLong
+    val value = try {
+      spark.conf.get("spark.ariadne.lockTimeout", "1800").toLong
+    } catch {
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.lockTimeout value, using default 1800: ${e.getMessage}")
+        1800L
+    }
     logger.warn(s"lockTimeout initialized: $value")
     value
   }
@@ -134,7 +248,13 @@ trait AriadneContextUser {
     * Reads from spark.ariadne.lockRetryInterval configuration (default: 60).
     */
   lazy val lockRetryInterval: Long = {
-    val value = spark.conf.get("spark.ariadne.lockRetryInterval", "60").toLong
+    val value = try {
+      spark.conf.get("spark.ariadne.lockRetryInterval", "60").toLong
+    } catch {
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.lockRetryInterval value, using default 60: ${e.getMessage}")
+        60L
+    }
     logger.warn(s"lockRetryInterval initialized: $value")
     value
   }
@@ -143,7 +263,13 @@ trait AriadneContextUser {
     * Reads from spark.ariadne.lockMaxWait configuration (default: 3600).
     */
   lazy val lockMaxWait: Long = {
-    val value = spark.conf.get("spark.ariadne.lockMaxWait", "3600").toLong
+    val value = try {
+      spark.conf.get("spark.ariadne.lockMaxWait", "3600").toLong
+    } catch {
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.lockMaxWait value, using default 3600: ${e.getMessage}")
+        3600L
+    }
     logger.warn(s"lockMaxWait initialized: $value")
     value
   }
@@ -152,8 +278,56 @@ trait AriadneContextUser {
     * Reads from spark.ariadne.lockRefreshInterval configuration (default: 1).
     */
   lazy val lockRefreshInterval: Int = {
-    val value = spark.conf.get("spark.ariadne.lockRefreshInterval", "1").toInt
+    val value = try {
+      spark.conf.get("spark.ariadne.lockRefreshInterval", "1").toInt
+    } catch {
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.lockRefreshInterval value, using default 1: ${e.getMessage}")
+        1
+    }
     logger.warn(s"lockRefreshInterval initialized: $value")
     value
+  }
+
+  /** Optional threshold for auto-compaction. When set, the main index Delta table
+    * is compacted after an update if the number of Delta log JSON files meets or
+    * exceeds this value. Reads from spark.ariadne.autoCompactThreshold configuration
+    * (default: not set).
+    */
+  lazy val autoCompactThreshold: Option[Int] = {
+    val value = spark.conf.getOption("spark.ariadne.autoCompactThreshold").flatMap { v =>
+      try {
+        Some(v.toInt)
+      } catch {
+        case e: NumberFormatException =>
+          logger.warn(s"Invalid spark.ariadne.autoCompactThreshold value, ignoring: ${e.getMessage}")
+          None
+      }
+    }
+    value.foreach(v => logger.warn(s"autoCompactThreshold initialized: $v"))
+    value
+  }
+
+  /** False positive rate for auto-bloom filters on large index columns.
+    * When a column exceeds largeIndexLimit, an auto-bloom filter is built
+    * with this FPR to enable file pruning at query time.
+    * Reads from spark.ariadne.autoBloomFpr configuration (default: 0.01).
+    */
+  lazy val autoBloomFpr: Double = {
+    val value = try {
+      spark.conf.get("spark.ariadne.autoBloomFpr", "0.01").toDouble
+    } catch {
+      case e: NumberFormatException =>
+        logger.warn(s"Invalid spark.ariadne.autoBloomFpr value, using default 0.01: ${e.getMessage}")
+        0.01
+    }
+    val validated = if (value <= 0.0 || value >= 1.0) {
+      logger.warn(s"autoBloomFpr value $value is out of valid range (0, 1), using default 0.01")
+      0.01
+    } else {
+      value
+    }
+    logger.warn(s"autoBloomFpr initialized: $validated")
+    validated
   }
 }

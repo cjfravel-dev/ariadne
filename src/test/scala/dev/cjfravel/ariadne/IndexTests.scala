@@ -7,6 +7,9 @@ import org.apache.spark.sql.Row
 import dev.cjfravel.ariadne.Index.DataFrameOps
 import java.nio.file.Files
 
+/** Tests for the [[Index]] case class covering schema validation, index type
+  * mutual exclusivity, idempotent add operations, and configuration options.
+  */
 class IndexTests extends SparkTests {
   val table1Schema = StructType(
     Seq(
@@ -158,10 +161,11 @@ class IndexTests extends SparkTests {
     assert(index.unindexedFiles.size === 0)
     index.printIndex(false)
     index.printMetadata
+    // AND semantics: Version=3 only in part1, Id=1 in both → intersection = part1 only
     assert(
       index
         .locateFiles(Map("Version" -> Array("3"), "Id" -> Array("1")))
-        .size === 2
+        .size === 1
     )
     assert(index.locateFiles(Map("Value" -> Array(4.5))).size === 1)
     assert(index.locateFiles(Map("Value" -> Array(-1))).size === 0)
@@ -193,7 +197,8 @@ class IndexTests extends SparkTests {
 
     assert(table2.join(index, Seq("Version", "Id"), "left_semi").count === 1)
     assert(table2.join(index, Seq("Version"), "fullouter").count === 4)
-    assert(table2.join(index, Seq("Version", "Id"), "fullouter").count === 8)
+    // AND semantics: intersection reads only part1 (4 rows), so fullouter = 4
+    assert(table2.join(index, Seq("Version", "Id"), "fullouter").count === 4)
     assert(
       normalizeSchema(
         table2.join(index, Seq("Version"), "left_semi").schema
@@ -202,7 +207,8 @@ class IndexTests extends SparkTests {
 
     assert(index.join(table2, Seq("Version", "Id"), "left_semi").count === 1)
     assert(index.join(table2, Seq("Version"), "fullouter").count === 4)
-    assert(index.join(table2, Seq("Version", "Id"), "fullouter").count === 8)
+    // AND semantics: intersection reads only part1 (4 rows), so fullouter = 4
+    assert(index.join(table2, Seq("Version", "Id"), "fullouter").count === 4)
     assert(
       normalizeSchema(
         index.join(table2, Seq("Version"), "left_semi").schema

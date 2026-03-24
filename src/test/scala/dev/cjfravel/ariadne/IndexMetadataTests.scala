@@ -8,6 +8,9 @@ import java.nio.file.Paths
 import java.nio.file.Files
 import collection.JavaConverters._
 
+/** Tests for [[IndexMetadata]] JSON parsing and version migration logic,
+  * verifying forward-compatible deserialization from v1 through the latest schema version.
+  */
 class IndexMetadataTests extends AnyFunSuite {
   test("v1") {
     val stream = getClass.getResourceAsStream("/index_metadata/v1.json")
@@ -243,5 +246,139 @@ class IndexMetadataTests extends AnyFunSuite {
     assert(metadata.read_options.size() === 0)
     assert(metadata.bloom_indexes.size() === 0)
     assert(metadata.temporal_indexes.size() === 0)
+  }
+
+  test("v6 -> v7") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v6.json")
+    require(stream != null, "Resource not found: /index_metadata/v6.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.bloom_indexes.size() === 2)
+    assert(metadata.temporal_indexes.size() === 2)
+    // v6 -> v7 migration should add empty range_indexes
+    assert(metadata.range_indexes.size() === 0)
+  }
+
+  test("v7") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v7.json")
+    require(stream != null, "Resource not found: /index_metadata/v7.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 2)
+    assert(metadata.exploded_field_indexes.size() === 2)
+    assert(metadata.read_options.size() === 2)
+    assert(metadata.bloom_indexes.size() === 2)
+    assert(metadata.temporal_indexes.size() === 2)
+    assert(metadata.range_indexes.size() === 2)
+
+    val rangeIndexes = metadata.range_indexes.asScala.toSeq
+    val amountIndex = rangeIndexes.find(_.column == "amount").get
+    assert(amountIndex.column === "amount")
+    val scoreIndex = rangeIndexes.find(_.column == "score").get
+    assert(scoreIndex.column === "score")
+  }
+
+  test("v7 -> v8") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v7.json")
+    require(stream != null, "Resource not found: /index_metadata/v7.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.range_indexes.size() === 2)
+    // v7 -> v8 migration should add empty auto_bloom_indexes
+    assert(metadata.auto_bloom_indexes.size() === 0)
+  }
+
+  test("v8") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v8.json")
+    require(stream != null, "Resource not found: /index_metadata/v8.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 2)
+    assert(metadata.exploded_field_indexes.size() === 2)
+    assert(metadata.read_options.size() === 2)
+    assert(metadata.bloom_indexes.size() === 2)
+    assert(metadata.temporal_indexes.size() === 2)
+    assert(metadata.range_indexes.size() === 2)
+    assert(metadata.auto_bloom_indexes.size() === 2)
+    assert(metadata.auto_bloom_indexes.contains("Test"))
+    assert(metadata.auto_bloom_indexes.contains("Test2"))
+  }
+
+  test("v1 -> v8 full migration") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v1.json")
+    require(stream != null, "Resource not found: /index_metadata/v1.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 0)
+    assert(metadata.exploded_field_indexes.size() === 0)
+    assert(metadata.read_options.size() === 0)
+    assert(metadata.bloom_indexes.size() === 0)
+    assert(metadata.temporal_indexes.size() === 0)
+    assert(metadata.range_indexes.size() === 0)
+    assert(metadata.auto_bloom_indexes.size() === 0)
+  }
+
+  test("v8 -> v9") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v8.json")
+    require(stream != null, "Resource not found: /index_metadata/v8.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.auto_bloom_indexes.size() === 2)
+    // v8 -> v9 migration should add total_indexed_file_size = -1
+    assert(metadata.total_indexed_file_size === -1L)
+  }
+
+  test("v9") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v9.json")
+    require(stream != null, "Resource not found: /index_metadata/v9.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 2)
+    assert(metadata.exploded_field_indexes.size() === 2)
+    assert(metadata.read_options.size() === 2)
+    assert(metadata.bloom_indexes.size() === 2)
+    assert(metadata.temporal_indexes.size() === 2)
+    assert(metadata.range_indexes.size() === 2)
+    assert(metadata.auto_bloom_indexes.size() === 2)
+    assert(metadata.total_indexed_file_size === 1048576L)
+  }
+
+  test("v1 -> v9 full migration") {
+    val stream = getClass.getResourceAsStream("/index_metadata/v1.json")
+    require(stream != null, "Resource not found: /index_metadata/v1.json")
+    val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    val metadata = IndexMetadata(jsonString)
+    assert(metadata.format === "parquet")
+    assert(metadata.schema === "not a real schema")
+    assert(metadata.indexes.size() === 2)
+    assert(metadata.computed_indexes.size() === 0)
+    assert(metadata.exploded_field_indexes.size() === 0)
+    assert(metadata.read_options.size() === 0)
+    assert(metadata.bloom_indexes.size() === 0)
+    assert(metadata.temporal_indexes.size() === 0)
+    assert(metadata.range_indexes.size() === 0)
+    assert(metadata.auto_bloom_indexes.size() === 0)
+    assert(metadata.total_indexed_file_size === -1L)
   }
 }

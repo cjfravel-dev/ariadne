@@ -6,6 +6,9 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
 
+/** Tests for [[IndexBuildOperations]] verifying that regular and computed index
+  * columns are correctly built and persisted during the `update` workflow.
+  */
 class IndexBuildOperationsTests extends SparkTests with Matchers {
 
   val testSchema = StructType(

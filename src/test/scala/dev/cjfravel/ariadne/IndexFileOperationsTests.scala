@@ -7,6 +7,9 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
 import java.nio.file.Files
 
+/** Tests for file I/O operations on indexes, covering CSV and JSON formats
+  * with various read options (multiLine, headers, delimiters) and schema round-trips.
+  */
 class IndexFileOperationsTests extends SparkTests with Matchers {
 
   val csvSchema = StructType(

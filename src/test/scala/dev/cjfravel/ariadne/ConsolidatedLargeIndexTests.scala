@@ -7,6 +7,9 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
 import org.apache.hadoop.fs.Path
 
+/** Tests for large index consolidation, verifying that exploded per-column Delta tables
+  * are correctly created and queried for columns exceeding the `largeIndexLimit`.
+  */
 class ConsolidatedLargeIndexTests extends SparkTests with Matchers {
 
   val testSchema = StructType(

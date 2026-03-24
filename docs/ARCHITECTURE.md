@@ -96,10 +96,12 @@ The Ariadne Index system provides a modular architecture for managing file-based
 
 **Protected Methods**:
 
-- `readFiles(files: Set[String]): DataFrame` - Reads files into DataFrame
+- `readFiles(files: Set[String]): DataFrame` - Reads files into DataFrame (full pipeline: base read → computed indexes → exploded fields → column selection)
 - `createBaseDataFrame(files: Set[String]): DataFrame` - Creates base DataFrame
 - `applyComputedIndexes(df: DataFrame): DataFrame` - Adds computed columns
 - `applyExplodedFields(df: DataFrame): DataFrame` - Adds exploded field columns
+- `applyColumnSelection(df: DataFrame): DataFrame` - Prunes to user-selected columns if specified via `select()`
+- `addFilenameColumn(df: DataFrame, files: Set[String]): DataFrame` - Adds stable filename column using `input_file_name()`
 
 ### 4. BloomFilterOperations
 
@@ -144,9 +146,19 @@ The Ariadne Index system provides a modular architecture for managing file-based
 
 - `buildRegularIndexes(df: DataFrame): DataFrame` - Builds regular indexes
 - `buildExplodedFieldIndexes(baseData: DataFrame, resultDf: DataFrame): DataFrame` - Builds exploded indexes
+- `buildTemporalIndexes(df: DataFrame): DataFrame` - Builds temporal indexes (struct arrays with value + max_ts per file)
+- `buildRangeIndexes(df: DataFrame): DataFrame` - Builds range indexes (struct with min/max per file)
+- `buildAutoBloomIndexes(df: DataFrame): DataFrame` - Builds auto-bloom filters for columns exceeding `largeIndexLimit`
 - `handleLargeIndexes(df: DataFrame): Unit` - Handles large index storage
-- `mergeToDelta(df: DataFrame): Unit` - Merges data to Delta table
+- `appendToStaging(df: DataFrame): Unit` - Appends data to staging Delta table
+- `appendToLargeIndex(df: DataFrame): Unit` - Appends data to large index Delta tables
+- `consolidateStaging(): Unit` - Merges staging Delta table into main index via Delta MERGE
+- `maybeAutoCompact(): Unit` - Runs compaction if `autoCompactThreshold` is set and batch count has been reached
+- `analyzeFiles(files: Set[String]): Seq[FileAnalysis]` - Pre-flight scan for batching decisions
+- `createOptimalBatches(fileAnalyses: Seq[FileAnalysis]): Seq[Set[String]]` - Groups files into optimal batches
+- `getFileSizes(files: Set[String]): Map[String, Long]` - Computes file sizes in bytes from Hadoop FileSystem
 - `storageColumns: Set[String]` - Returns all storage column names
+- `rangeStorageColumns: Set[String]` - Returns range storage column names (prefixed with `range_`)
 - `indexFilePath: Path` - Path to main index Delta table
 - `largeIndexesFilePath: Path` - Path to large indexes storage
 
@@ -169,8 +181,8 @@ The Ariadne Index system provides a modular architecture for managing file-based
 **Protected Methods**:
 
 - `joinDf(df: DataFrame, usingColumns: Seq[String]): DataFrame` - Creates optimized join DataFrame
-- `mapJoinColumnsToStorage(joinColumns: Seq[String]): Map[String, String]` - Maps join to storage columns (including bloom columns with `bloom_` prefix)
-- `applyJoinFilters(...)` - Creates filter conditions (skips bloom columns since filtering is done at file level)
+- `mapJoinColumnsToStorage(joinColumns: Seq[String]): Map[String, String]` - Maps join to storage columns (including bloom columns with `bloom_` prefix, range columns with `range_` prefix, and exploded field columns to their backing array column)
+- `applyTemporalDeduplication(df: DataFrame, joinColumns: Seq[String]): DataFrame` - Keeps only the latest version of each value for temporal index columns used in the current join
 
 ### 7. IndexQueryOperations
 
@@ -187,7 +199,11 @@ The Ariadne Index system provides a modular architecture for managing file-based
 **Key Methods**:
 
 - `locateFiles(indexes: Map[String, Array[Any]]): Set[String]` - Find files matching criteria
+- `locateFilesFromDataFrame(valuesDf: DataFrame, columnMappings: Map[String, String], joinColumns: Seq[String]): Set[String]` - Find files matching DataFrame values
 - `stats(): DataFrame` - Get comprehensive statistics
+
+**Internal/Diagnostic Methods** (`private[ariadne]`):
+
 - `printIndex(truncate: Boolean = false): Unit` - Print index contents
 - `printMetadata: Unit` - Print metadata information
 
@@ -196,7 +212,11 @@ The Ariadne Index system provides a modular architecture for managing file-based
 - `index: Option[DataFrame]` - Access to main index DataFrame
 - `largeIndexColumns: Set[String]` - Returns column names with large index Delta tables
 - `loadLargeIndex(colName: String): Option[DataFrame]` - Loads a large index Delta table in row form
+- `loadColumnIndex(indexDf: DataFrame, colName: String, bloomCandidateFiles: Option[Set[String]]): DataFrame` - Returns unified (filename, value) DataFrame for a regular index column
+- `loadTemporalColumnIndex(indexDf: DataFrame, colName: String): DataFrame` - Returns unified (filename, _value, _max_ts) DataFrame for a temporal index column
 - `maybeRepartition(df: DataFrame): DataFrame` - Conditionally repartitions a DataFrame based on `indexRepartitionCount` configuration
+- `getAutoBloomCandidates(column: String, values: Array[Any], indexDf: DataFrame): Option[Set[String]]` - Pre-filters files using auto-bloom before querying large index tables
+- `collectFilenamesViaStaging(resultDF: DataFrame): Set[String]` - Collects filenames via temporary CSV storage to reduce executor memory pressure
 
 ### 8. IndexLock (Concurrency Control)
 
@@ -230,6 +250,9 @@ The Ariadne Index system provides a modular architecture for managing file-based
 
 - `addFile()` acquires/releases `.filelist.lock`
 - `update()` acquires/releases `.update.lock` with periodic refresh every `lockRefreshInterval` batches
+- `deleteFiles()` acquires/releases `.update.lock`
+- `compact()` acquires/releases `.update.lock`
+- `vacuum()` acquires/releases `.update.lock`
 
 ### 9. Index Class (Main API)
 
@@ -252,8 +275,14 @@ case class Index private (
 - `addBloomIndex(column: String, fpr: Double = 0.01): Unit` - Add bloom filter index (mutually exclusive with regular index)
 - `addComputedIndex(name: String, sql_expression: String): Unit` - Add computed index
 - `addExplodedFieldIndex(arrayColumn: String, fieldPath: String, asColumn: String): Unit` - Add exploded field index
-- `indexes: Set[String]` - Get all available index column names (includes both regular and bloom indexes)
+- `addTemporalIndex(column: String, timestampColumn: String): Unit` - Add temporal index for version-aware deduplication
+- `addRangeIndex(column: String): Unit` - Add range index for min/max file pruning
+- `indexes: Set[String]` - Get all available index column names (includes regular, computed, exploded, bloom, temporal, and range indexes)
+- `select(columns: String*): Index` - Select specific columns for optimized reading (returns Index for chaining)
 - `update: Unit` - Update index with new files
+- `deleteFiles(filenames: String*): Unit` - Delete files from the index, large index tables, staging, and file list
+- `compact(): Unit` - Run Delta OPTIMIZE on all index Delta tables
+- `vacuum(retentionHours: Int = 168): Unit` - Run Delta VACUUM on all index Delta tables
 - `storagePath: Path` - Storage location for this index
 
 **Factory Methods** (in companion object):
@@ -261,6 +290,8 @@ case class Index private (
 - `Index(name: String, schema: StructType, format: String): Index`
 - `Index(name: String, schema: StructType, format: String, allowSchemaMismatch: Boolean): Index`
 - `Index(name: String, schema: StructType, format: String, readOptions: Map[String, String]): Index`
+- `Index(name: String, schema: StructType, format: String, allowSchemaMismatch: Boolean, readOptions: Map[String, String]): Index`
+- `Index(name: String): Index` - Reconnect to an existing index (metadata must exist)
 
 ### 10. IndexPathUtils (Object)
 
@@ -296,6 +327,11 @@ case class Index private (
 - `exploded_field_indexes: util.List[ExplodedFieldMapping]` - Exploded field configurations
 - `read_options: util.Map[String, String]` - Format-specific read options
 - `bloom_indexes: util.List[BloomIndexConfig]` - Bloom filter index configurations
+- `temporal_indexes: util.List[TemporalIndexConfig]` - Temporal index configurations
+- `range_indexes: util.List[RangeIndexConfig]` - Range index configurations
+- `auto_bloom_indexes: util.List[String]` - Columns with automatic bloom filters (for large indexes)
+- `total_indexed_file_size: java.lang.Long` - Cumulative size in bytes of all indexed files, or -1 if unknown
+- `batches_since_compact: java.lang.Integer` - Number of update batches since last compaction (persisted across Spark jobs)
 
 #### BloomIndexConfig
 
@@ -320,6 +356,64 @@ case class Index private (
 
 **Purpose**: Tracks which files have been added to an index for processing.
 
+**Storage**: Persisted as a Delta Lake table with two columns: `filename` (StringType) and `addedAt` (TimestampType).
+
+**Key Methods**:
+
+- `files: DataFrame` - Returns the DataFrame of tracked files (lazily loaded and cached)
+- `addFile(fileNames: String*): Unit` - Registers new files (skips duplicates)
+- `removeFile(fileNames: String*): Unit` - Removes files via Delta merge-delete
+- `hasFile(fileName: String): Boolean` - Checks if a file is tracked
+
+**Factory Methods** (companion object):
+
+- `FileList(name: String): FileList` - Creates an instance backed by a Delta table
+- `FileList.exists(name: String): Boolean` - Checks if a file list exists on storage
+- `FileList.remove(name: String): Boolean` - Removes a file list Delta table
+
+#### TemporalIndexConfig
+
+**Purpose**: Configuration for temporal indexes that track entity versions across files.
+
+**Fields**:
+
+- `column: String` - The value column to index and deduplicate on (e.g., "user_id")
+- `timestamp_column: String` - The timestamp column used to determine recency (e.g., "updated_at")
+
+#### RangeIndexConfig
+
+**Purpose**: Configuration for range indexes that store min/max values per file for a column.
+
+**Fields**:
+
+- `column: String` - The column name to create a range index for
+
+### 12. IndexCatalog (Object)
+
+**Purpose**: Provides a global view of all Ariadne indexes under the configured storage path. Stateless — every call scans the filesystem.
+
+**Key Methods**:
+
+- `list(): Seq[String]` - Lists all index names (alphabetically sorted)
+- `exists(name: String): Boolean` - Checks if an index exists
+- `describe(name: String): IndexSummary` - Returns a summary of a single index
+- `describeAll(): Seq[IndexSummary]` - Returns summaries for all indexes
+- `get(name: String): Index` - Fetches an Index instance by name
+- `toDF(): DataFrame` - Returns all indexes as a DataFrame (one row per index)
+- `remove(name: String): Boolean` - Removes an index and its associated data
+- `findIndexes(fileName: String): Seq[String]` - Finds all indexes that track a given file
+
+**IndexSummary** case class fields: `name`, `format`, `columns`, `regularIndexes`, `bloomIndexes`, `computedIndexes`, `temporalIndexes`, `rangeIndexes`, `explodedFieldIndexes`, `fileCount`, `totalIndexedFileSize`
+
+### 13. SchemaHelper (Object)
+
+**Purpose**: Provides utility functions for schema validation and field lookup.
+
+**Key Methods**:
+
+- `fieldExists(schema: StructType, fieldName: String): Boolean` - Checks if a field exists in the schema (supports nested fields)
+- `fieldType(schema: StructType, fieldName: String): Option[DataType]` - Returns the data type of a field
+
 ## Supported File Formats
 
 Ariadne supports three data formats with Parquet as the default:
@@ -329,6 +423,29 @@ Ariadne supports three data formats with Parquet as the default:
 - **JSON** - JavaScript Object Notation
 
 Additional format-specific options can be provided via `readOptions` when creating an index.
+
+## Data Flows
+
+### Data Flow for `deleteFiles`
+
+1. Acquire update lock
+2. Read file sizes from the main index table (to update the total)
+3. Delete matching rows from main index Delta table (merge-delete on filename)
+4. Delete matching rows from each large index Delta table
+5. Delete matching rows from staging table (if it exists from an interrupted update)
+6. Update `total_indexed_file_size` in metadata (subtract deleted file sizes)
+7. Remove files from the FileList
+8. Release update lock
+
+### Data Flow for `compact` and `vacuum`
+
+`compact()` runs Delta `OPTIMIZE` (executeCompaction) on:
+1. Main index table (`index/`)
+2. All large index tables (`large_indexes/{column}/`)
+
+`vacuum(retentionHours)` runs Delta `VACUUM` on the same tables with configurable retention (default: 168 hours).
+
+**Auto-compaction**: When `spark.ariadne.autoCompactThreshold` is set, compaction runs automatically after every N update batches. The batch counter (`batches_since_compact`) is persisted in index metadata so it accumulates correctly across separate Spark jobs. Both `compact()` and auto-compact reset the counter to zero. If auto-compaction is not configured and the counter reaches 50, a warning is logged.
 
 ## Key Features
 
@@ -431,6 +548,68 @@ Bloom filters provide space-efficient probabilistic indexing for high-cardinalit
 - A column can have either a regular index OR a bloom index, not both
 - This is enforced at the API level with clear error messages
 
+### Range Indexes
+
+Range indexes store per-file min/max values for columns with natural ordering (dates, timestamps, numeric IDs). At query time, files are pruned when no query value falls within the file's [min, max] range.
+
+**Storage:**
+
+- Range values are stored as struct columns in the main index Delta table with `range_` prefix
+- Example: A range index on `event_date` creates a `range_event_date` column containing `struct(min: DateType, max: DateType)`
+- Range columns are NOT included in `storageColumns` (which tracks array-type columns) — they have their own `rangeStorageColumns` set
+
+**Query Behavior:**
+
+- For Map-based queries (`locateFiles`): Uses Spark `lit()` expressions for type-safe comparisons
+- For DataFrame-based queries (`locateFilesFromDataFrame`): Computes query min/max and uses range overlap check
+- Results are intersected with other index type results (AND semantics)
+
+**Configuration:**
+
+- Data type is inferred from the index schema
+- Range indexes work alongside regular, bloom, and temporal indexes on different columns
+
+**Mutual Exclusivity:**
+
+- A column can have a range index OR any other index type, not both
+
+### Automatic Bloom Filters for Large Indexes
+
+When a column exceeds `largeIndexLimit` distinct values per file during `update`, it gets stored in a separate large index table (`large_indexes/{column}/`). Querying these large tables is expensive as they contain exploded (filename, value) rows.
+
+Auto-bloom automatically creates a bloom filter for such columns, stored in the main index table. At query time, the bloom filter pre-filters candidate files before querying the large index table, reducing I/O significantly.
+
+**Storage:**
+
+- Auto-bloom filters are stored as binary columns in the main index Delta table with `auto_bloom_` prefix
+- Example: Column `user_id` exceeding the limit creates `auto_bloom_user_id` containing serialized bloom filter bytes
+- Auto-bloom columns are tracked in `autoBloomStorageColumns`, separate from `storageColumns`
+
+**Build Flow:**
+
+1. During `buildAutoBloomIndexes`, each eligible column's distinct count is checked against `largeIndexLimit`
+2. Columns exceeding the limit get a bloom filter built with the configured FPR (`spark.ariadne.autoBloomFpr`, default 0.01)
+3. The bloom filter is added as a binary column to the combined DataFrame before staging
+4. Metadata is updated after data is safely staged
+
+**Query Flow (getAutoBloomCandidates):**
+
+1. Load bloom filter bytes from the main index for the target column
+2. Test each query value against each file's bloom filter
+3. Return only files where the bloom filter reports a possible match
+4. These candidates are then verified against the actual large index table
+
+**Backward Compatibility:**
+
+- Metadata migration v7→v8 adds the `auto_bloom_indexes` field
+- `filesNeedingColumnUpdate` includes `autoBloomStorageColumns`, so existing files get auto-bloom on the next `update`
+- Query methods check for column existence before attempting bloom filter lookups
+
+**Configuration:**
+
+- `spark.ariadne.autoBloomFpr`: False positive rate for auto-bloom filters (default: 0.01 = 1%)
+- Higher FPR = smaller bloom filters but more false positives (more large index lookups)
+
 ### Metadata Versioning
 
 The system supports automatic migration between metadata versions:
@@ -439,6 +618,11 @@ The system supports automatic migration between metadata versions:
 - v2 → v3: Adds exploded_field_indexes support
 - v3 → v4: Adds read_options support
 - v4 → v5: Adds bloom_indexes support
+- v5 → v6: Adds temporal_indexes support
+- v6 → v7: Adds range_indexes support (RangeIndexConfig with column name)
+- v7 → v8: Adds auto_bloom_indexes support (automatic bloom filters for large index columns)
+- v8 → v9: Adds total_indexed_file_size field (per-file size tracking and pruning metrics)
+- v9 → v10: Adds batches_since_compact field (cross-job auto-compaction counter)
 
 ### Caching Strategy
 
@@ -470,6 +654,38 @@ spark.conf.set("spark.ariadne.indexRepartitionCount", "200")
 val result = queryDf.join(index, Seq("user_id"), "inner")
 ```
 
+## Thread Safety & Concurrency
+
+### Index Instance Thread Safety
+
+**`Index` instances are NOT thread-safe for concurrent mutation.** Specifically:
+
+- `select()` mutates internal `selectedColumns` state and returns `this` (not a copy)
+- `_metadata` is a mutable `var` read/written from multiple call sites without synchronization
+- `IndexMetadata` uses mutable Java collections that are not thread-safe
+
+**Safe patterns:**
+- One thread per `Index` instance
+- Create separate `Index` instances per thread (they will coordinate via file-based locks)
+- Read-only operations (`locateFiles`, `stats`, `printIndex`) are safe from multiple threads if no mutations occur concurrently
+
+### Lock File Concurrency
+
+File-based locks (`.filelist.lock`, `.update.lock`) coordinate between separate Spark jobs/applications:
+- Uses Hadoop `create(overwrite=false)` for atomic acquisition
+- Stale lock auto-healing has a known TOCTOU window (mitigated by retry depth guard)
+- Lock refresh during long `update` operations prevents false stale detection
+
+### Driver Memory Considerations
+
+Several operations collect data to the driver and may cause OOM on large indexes:
+- `FileList.addFile()` collects all filenames for duplicate checking
+- `BloomFilterOperations.locateFilesWithBloom()` collects bloom filters
+- `IndexQueryOperations.getAutoBloomCandidates()` collects auto-bloom data
+- `locateFilesWithRangeFromDataFrame()` truncates to 10,000 distinct values
+
+These are documented in scaladoc with `@note` or inline comments.
+
 ## Design Benefits
 
 ### 1. **Trait-Based Modularity**
@@ -488,6 +704,13 @@ Each trait can be tested independently with focused test suites:
 - `IndexPathUtilsTests` - Tests utility functions
 - `BloomFilterOperationsTests` - Tests bloom filter functionality
 - `IndexLockTests` - Tests locking, auto-healing, and contention
+- `DeleteFilesTests` - Tests file deletion from index
+- `CompactionTests` - Tests compact, vacuum, and auto-compaction
+- `MultiColumnIntersectTests` - Tests AND semantics across index types
+- `RangeIndexTests` - Tests range index build and query
+- `AutoBloomLargeIndexTests` - Tests automatic bloom filter generation
+- `MixedIndexIntersectionTests` - Tests cross-type intersection edge cases
+- `FileSizeTrackingTests` - Tests file size tracking, pruning metrics, and backfill
 
 ### 3. **Performance Optimization**
 
@@ -497,6 +720,10 @@ Each trait can be tested independently with focused test suites:
 - Exploded field indexing enables efficient nested data joins
 - Bloom filter indexes provide space-efficient probabilistic matching for high-cardinality columns
 - Optional index repartitioning prevents FetchFailedExceptions on large index joins
+- Range indexes enable min/max file pruning for ordered columns
+- Automatic bloom filters reduce large index table I/O at query time
+- Multi-column queries use AND semantics (intersection) to minimize files loaded
+- Index compaction (OPTIMIZE) consolidates small Delta files for better read performance
 
 ### 4. **Extensibility**
 

@@ -3,6 +3,7 @@ package dev.cjfravel.ariadne
 import com.google.gson.annotations.SerializedName
 import java.util
 import com.google.gson.Gson
+import dev.cjfravel.ariadne.exceptions.MetadataMissingOrCorruptException
 
 /** Configuration for a bloom filter index.
   *
@@ -17,7 +18,9 @@ import com.google.gson.Gson
 case class BloomIndexConfig(
     var column: String,
     var fpr: Double = 0.01
-)
+) {
+  require(fpr > 0 && fpr < 1, s"fpr must be between 0 and 1 (exclusive), got $fpr")
+}
 
 /** Configuration for a temporal index.
   *
@@ -31,6 +34,18 @@ case class BloomIndexConfig(
 case class TemporalIndexConfig(
     var column: String,
     var timestamp_column: String
+)
+
+/** Configuration for a range index.
+  *
+  * Range indexes store min/max values per file for a column, enabling
+  * file pruning at query time. Files whose [min, max] range does not
+  * overlap with the queried values are skipped.
+  *
+  * @param column The column name to create a range index for
+  */
+case class RangeIndexConfig(
+    var column: String
 )
 
 /** Represents a mapping for exploded field index configuration.
@@ -70,6 +85,10 @@ case class ExplodedFieldMapping(
   * @param bloom_indexes List of bloom filter index configurations for probabilistic indexing
   * @param temporal_indexes List of temporal index configurations for version-aware deduplication
   * @param read_options Map of read options for format-specific configuration (e.g., "multiLine" -> "true" for JSON)
+  * @param total_indexed_file_size Total size in bytes of all indexed files, or -1 if not yet computed (nullable for Gson compatibility)
+  * @param batches_since_compact Number of update batches processed since the last auto-compaction,
+  *                              persisted across Spark jobs so that `autoCompactThreshold` works
+  *                              correctly even when updates happen in separate runs (v10+, nullable for Gson)
   *
   * @note The field names use underscore notation to match JSON serialization format
   */
@@ -84,7 +103,11 @@ case class IndexMetadata(
     var exploded_field_indexes: util.List[ExplodedFieldMapping],
     var bloom_indexes: util.List[BloomIndexConfig],
     var temporal_indexes: util.List[TemporalIndexConfig],
-    var read_options: util.Map[String, String]
+    var read_options: util.Map[String, String],
+    var range_indexes: util.List[RangeIndexConfig],
+    var auto_bloom_indexes: util.List[String],
+    var total_indexed_file_size: java.lang.Long,
+    var batches_since_compact: java.lang.Integer
 )
 
 /** Factory object for creating IndexMetadata instances from JSON.
@@ -101,9 +124,17 @@ object IndexMetadata {
     * - v1 → v2: Adds computed_indexes field if missing
     * - v2 → v3: Adds exploded_field_indexes field if missing
     * - v3 → v4: Adds read_options field if missing
+    * - v4 → v5: Adds bloom_indexes field if missing
+    * - v5 → v6: Adds temporal_indexes field if missing
+    * - v6 → v7: Adds range_indexes field if missing
+    * - v7 → v8: Adds auto_bloom_indexes field if missing
+    * - v8 → v9: Adds total_indexed_file_size field if missing
+    * - v9 → v10: Adds batches_since_compact field if missing
     *
     * @param jsonString The JSON representation of the metadata
     * @return A fully initialized IndexMetadata instance
+    * @throws MetadataMissingOrCorruptException
+    *   if `jsonString` is null, empty, or cannot be deserialized
     *
     * @example
     * {{{
@@ -113,7 +144,18 @@ object IndexMetadata {
     * }}}
     */
   def apply(jsonString: String): IndexMetadata = {
-    val indexMetadata = new Gson().fromJson(jsonString, classOf[IndexMetadata])
+    if (jsonString == null || jsonString.trim.isEmpty) {
+      throw new MetadataMissingOrCorruptException()
+    }
+    val indexMetadata = try {
+      new Gson().fromJson(jsonString, classOf[IndexMetadata])
+    } catch {
+      case e: com.google.gson.JsonSyntaxException =>
+        throw new MetadataMissingOrCorruptException(e)
+    }
+    if (indexMetadata == null) {
+      throw new MetadataMissingOrCorruptException()
+    }
     // v1 -> v2
     if (indexMetadata.computed_indexes == null) {
       indexMetadata.computed_indexes =
@@ -134,6 +176,22 @@ object IndexMetadata {
     // v5 -> v6
     if (indexMetadata.temporal_indexes == null) {
       indexMetadata.temporal_indexes = new util.ArrayList[TemporalIndexConfig]()
+    }
+    // v6 -> v7
+    if (indexMetadata.range_indexes == null) {
+      indexMetadata.range_indexes = new util.ArrayList[RangeIndexConfig]()
+    }
+    // v7 -> v8
+    if (indexMetadata.auto_bloom_indexes == null) {
+      indexMetadata.auto_bloom_indexes = new util.ArrayList[String]()
+    }
+    // v8 -> v9
+    if (indexMetadata.total_indexed_file_size == null) {
+      indexMetadata.total_indexed_file_size = -1L
+    }
+    // v9 -> v10
+    if (indexMetadata.batches_since_compact == null) {
+      indexMetadata.batches_since_compact = 0
     }
     indexMetadata
   }
