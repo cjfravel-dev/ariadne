@@ -291,11 +291,11 @@ spark.conf.set("spark.ariadne.lockMaxWait", "3600")         // 1 hr max wait
 
 ### Concurrency & Locking
 
-Ariadne uses per-index file-based locks to prevent concurrent updates from corrupting index data. Locks are automatically acquired and released during `addFile()` and `update()` operations.
+Ariadne uses per-index file-based locks to prevent concurrent modifications from corrupting index data. Locks are automatically acquired and released during mutating operations.
 
 **How it works:**
 
-- **Two separate locks per index:** `.filelist.lock` (for `addFile`) and `.update.lock` (for `update`)
+- **Two separate locks per index:** `.filelist.lock` (for `addFile`) and `.update.lock` (for `update`, `deleteFiles`, `compact`, and `vacuum`)
 - **Automatic refresh:** During `update`, the lock is refreshed every N batches (configurable via `spark.ariadne.lockRefreshInterval`) to signal the job is still alive
 - **Wait and retry:** If a lock is held by another job, the caller retries with exponential backoff up to `spark.ariadne.lockMaxWait` seconds
 - **Auto-healing:** If a lock's `lastRefreshedAt` timestamp is older than `spark.ariadne.lockTimeout`, it is considered stale (e.g., the holding job crashed) and is automatically broken so the new job can proceed
@@ -426,9 +426,13 @@ try {
 | `FormatMismatchException` | Format differs from stored metadata |
 | `IndexNotFoundException` | Calling `Index.remove()` on a non-existent index |
 | `IndexNotFoundInNewSchemaException` | Using `allowSchemaMismatch = true` but the new schema is missing a previously indexed column |
-| `ColumnNotFoundException` | Calling `select()` or `addBloomIndex()` with a column that doesn't exist in the schema |
+| `ColumnNotFoundException` | Calling `select()` or `addBloomIndex()` with a column that doesn't exist in the schema, or joining on columns not present in the schema or indexes |
 | `IndexLockException` | Lock acquisition timed out after `lockMaxWait` seconds |
 | `MetadataMissingOrCorruptException` | Index metadata file is unreadable or corrupt — delete and re-create the index |
+| `MissingFormatException` | Creating a new index without providing a format |
+| `MissingSchemaException` | Accessing `storedSchema` when the schema field is null in metadata |
+| `SchemaParseException` | The schema string in metadata cannot be parsed as a valid StructType |
+| `FileListNotFoundException` | Attempting to remove a file list that does not exist |
 | `IllegalArgumentException` | Adding a column that already has a different index type (mutual exclusivity violation) |
 
 ## Troubleshooting
