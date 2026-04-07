@@ -1,0 +1,5 @@
+customer_id,name,email,region,signup_date
+1001,Alice Smith,alice@example.com,West,2024-01-15
+1002,Bob Johnson,bob@acme.com,West,2024-02-20
+1003,Carol Williams,carol@example.com,West,2024-03-10
+1004,Grace Lee,grace@bigcorp.com,West,2024-06-01

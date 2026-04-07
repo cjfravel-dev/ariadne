@@ -1,0 +1,4 @@
+{"event_id": "evt-001", "event_type": "page_view", "timestamp": "2024-03-15T10:30:00", "tags": [{"name": "homepage", "category": "navigation"}, {"name": "desktop", "category": "device"}], "user_ids": [1001, 1002]}
+{"event_id": "evt-002", "event_type": "purchase", "timestamp": "2024-03-15T11:00:00", "tags": [{"name": "checkout", "category": "commerce"}, {"name": "mobile", "category": "device"}], "user_ids": [2001]}
+{"event_id": "evt-003", "event_type": "page_view", "timestamp": "2024-03-16T09:00:00", "tags": [{"name": "product-page", "category": "navigation"}], "user_ids": [1003, 2002, 2003]}
+{"event_id": "evt-004", "event_type": "signup", "timestamp": "2024-03-17T14:00:00", "tags": [{"name": "registration", "category": "onboarding"}, {"name": "mobile", "category": "device"}], "user_ids": [1004]}

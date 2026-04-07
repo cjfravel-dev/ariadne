@@ -5,7 +5,7 @@
 
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne-spark${spark.suffix}_2.12</artifactId>
-    <version>0.0.1-alpha-45</version>
+    <version>0.1.0-beta</version>
     <packaging>jar</packaging>
 
     <name>${project.groupId}:${project.artifactId}</name>
@@ -43,9 +43,6 @@
     <profiles>
         <profile>
             <id>spark34</id>
-            <activation>
-                <activeByDefault>true</activeByDefault>
-            </activation>
             <properties>
                 <spark.suffix>34</spark.suffix>
                 <spark.version>3.4.1</spark.version>
@@ -55,6 +52,9 @@
         </profile>
         <profile>
             <id>spark35</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
             <properties>
                 <spark.suffix>35</spark.suffix>
                 <spark.version>3.5.5</spark.version>

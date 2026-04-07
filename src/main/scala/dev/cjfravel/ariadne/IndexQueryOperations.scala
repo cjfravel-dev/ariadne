@@ -888,25 +888,44 @@ trait IndexQueryOperations extends IndexJoinOperations {
     logger.warn(s"Computing stats for index '$name'")
     index match {
       case Some(df) =>
-        // File count
-        val fileCountAgg = df.select(countDistinct("filename").as("FileCount"))
+        val fileCount = df.select(countDistinct("filename")).head().getLong(0)
 
-        // For each index, compute stats as a struct column
-        val statCols = storageColumns.toSeq.map { colName =>
+        val rows = storageColumns.toSeq.map { colName =>
           val lenCol = size(col(colName))
-          struct(
-            min(lenCol).as("min"),
-            max(lenCol).as("max"),
-            avg(lenCol).as("avg"),
-            expr(s"percentile_approx(size(`$colName`), 0.5)").as("median"),
-            stddev(lenCol).as("stddev")
-          ).as(colName)
+          val row = df.agg(
+            min(lenCol),
+            max(lenCol),
+            avg(lenCol),
+            expr(s"percentile_approx(size(`$colName`), 0.5)"),
+            stddev(lenCol)
+          ).head()
+          val avgVal = if (row.isNullAt(2)) null
+            else java.math.BigDecimal.valueOf(row.getDouble(2)).setScale(1, java.math.RoundingMode.HALF_UP)
+          val stdVal = if (row.isNullAt(4)) null
+            else java.math.BigDecimal.valueOf(row.getDouble(4)).setScale(1, java.math.RoundingMode.HALF_UP)
+          Row(colName, fileCount,
+            if (row.isNullAt(0)) null else row.getInt(0),
+            if (row.isNullAt(1)) null else row.getInt(1),
+            avgVal,
+            if (row.isNullAt(3)) null else row.getInt(3),
+            stdVal)
         }
 
-        // Build a single-row DataFrame with all stats
-        val aggExprs =
-          Seq(countDistinct("filename").as("FileCount")) ++ statCols
-        val result = df.agg(aggExprs.head, aggExprs.tail: _*)
+        import org.apache.spark.sql.types._
+        val statsSchema = StructType(Seq(
+          StructField("Column", StringType),
+          StructField("FileCount", LongType),
+          StructField("MinValues", IntegerType),
+          StructField("MaxValues", IntegerType),
+          StructField("AvgValues", DecimalType(10, 1)),
+          StructField("MedianValues", IntegerType),
+          StructField("StdDev", DecimalType(10, 1))
+        ))
+        val result = spark.createDataFrame(
+          spark.sparkContext.parallelize(rows),
+          statsSchema
+        )
+
         logger.warn(s"Stats computation for index '$name' completed in ${System.currentTimeMillis() - startTime}ms")
         result
 
