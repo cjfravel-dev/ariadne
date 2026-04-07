@@ -123,12 +123,17 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
     index.update
     
     val stats = index.stats()
-    stats.count() should be(1) // Should return one row of statistics
-    
+    stats.count() should be(2) // One row per indexed column
+
     val columns = stats.columns
+    columns should contain("Column")
     columns should contain("FileCount")
-    columns should contain("Id")
-    columns should contain("Version")
+    columns should contain("MinValues")
+    columns should contain("MaxValues")
+
+    val columnNames = stats.select("Column").collect().map(_.getString(0)).toSet
+    columnNames should contain("Id")
+    columnNames should contain("Version")
     
     // Verify FileCount is correct
     val fileCount = stats.select("FileCount").collect()(0).getAs[Long]("FileCount")
@@ -153,9 +158,9 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
     index.update
     
     val stats = index.stats()
-    val columns = stats.columns
-    columns should contain("Id")
-    columns should contain("id_doubled")
+    val columnNames = stats.select("Column").collect().map(_.getString(0)).toSet
+    columnNames should contain("Id")
+    columnNames should contain("id_doubled")
   }
 
   test("should handle printIndex without errors") {

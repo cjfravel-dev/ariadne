@@ -1,0 +1,4 @@
+customer_id,name,email,region,signup_date
+2001,Dave Brown,dave@example.com,East,2024-01-05
+2002,Eve Davis,eve@startup.io,East,2024-04-01
+2003,Frank Miller,frank@bigcorp.com,East,2024-05-15

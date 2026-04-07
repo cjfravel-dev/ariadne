@@ -249,7 +249,7 @@ trait IndexJoinOperations extends IndexBuildOperations {
     * @param joinColumns The columns being used for the join
     * @return DataFrame with stale duplicates removed, or original if no temporal indexes apply
     */
-  protected def applyTemporalDeduplication(
+  private[ariadne] def applyTemporalDeduplication(
       df: DataFrame,
       joinColumns: Seq[String]
   ): DataFrame = {

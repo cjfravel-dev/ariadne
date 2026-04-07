@@ -15,18 +15,18 @@ It works with **Parquet**, **CSV**, and **JSON** files, stores its indexes as De
 ### Installation
 
 ```xml
+<!-- Spark 3.5 / Delta 3.2 (default) -->
+<dependency>
+    <groupId>dev.cjfravel</groupId>
+    <artifactId>ariadne-spark35_2.12</artifactId>
+    <version>0.1.0-beta</version>
+</dependency>
+
 <!-- Spark 3.4 / Delta 2.4 (Azure Synapse) -->
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne-spark34_2.12</artifactId>
-    <version>0.0.1-alpha-45</version>
-</dependency>
-
-<!-- Spark 3.5 / Delta 3.2 -->
-<dependency>
-    <groupId>dev.cjfravel</groupId>
-    <artifactId>ariadne-spark35_2.12</artifactId>
-    <version>0.0.1-alpha-45</version>
+    <version>0.1.0-beta</version>
 </dependency>
 ```
 
@@ -203,6 +203,36 @@ IndexCatalog.findIndexes("s3a://bucket/data/old_file.parquet").foreach { name =>
 }
 ```
 
+### Spark SQL Catalog
+
+Ariadne indexes can be queried through Spark SQL by registering the Ariadne catalog:
+
+```scala
+// spark.sql.extensions must be set on SparkConf BEFORE creating the SparkContext
+val conf = new SparkConf()
+  .set("spark.sql.catalog.ariadne", "dev.cjfravel.ariadne.catalog.AriadneCatalog")
+  .set("spark.sql.extensions", "dev.cjfravel.ariadne.catalog.AriadneSparkExtension")
+```
+
+All indexes under `spark.ariadne.storagePath` are automatically discoverable — no per-index registration needed:
+
+```sql
+SHOW TABLES IN ariadne;
+DESCRIBE ariadne.customers;
+SELECT * FROM ariadne.customers WHERE id = 123;
+SELECT * FROM ariadne.customers c JOIN orders o ON c.id = o.customerid;
+```
+
+**How optimization works:**
+
+| Query Pattern | Optimization |
+|--------------|-------------|
+| `SELECT * FROM ariadne.x` | Full scan of all source data files |
+| `SELECT * FROM ariadne.x WHERE col = val` | `locateFiles()` prunes files before reading |
+| `SELECT * FROM ariadne.x JOIN y ON ...` | Catalyst rule pre-prunes Ariadne files via `locateFiles()` — only INNER equi-joins on same-name, fully-indexed columns are optimized; all others fall back to full scan |
+
+The Ariadne catalog is read-only. Index creation, updates, and deletion are performed through the Scala API.
+
 ### Inspection
 
 ```scala
@@ -271,6 +301,8 @@ All settings are Spark configuration properties. Only `storagePath` is required.
 | `spark.ariadne.lockRetryInterval` | `60` | Base retry interval for lock acquisition (with exponential backoff). |
 | `spark.ariadne.lockMaxWait` | `3600` | Max seconds to wait for a lock before failing (default: 1 hr). |
 | `spark.ariadne.lockRefreshInterval` | `1` | Refresh the lock every N batches during `update`. |
+| `spark.sql.catalog.ariadne` | _(not set)_ | Set to `dev.cjfravel.ariadne.catalog.AriadneCatalog` to enable Spark SQL access. |
+| `spark.sql.extensions` | _(not set)_ | Add `dev.cjfravel.ariadne.catalog.AriadneSparkExtension` for JOIN optimization. |
 
 ### Concurrency
 

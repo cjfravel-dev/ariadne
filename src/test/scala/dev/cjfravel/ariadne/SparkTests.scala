@@ -29,7 +29,6 @@ trait SparkTests extends AnyFunSuite with BeforeAndAfterAll {
       .config(sc.getConf)
       .config("spark.ariadne.storagePath", tempDir.toString)
       .config("spark.ariadne.largeIndexLimit", "500000")
-      .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
       .config(
         "spark.sql.catalog.spark_catalog",
         "org.apache.spark.sql.delta.catalog.DeltaCatalog"
