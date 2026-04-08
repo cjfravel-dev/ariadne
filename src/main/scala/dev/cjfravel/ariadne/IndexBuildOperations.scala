@@ -732,6 +732,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
     
     val allStorageColumns = storageColumns ++ bloomStorageColumns ++ rangeStorageColumns ++ autoBloomStorageColumns
     val stagingDf = spark.read.format("delta").load(stagingFilePath.toString)
+      .dropDuplicates("filename")
     val stagingRowCount = stagingDf.count()
     logger.warn(s"Merging $stagingRowCount staged rows into main index")
     

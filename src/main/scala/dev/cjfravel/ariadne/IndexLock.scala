@@ -404,7 +404,7 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
             Source.fromInputStream(inputStream)(StandardCharsets.UTF_8)
           try {
             val jsonString = source.mkString
-            Some(gson.fromJson(jsonString, classOf[LockInfo]))
+            Option(gson.fromJson(jsonString, classOf[LockInfo]))
           } finally {
             source.close()
           }

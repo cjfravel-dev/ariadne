@@ -156,6 +156,10 @@ object IndexMetadata {
     if (indexMetadata == null) {
       throw new MetadataMissingOrCorruptException()
     }
+    // v0 -> v1
+    if (indexMetadata.indexes == null) {
+      indexMetadata.indexes = new util.ArrayList[String]()
+    }
     // v1 -> v2
     if (indexMetadata.computed_indexes == null) {
       indexMetadata.computed_indexes =

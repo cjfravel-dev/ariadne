@@ -116,7 +116,13 @@ trait AriadneContextUser {
   lazy val indexRepartitionCount: Option[Int] = {
     val count = spark.conf.getOption("spark.ariadne.indexRepartitionCount").flatMap { v =>
       try {
-        Some(v.toInt)
+        val parsed = v.toInt
+        if (parsed <= 0) {
+          logger.warn(s"spark.ariadne.indexRepartitionCount must be positive (got $parsed), ignoring")
+          None
+        } else {
+          Some(parsed)
+        }
       } catch {
         case e: NumberFormatException =>
           logger.warn(s"Invalid spark.ariadne.indexRepartitionCount value, ignoring: ${e.getMessage}")
@@ -240,8 +246,12 @@ trait AriadneContextUser {
         logger.warn(s"Invalid spark.ariadne.lockTimeout value, using default 1800: ${e.getMessage}")
         1800L
     }
-    logger.warn(s"lockTimeout initialized: $value")
-    value
+    val validated = if (value <= 0) {
+      logger.warn(s"spark.ariadne.lockTimeout must be positive (got $value), using default 1800")
+      1800L
+    } else value
+    logger.warn(s"lockTimeout initialized: $validated")
+    validated
   }
 
   /** Base interval in seconds between lock acquisition retries (exponential backoff applied).
@@ -255,8 +265,12 @@ trait AriadneContextUser {
         logger.warn(s"Invalid spark.ariadne.lockRetryInterval value, using default 60: ${e.getMessage}")
         60L
     }
-    logger.warn(s"lockRetryInterval initialized: $value")
-    value
+    val validated = if (value <= 0) {
+      logger.warn(s"spark.ariadne.lockRetryInterval must be positive (got $value), using default 60")
+      60L
+    } else value
+    logger.warn(s"lockRetryInterval initialized: $validated")
+    validated
   }
 
   /** Maximum total time in seconds to wait for lock acquisition before failing.
