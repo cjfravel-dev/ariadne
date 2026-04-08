@@ -101,8 +101,8 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
       index.addExplodedFieldIndex("users", "id", "user_id")
       index.update
       
-      // Query using the storage column name (not the as_column name)
-      val files = index.locateFiles(Map("users" -> Array(100L, 101L)))
+      // Query using the as_column name (storage column for exploded fields)
+      val files = index.locateFiles(Map("user_id" -> Array(100L, 101L)))
       files should not be empty
       files.exists(_.contains("query_exploded_test")) should be(true)
       
@@ -278,13 +278,13 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
       priorityFiles should not be empty
       
       // Test exploded field query
-      val userFiles = index.locateFiles(Map("users" -> Array(100L)))
+      val userFiles = index.locateFiles(Map("user_id" -> Array(100L)))
       userFiles should not be empty
       
       // Test combined query
       val combinedFiles = index.locateFiles(Map(
         "event_id" -> Array("evt1"),
-        "users" -> Array(100L)
+        "user_id" -> Array(100L)
       ))
       combinedFiles should not be empty
       

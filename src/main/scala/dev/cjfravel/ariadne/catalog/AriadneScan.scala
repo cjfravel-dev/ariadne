@@ -138,7 +138,7 @@ class AriadneV1Scan(
     val allFiles = FileList(fileListName).files
       .select("filename")
       .collect()
-      .map(_.getString(0))
+      .flatMap(r => Option(r.getString(0)))
       .toSet
 
     if (pushedFilters.isEmpty) {

@@ -158,7 +158,7 @@ class IndexBuildOperationsTests extends SparkTests with Matchers {
       val priorityFiles = index.locateFiles(Map("priority_level" -> Array("high")))
       priorityFiles should not be empty
       
-      val userFiles = index.locateFiles(Map("users" -> Array(100L)))
+      val userFiles = index.locateFiles(Map("user_id" -> Array(100L)))
       userFiles should not be empty
       
     } finally {

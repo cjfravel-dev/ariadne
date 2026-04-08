@@ -19,14 +19,14 @@ It works with **Parquet**, **CSV**, and **JSON** files, stores its indexes as De
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne-spark35_2.12</artifactId>
-    <version>0.1.0-beta</version>
+    <version>0.1.1-beta</version>
 </dependency>
 
 <!-- Spark 3.4 / Delta 2.4 (Azure Synapse) -->
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne-spark34_2.12</artifactId>
-    <version>0.1.0-beta</version>
+    <version>0.1.1-beta</version>
 </dependency>
 ```
 

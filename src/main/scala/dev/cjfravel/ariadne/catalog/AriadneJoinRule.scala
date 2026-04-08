@@ -193,7 +193,8 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
 
       val prunedDf = if (files.nonEmpty) {
         val rawDf = index.readFiles(files)
-        val dedupedDf = index.applyTemporalDeduplication(rawDf, ariadneJoinCols)
+        val temporalCols = index.metadata.temporal_indexes.asScala.map(_.column).toSeq
+        val dedupedDf = index.applyTemporalDeduplication(rawDf, temporalCols)
         dedupedDf.select(originalOutput.map(a => functions.col(a.name)): _*)
       } else {
         val schema = StructType(originalOutput.map(a =>
