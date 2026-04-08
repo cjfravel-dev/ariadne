@@ -432,14 +432,14 @@ class IndexTests extends SparkTests {
     index.update
 
     // Test that we can find files by user_id
-    val userFiles = index.locateFiles(Map("users" -> Array(100, 101)))
+    val userFiles = index.locateFiles(Map("user_id" -> Array(100, 101)))
     assert(
       userFiles.nonEmpty,
       "Should find files containing user IDs 100 or 101"
     )
 
     // Test that we can find files by tag
-    val tagFiles = index.locateFiles(Map("tags" -> Array("security")))
+    val tagFiles = index.locateFiles(Map("tag_name" -> Array("security")))
     assert(tagFiles.nonEmpty, "Should find files containing security tag")
 
     // Test join with user_id
@@ -596,7 +596,7 @@ class IndexTests extends SparkTests {
     )
 
     // Test locating files by exploded field values - use correct storage column name
-    val userIdFiles = index.locateFiles(Map("users" -> Array(100L, 101L)))
+    val userIdFiles = index.locateFiles(Map("user_id" -> Array(100L, 101L)))
     assert(
       userIdFiles.nonEmpty,
       "Should find files containing user IDs 100 or 101"

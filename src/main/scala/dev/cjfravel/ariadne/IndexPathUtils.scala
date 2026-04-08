@@ -103,7 +103,13 @@ object IndexPathUtils {
     val contextUser = new AriadneContextUser {
       implicit def spark: SparkSession = sparkSession
     }
-    val fileListRemoved = FileList.remove(fileListName(name))(sparkSession)
+    val fileListRemoved = try {
+      FileList.remove(fileListName(name))(sparkSession)
+    } catch {
+      case e: Exception =>
+        logger.warn(s"FileList removal failed for index '$name' (continuing with directory deletion): ${e.getMessage}")
+        false
+    }
     val result = contextUser.delete(
       new Path(storagePath(sparkSession), name)
     ) || fileListRemoved

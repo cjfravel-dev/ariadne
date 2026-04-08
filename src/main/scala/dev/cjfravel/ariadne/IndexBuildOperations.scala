@@ -104,7 +104,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
   protected def storageColumns: Set[String] =
     metadata.indexes.asScala.toSet ++
       metadata.computed_indexes.keySet().asScala ++
-      metadata.exploded_field_indexes.asScala.map(_.array_column).toSet ++
+      metadata.exploded_field_indexes.asScala.map(_.as_column).toSet ++
       metadata.temporal_indexes.asScala.map(_.column).toSet
 
   /** Returns the set of range index storage column names (each prefixed with `range_`).
@@ -158,7 +158,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
     // Read files with just indexed columns + filename
     val baseDf = createBaseDataFrame(files)
     val withComputedIndexes = applyComputedIndexes(baseDf)
-    val withFilename = addFilenameColumn(withComputedIndexes, files)
+    val withExplodedFields = applyExplodedFields(withComputedIndexes)
+    val withFilename = addFilenameColumn(withExplodedFields, files)
     
     // For each file, count distinct values per indexed column
     val analysisColumns = allStorageColumns.toSeq
@@ -310,7 +311,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
         .select("filename", explodedField.array_column)
         .withColumn("temp_exploded", explode(col(s"${explodedField.array_column}.${explodedField.field_path}")))
         .groupBy("filename")
-        .agg(collect_set(col("temp_exploded")).alias(explodedField.array_column))
+        .agg(collect_set(col("temp_exploded")).alias(explodedField.as_column))
 
       accumDf.join(explodedDf, Seq("filename"), "full_outer")
     }
@@ -520,7 +521,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
   private def autoBloomEligibleColumns: Set[String] =
     metadata.indexes.asScala.toSet ++
       metadata.computed_indexes.keySet().asScala ++
-      metadata.exploded_field_indexes.asScala.map(_.array_column).toSet
+      metadata.exploded_field_indexes.asScala.map(_.as_column).toSet
 
   /** Tracks the cached DataFrame from [[buildAutoBloomIndexes]] for deferred cleanup.
     *

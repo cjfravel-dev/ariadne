@@ -49,7 +49,7 @@ trait IndexJoinOperations extends IndexBuildOperations {
         val explodedMapping =
           metadata.exploded_field_indexes.asScala.find(_.as_column == joinCol)
         explodedMapping match {
-          case Some(mapping) => joinCol -> mapping.array_column
+          case Some(mapping) => joinCol -> mapping.as_column
           case None          => joinCol -> joinCol
         }
       }
@@ -130,6 +130,15 @@ trait IndexJoinOperations extends IndexBuildOperations {
         columnMappings(col)
       )
     )
+
+    if (joinColumnsToUse.isEmpty) {
+      val unindexed = usingColumns.filterNot(c => storageColumnsToUse.contains(columnMappings.getOrElse(c, c)))
+      throw new IllegalArgumentException(
+        s"None of the join columns [${usingColumns.mkString(", ")}] have indexes. " +
+          s"Unindexed columns: [${unindexed.mkString(", ")}]. " +
+          "Add indexes on these columns before joining."
+      )
+    }
 
     // Get values from the user DataFrame using join column names
     val filteredValuesDf = df.select(joinColumnsToUse.map(col): _*)
