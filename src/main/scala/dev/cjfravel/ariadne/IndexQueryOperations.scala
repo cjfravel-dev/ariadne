@@ -44,11 +44,15 @@ trait IndexQueryOperations extends IndexJoinOperations {
 
   /** Helper function to load the index.
     *
+    * On first call, checks for and performs any needed exploded field column
+    * migration (pre-0.1.1 indexes stored columns under `array_column` names).
+    *
     * @return
     *   `Some(DataFrame)` containing the latest version of the index,
     *   or `None` if the index Delta table does not yet exist
     */
   protected def index: Option[DataFrame] = {
+    migrateExplodedFieldColumns()
     delta(indexFilePath).map(_.toDF)
   }
 

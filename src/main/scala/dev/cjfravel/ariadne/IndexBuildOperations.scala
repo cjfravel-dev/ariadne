@@ -93,6 +93,68 @@ trait IndexBuildOperations extends BloomFilterOperations {
     */
   protected def stagingFilePath: Path = new Path(storagePath, "staging")
 
+  /** Tracks whether the exploded field column migration has already been checked. */
+  @transient private var _explodedMigrationChecked: Boolean = false
+
+  /** Migrates pre-0.1.1 indexes that stored exploded field columns under
+    * `array_column` names to the current `as_column` naming convention.
+    *
+    * Detection: reads the main index Delta table schema and checks whether any
+    * `ExplodedFieldMapping.array_column` appears as a column while the
+    * corresponding `as_column` does not. When this pattern is found, the table
+    * is rewritten with renamed columns, and any large-index directories named
+    * by `array_column` are similarly migrated.
+    *
+    * This method is idempotent and fast when no migration is needed (single
+    * schema check). It is called automatically on the first index read.
+    */
+  protected def migrateExplodedFieldColumns(): Unit = {
+    if (_explodedMigrationChecked) return
+    _explodedMigrationChecked = true
+
+    val mappings = metadata.exploded_field_indexes.asScala.toSeq
+    if (mappings.isEmpty) return
+
+    delta(indexFilePath) match {
+      case None => // No index table yet, nothing to migrate
+      case Some(dt) =>
+        val schema = dt.toDF.schema.fieldNames.toSet
+        val columnsToRename = mappings.filter { m =>
+          schema.contains(m.array_column) && !schema.contains(m.as_column)
+        }
+        if (columnsToRename.isEmpty) return
+
+        logger.warn(
+          s"Migrating exploded field columns for index '$name': " +
+            columnsToRename.map(m => s"${m.array_column} -> ${m.as_column}").mkString(", ")
+        )
+        val startTime = System.currentTimeMillis()
+
+        // Rewrite main index with renamed columns
+        var df = dt.toDF
+        columnsToRename.foreach { m =>
+          df = df.withColumnRenamed(m.array_column, m.as_column)
+        }
+        df.write
+          .format("delta")
+          .option("overwriteSchema", "true")
+          .mode("overwrite")
+          .save(indexFilePath.toString)
+
+        // Migrate large index directories
+        columnsToRename.foreach { m =>
+          val oldPath = new Path(largeIndexesFilePath, m.array_column)
+          val newPath = new Path(largeIndexesFilePath, m.as_column)
+          if (exists(oldPath) && !exists(newPath)) {
+            logger.warn(s"Renaming large index directory: ${m.array_column} -> ${m.as_column}")
+            fs.rename(oldPath, newPath)
+          }
+        }
+
+        logger.warn(s"Exploded field migration completed for index '$name' in ${System.currentTimeMillis() - startTime}ms")
+    }
+  }
+
   /** Returns the set of all storage column names across regular, computed,
     * exploded-field, and temporal index types.
     *

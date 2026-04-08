@@ -179,4 +179,76 @@ class BugFixTests extends SparkTests {
     assert(IndexCatalog.exists("m11_catalog_test"),
       "IndexCatalog.exists should be true")
   }
+
+  // ---------- Migration: old array_column indexes auto-migrate to as_column ----------
+
+  test("Migration - old exploded field indexes are auto-migrated on read") {
+    val arrayTestSchema = StructType(
+      Seq(
+        StructField("event_id", StringType, nullable = false),
+        StructField(
+          "users",
+          ArrayType(
+            StructType(
+              Seq(
+                StructField("id", IntegerType, nullable = false),
+                StructField("name", StringType, nullable = false)
+              )
+            )
+          ),
+          nullable = false
+        )
+      )
+    )
+
+    val testData = spark.createDataFrame(
+      spark.sparkContext.parallelize(
+        Seq(
+          Row("e1", Array(Row(100, "Alice"), Row(101, "Bob"))),
+          Row("e2", Array(Row(102, "Charlie")))
+        )
+      ),
+      arrayTestSchema
+    )
+
+    val tempPath =
+      s"${System.getProperty("java.io.tmpdir")}/migration_test_${System.currentTimeMillis()}"
+    testData.write.mode("overwrite").parquet(tempPath)
+
+    // Create the index and configure exploded field
+    val index = Index("migration_test", arrayTestSchema, "parquet")
+    index.addFile(tempPath)
+    index.addExplodedFieldIndex("users", "id", "user_id")
+
+    // Manually build an OLD-STYLE index with array_column as storage name
+    // by directly writing a Delta table with "users" column instead of "user_id"
+    val baseDf = spark.read.parquet(tempPath)
+      .withColumn("filename", input_file_name())
+    val oldStyleIndex = baseDf
+      .select("filename", "users")
+      .withColumn("temp", explode(col("users.id")))
+      .groupBy("filename")
+      .agg(collect_set(col("temp")).alias("users"))  // OLD: stored as "users"
+
+    val indexPath = new Path(new Path(IndexPathUtils.storagePath, "migration_test"), "index")
+    oldStyleIndex.write
+      .format("delta")
+      .mode("overwrite")
+      .save(indexPath.toString)
+
+    // Verify the Delta table has "users" column (old style)
+    val beforeSchema = spark.read.format("delta").load(indexPath.toString).schema.fieldNames.toSet
+    assert(beforeSchema.contains("users"), "Pre-migration: should have 'users' column")
+    assert(!beforeSchema.contains("user_id"), "Pre-migration: should NOT have 'user_id' column")
+
+    // Now reconnect and query — migration should happen automatically
+    val index2 = Index("migration_test")
+    val files = index2.locateFiles(Map("user_id" -> Array(100)))
+    assert(files.nonEmpty, "Should find files after auto-migration")
+
+    // Verify the Delta table now has "user_id" column (new style)
+    val afterSchema = spark.read.format("delta").load(indexPath.toString).schema.fieldNames.toSet
+    assert(afterSchema.contains("user_id"), "Post-migration: should have 'user_id' column")
+    assert(!afterSchema.contains("users"), "Post-migration: should NOT have 'users' column")
+  }
 }
