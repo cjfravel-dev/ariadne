@@ -193,7 +193,9 @@ Use `IndexCatalog` to discover and manage all indexes under your storage path:
 import dev.cjfravel.ariadne.IndexCatalog
 
 IndexCatalog.list()                 // list all index names
+IndexCatalog.exists("myIndex")      // check if an index exists
 IndexCatalog.describe("myIndex")    // get a summary (index types, file count, format)
+IndexCatalog.describeAll()          // get summaries for all indexes
 IndexCatalog.toDF().show()          // view all indexes as a DataFrame
 IndexCatalog.get("myIndex")         // reconnect to an existing index
 
@@ -238,8 +240,11 @@ The Ariadne catalog is read-only. Index creation, updates, and deletion are perf
 ```scala
 index.indexes                           // set of all indexed column names
 index.hasFile("data/file1.parquet")     // check if a file is tracked
+index.format                            // data file format (e.g., "parquet")
+index.storedSchema                      // the schema stored in the index metadata
 index.stats().show()                    // per-column statistics
 index.refreshMetadata()                 // reload metadata from disk
+Index.exists("myIndex")                 // check if an index exists
 ```
 
 ## Index Maintenance

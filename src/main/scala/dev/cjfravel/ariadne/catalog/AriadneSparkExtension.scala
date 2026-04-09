@@ -19,6 +19,9 @@ import org.apache.spark.sql.SparkSessionExtensions
   * append this extension to the existing `spark.sql.extensions` value
   * (comma-separated).
   *
+  * '''Thread safety:''' The `apply` method is called once during
+  * `SparkSession` creation. It is not invoked concurrently.
+  *
   * @see [[AriadneJoinRule]] for the optimizer rule
   * @see [[AriadneCatalog]] for the catalog plugin
   */
@@ -26,6 +29,10 @@ class AriadneSparkExtension extends (SparkSessionExtensions => Unit) {
 
   private val logger = LogManager.getLogger("ariadne")
 
+  /** Registers the [[AriadneJoinRule]] optimizer rule with the Spark session.
+    *
+    * @param extensions the SparkSessionExtensions to inject rules into
+    */
   override def apply(extensions: SparkSessionExtensions): Unit = {
     logger.warn("AriadneSparkExtension: registering AriadneJoinRule optimizer rule")
     extensions.injectOptimizerRule { session =>

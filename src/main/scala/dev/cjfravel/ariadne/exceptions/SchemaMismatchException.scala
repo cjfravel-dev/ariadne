@@ -7,6 +7,14 @@ package dev.cjfravel.ariadne.exceptions
   * provided schema differs from the persisted one, with
   * `allowSchemaMismatch = false` (the default).
   *
+  * '''Recovery:''' Use the same schema as stored in the index, or pass
+  * `allowSchemaMismatch = true` to `Index.apply` to update the stored
+  * schema. Note that allowing schema mismatch still requires all indexed
+  * columns to exist in the new schema.
+  *
+  * '''Thread safety:''' Instances are immutable after construction and safe to
+  * share across threads.
+  *
   * {{{
   * val schema1 = StructType(Seq(StructField("id", IntegerType)))
   * Index("myIndex", schema1, "parquet")

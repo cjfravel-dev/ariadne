@@ -75,8 +75,7 @@ object IndexCatalog {
     *
     * @example
     * {{{
-    * val catalog = IndexCatalog(spark)
-    * val indexNames: Seq[String] = catalog.list()
+    * val indexNames: Seq[String] = IndexCatalog.list()
     * }}}
     *
     * @param spark implicit SparkSession providing configuration
@@ -116,9 +115,12 @@ object IndexCatalog {
     * An index is considered to exist if its `metadata.json` file is present
     * in the indexes storage directory, or if its file list entry exists.
     *
+    * @example {{{ if (IndexCatalog.exists("orders")) println("Index found") }}}
+    *
     * @param name  the index name to check
     * @param spark implicit SparkSession
     * @return true if the index exists
+    * @throws IllegalArgumentException if name is null or blank
     */
   def exists(name: String)(implicit spark: SparkSession): Boolean = {
     require(name != null && name.trim.nonEmpty, "Index name must not be null or blank")
@@ -137,7 +139,7 @@ object IndexCatalog {
     *
     * @example
     * {{{
-    * val summary: IndexSummary = catalog.describe("myIndex")
+    * val summary: IndexSummary = IndexCatalog.describe("myIndex")
     * println(summary.name, summary.fileCount)
     * }}}
     *
@@ -145,6 +147,7 @@ object IndexCatalog {
     * @param spark implicit SparkSession
     * @return the index summary
     * @throws IndexNotFoundException if the index does not exist
+    * @throws IllegalArgumentException if name is null or blank
     */
   def describe(name: String)(implicit spark: SparkSession): IndexSummary = {
     require(name != null && name.trim.nonEmpty, "name must not be null or blank")
@@ -162,7 +165,7 @@ object IndexCatalog {
     *
     * @example
     * {{{
-    * val summaries: Seq[IndexSummary] = catalog.describeAll()
+    * val summaries: Seq[IndexSummary] = IndexCatalog.describeAll()
     * summaries.foreach(s => println(s.name))
     * }}}
     *
@@ -191,7 +194,7 @@ object IndexCatalog {
     *
     * @example
     * {{{
-    * val indexes: Seq[String] = catalog.findIndexes("/data/users/part-00000.parquet")
+    * val indexes: Seq[String] = IndexCatalog.findIndexes("/data/users/part-00000.parquet")
     * }}}
     *
     * {{{
@@ -205,6 +208,7 @@ object IndexCatalog {
     * @param spark    implicit SparkSession
     * @return alphabetically sorted names of indexes that track the file,
     *         or empty if the file is not found in any index
+    * @throws IllegalArgumentException if fileName is null or blank
     */
   def findIndexes(fileName: String)(implicit spark: SparkSession): Seq[String] = {
     require(fileName != null && fileName.trim.nonEmpty, "fileName must not be null or blank")
@@ -227,13 +231,14 @@ object IndexCatalog {
     *
     * @example
     * {{{
-    * val index: Index = catalog.get("myIndex")
+    * val index: Index = IndexCatalog.get("myIndex")
     * }}}
     *
     * @param name  the index name
     * @param spark implicit SparkSession
     * @return a fully initialized Index instance
     * @throws IndexNotFoundException if the index does not exist
+    * @throws IllegalArgumentException if name is null or blank
     */
   def get(name: String)(implicit spark: SparkSession): Index = {
     require(name != null && name.trim.nonEmpty, "Index name must not be null or blank")
@@ -262,7 +267,7 @@ object IndexCatalog {
     *
     * @example
     * {{{
-    * val df: DataFrame = catalog.toDF()
+    * val df: DataFrame = IndexCatalog.toDF()
     * df.show()
     * }}}
     *
@@ -321,13 +326,14 @@ object IndexCatalog {
     *
     * @example
     * {{{
-    * catalog.remove("oldIndex")
+    * IndexCatalog.remove("oldIndex")
     * }}}
     *
     * @param name  the index name
     * @param spark implicit SparkSession
     * @return true if any resources were removed
     * @throws IndexNotFoundException if the index does not exist
+    * @throws IllegalArgumentException if name is null or blank
     */
   def remove(name: String)(implicit spark: SparkSession): Boolean = {
     require(name != null && name.trim.nonEmpty, "name must not be null or blank")

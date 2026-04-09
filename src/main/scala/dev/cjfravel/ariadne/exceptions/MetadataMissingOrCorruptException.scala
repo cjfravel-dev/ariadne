@@ -8,6 +8,9 @@ package dev.cjfravel.ariadne.exceptions
   * string is null, empty, or deserializes to null. Recovery typically requires
   * deleting the corrupt index and re-creating it.
   *
+  * '''Thread safety:''' Instances are immutable after construction and safe to
+  * share across threads.
+  *
   * {{{
   * try {
   *   val index = Index("corruptIndex")

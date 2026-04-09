@@ -88,6 +88,9 @@ case class Index private (
   private[ariadne] def getSelectedColumns: Option[Seq[String]] = selectedColumns
 
   /** Checks if a file is tracked by this index's file list.
+    *
+    * @example {{{ val tracked = index.hasFile("s3a://bucket/data/file1.parquet") }}}
+    *
     * @param fileName The file path to check
     * @return true if the file is in the file list
     */
@@ -404,6 +407,8 @@ case class Index private (
     *
     * Includes regular, computed, exploded field, bloom, temporal, and range
     * index columns.
+    *
+    * @example {{{ val allIndexedColumns: Set[String] = index.indexes }}}
     *
     * @return the union of all indexed column names across every index type
     */
@@ -1058,18 +1063,27 @@ object Index {
   private val logger: Logger = LogManager.getLogger("ariadne")
 
   /** Returns the file list name for an index.
+    *
+    * @example {{{ val listName = Index.fileListName("orders") // "[ariadne_index] orders" }}}
+    *
     * @param name The index name
     * @return The file list identifier
     */
   def fileListName(name: String): String = IndexPathUtils.fileListName(name)
 
   /** Checks if an index exists.
+    *
+    * @example {{{ if (Index.exists("orders")) println("Index found") }}}
+    *
     * @param name The index name
     * @return true if the index exists
     */
   def exists(name: String)(implicit spark: SparkSession): Boolean = IndexPathUtils.exists(name)
 
   /** Removes an index and its associated data.
+    *
+    * @example {{{ Index.remove("orders") }}}
+    *
     * @param name The index name
     * @return true if removal was successful
     * @throws IndexNotFoundException if the index does not exist
@@ -1077,6 +1091,11 @@ object Index {
   def remove(name: String)(implicit spark: SparkSession): Boolean = IndexPathUtils.remove(name)
 
   /** Convenience factory: creates or reconnects with schema, format, and no schema mismatch.
+    *
+    * @example
+    * {{{
+    * val index = Index("orders", ordersSchema, "parquet")
+    * }}}
     *
     * @param name   Unique index name
     * @param schema Spark schema of the data files
@@ -1151,6 +1170,18 @@ object Index {
     * If metadata exists at the storage path, reconnects to the existing index and validates
     * schema/format compatibility. If metadata does not exist, creates a new index with the
     * provided schema and format.
+    *
+    * @example
+    * {{{
+    * // Reconnect to an existing index (no schema/format needed)
+    * val index = Index("orders")
+    *
+    * // Create a new index
+    * val newIndex = Index("orders", Some(schema), Some("parquet"))
+    *
+    * // Reconnect with schema evolution
+    * val evolved = Index("orders", Some(newSchema), allowSchemaMismatch = true)
+    * }}}
     *
     * @param name
     *   Unique index name (must be a valid Hadoop path component).

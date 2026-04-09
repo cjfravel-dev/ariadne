@@ -185,6 +185,8 @@ trait AriadneContextUser {
     *
     * @param path The Hadoop Path to check
     * @return true if the path exists
+    * @throws IllegalArgumentException if path is null
+    * @throws java.io.IOException if the filesystem operation fails
     */
   def exists(path: Path): Boolean = {
     require(path != null, "path must not be null")
@@ -195,6 +197,8 @@ trait AriadneContextUser {
     *
     * @param path The Hadoop Path to delete
     * @return true if the path was successfully deleted
+    * @throws IllegalArgumentException if path is null
+    * @throws java.io.IOException if the filesystem operation fails
     */
   def delete(path: Path): Boolean = {
     require(path != null, "path must not be null")
@@ -205,6 +209,8 @@ trait AriadneContextUser {
     *
     * @param path The Hadoop Path to open for reading
     * @return An FSDataInputStream for reading the file contents
+    * @throws IllegalArgumentException if path is null
+    * @throws java.io.IOException if the file does not exist or cannot be opened
     */
   def open(path: Path): FSDataInputStream = {
     require(path != null, "path must not be null")
@@ -275,6 +281,10 @@ trait AriadneContextUser {
 
   /** Maximum total time in seconds to wait for lock acquisition before failing.
     * Reads from spark.ariadne.lockMaxWait configuration (default: 3600).
+    *
+    * @note Unlike `lockTimeout` and `lockRetryInterval`, non-positive values
+    *       are not validated — a value of 0 causes immediate timeout on first
+    *       retry. Configure with care.
     */
   lazy val lockMaxWait: Long = {
     val value = try {

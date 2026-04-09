@@ -20,6 +20,11 @@ import java.sql.Timestamp
   * Mutations (add, remove) invalidate the cache so the next read re-loads from
   * the Delta table.
   *
+  * '''Thread safety:''' `FileList` instances are '''not''' thread-safe. The
+  * mutable `_files` cache can produce inconsistent results if accessed
+  * concurrently from multiple threads. Each thread should use its own instance,
+  * or external synchronization must be applied.
+  *
   * @param name
   *   the name of this file list, typically `"[ariadne_index] {indexName}"`
   * @param spark
@@ -89,6 +94,11 @@ case class FileList private (
     */
   def files: DataFrame = files(spark)
 
+  /** Internal implementation for adding files to the file list.
+    *
+    * @param spark the SparkSession to use
+    * @param fileNames the file paths to add
+    */
   private def addFile(spark: SparkSession, fileNames: String*): Unit = {
     require(fileNames != null, "fileNames must not be null")
     fileNames.foreach { fn =>
@@ -252,6 +262,8 @@ object FileList {
     *   the implicit SparkSession
     * @return
     *   true if the Delta table directory exists
+    * @throws IllegalArgumentException
+    *   if name is null or blank
     */
   def exists(name: String)(implicit sparkSession: SparkSession): Boolean = {
     require(name != null && name.trim.nonEmpty, "name must not be null or blank")
@@ -271,6 +283,8 @@ object FileList {
     *   true if deletion was successful
     * @throws FileListNotFoundException
     *   if the file list does not exist
+    * @throws IllegalArgumentException
+    *   if name is null or blank
     */
   def remove(name: String)(implicit sparkSession: SparkSession): Boolean = {
     require(name != null && name.trim.nonEmpty, "name must not be null or blank")
@@ -291,6 +305,8 @@ object FileList {
     *   the implicit SparkSession
     * @return
     *   a new FileList backed by a Delta table at `storagePath/name`
+    * @throws IllegalArgumentException
+    *   if name is null or blank
     */
   def apply(name: String)(implicit spark: SparkSession): FileList = {
     require(name != null && name.trim.nonEmpty, "name must not be null or blank")

@@ -90,7 +90,11 @@ case class ExplodedFieldMapping(
   *                              persisted across Spark jobs so that `autoCompactThreshold` works
   *                              correctly even when updates happen in separate runs (v10+, nullable for Gson)
   *
-  * @note The field names use underscore notation to match JSON serialization format
+  * @note The field names use underscore notation to match JSON serialization format.
+  *       All fields use `var` and Java collections (`util.List`, `util.Map`) because
+  *       Gson requires mutable fields for deserialization. Do '''not''' refactor to
+  *       `val` or Scala collections without updating the Gson serialization in
+  *       [[IndexMetadata$ IndexMetadata.apply]] and [[IndexMetadataOperations]].
   */
 case class IndexMetadata(
     var format: String,

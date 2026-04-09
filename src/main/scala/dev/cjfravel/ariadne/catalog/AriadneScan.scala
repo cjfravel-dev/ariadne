@@ -16,6 +16,9 @@ import scala.collection.JavaConverters._
   * on indexed columns into [[dev.cjfravel.ariadne.IndexQueryOperations.locateFiles]]
   * calls, pruning the source file list before reading.
   *
+  * '''Thread safety:''' Instances are created per scan by [[AriadneTable.newScanBuilder]]
+  * and are not shared across threads.
+  *
   * @param indexName the Ariadne index name
   * @param sourceSchema the schema of the source data files
   * @param metadata the index metadata
@@ -56,8 +59,16 @@ class AriadneScanBuilder(
     filters
   }
 
+  /** Returns the filters that were successfully pushed for file-level pruning.
+    *
+    * @return array of pushed filters
+    */
   override def pushedFilters(): Array[Filter] = pushedFilterArray
 
+  /** Builds a [[AriadneV1Scan]] with the current pushed filters.
+    *
+    * @return a new V1-based scan for reading Ariadne source data
+    */
   override def build(): Scan = {
     new AriadneV1Scan(indexName, sourceSchema, metadata, pushedFilterArray)
   }
@@ -90,6 +101,13 @@ class AriadneScanBuilder(
   * list is pruned via [[dev.cjfravel.ariadne.IndexQueryOperations.locateFiles]]
   * before reading.
   *
+  * '''Driver memory note:''' `locateMatchingFiles` collects the file list to
+  * the driver. This is bounded by the number of indexed files (not row count),
+  * but extremely large file lists could pressure driver memory.
+  *
+  * '''Thread safety:''' Instances are created per scan and are not shared
+  * across threads.
+  *
   * @param indexName the Ariadne index name
   * @param sourceSchema the schema of the source data files
   * @param metadata the index metadata
@@ -104,6 +122,10 @@ class AriadneV1Scan(
 
   private val logger = LogManager.getLogger("ariadne")
 
+  /** Returns the schema of the source data files.
+    *
+    * @return the source data schema stored in index metadata
+    */
   override def readSchema(): StructType = sourceSchema
 
   /** Creates a V1 BaseRelation that reads the source data files.
@@ -111,6 +133,7 @@ class AriadneV1Scan(
     * If filters were pushed, uses `locateFiles()` to prune the file list.
     * Otherwise reads all indexed files.
     *
+    * @param sqlCtx the SQLContext provided by Spark
     * @return a BaseRelation backed by Ariadne's source data files
     */
   override def toV1TableScan[T <: BaseRelation with TableScan](
@@ -176,6 +199,13 @@ class AriadneV1Scan(
   * `spark.read`. Applies computed indexes and exploded field transformations
   * from the index metadata.
   *
+  * Extends both `TableScan` and `PrunedFilteredScan`. Spark prefers
+  * `PrunedFilteredScan.buildScan(requiredColumns, filters)` when available,
+  * falling back to `TableScan.buildScan()` only if column pruning is not needed.
+  *
+  * '''Thread safety:''' Instances are created per scan and are not shared
+  * across threads.
+  *
   * @param sqlCtx the SQLContext
   * @param indexName the Ariadne index name
   * @param sourceSchema the source data schema
@@ -194,6 +224,10 @@ class AriadneBaseRelation(
 
   private val logger = LogManager.getLogger("ariadne")
 
+  /** Returns the source data schema.
+    *
+    * @return the schema of the original source data files
+    */
   override def schema: StructType = sourceSchema
 
   /** Full table scan — reads all source data files.

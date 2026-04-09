@@ -2,13 +2,20 @@ package dev.cjfravel.ariadne.exceptions
 
 /** Thrown when an index does not have a file format specified in its metadata.
   *
-  * Raised during index operations that require knowing the data format
-  * (e.g., reading files for a join) when `IndexMetadata.format` is null or
-  * empty. This typically indicates a corrupt or manually edited metadata file.
+  * Raised by `Index.apply` when creating a new index without providing a
+  * format, or when the existing `IndexMetadata.format` is null or empty
+  * (indicating a corrupt or manually edited metadata file).
+  *
+  * '''Recovery:''' Provide the `format` parameter when creating a new index
+  * (e.g., `Index("myIndex", schema, "parquet")`). If the metadata is corrupt,
+  * delete and re-create the index.
+  *
+  * '''Thread safety:''' Instances are immutable after construction and safe to
+  * share across threads.
   *
   * {{{
-  * // A metadata file with no "format" field will trigger this on join
-  * index.join(df, Seq("id")) // throws MissingFormatException
+  * // Throws MissingFormatException if no format is provided for a new index
+  * Index("newIndex", schema)  // missing format parameter
   * }}}
   */
 class MissingFormatException

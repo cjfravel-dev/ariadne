@@ -6,6 +6,9 @@ package dev.cjfravel.ariadne.exceptions
   * All domain-specific exceptions in the Ariadne library extend this class, enabling
   * callers to catch any Ariadne error with a single handler if desired.
   *
+  * '''Thread safety:''' Instances are immutable after construction and safe to
+  * share across threads.
+  *
   * {{{
   * try {
   *   index.update("s3a://bucket/data/")

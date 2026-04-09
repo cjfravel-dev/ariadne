@@ -5,8 +5,17 @@ package dev.cjfravel.ariadne.exceptions
   *
   * This exception is raised by index build and query operations when a column
   * referenced in the index configuration does not exist in the data schema.
-  * Typical callers include `Index.addIndex`, `Index.addBloomIndex`,
-  * `Index.addTemporalIndex`, and `Index.addRangeIndex`.
+  * Callers include `Index.addIndex`, `Index.addBloomIndex`,
+  * `Index.addTemporalIndex`, `Index.addRangeIndex`,
+  * `Index.addExplodedFieldIndex`, `Index.addComputedIndex`,
+  * `IndexJoinOperations.joinDf`, and `Index.select`.
+  *
+  * '''Recovery:''' Verify that the column name exists in the DataFrame schema
+  * (check spelling and case sensitivity). Use `df.schema.fieldNames` to list
+  * available columns.
+  *
+  * '''Thread safety:''' Instances are immutable after construction and safe to
+  * share across threads.
   *
   * {{{
   * // Throws ColumnNotFoundException if "nonexistent_col" is not in the schema

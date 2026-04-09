@@ -38,6 +38,8 @@ object IndexPathUtils {
     *   The index name
     * @return
     *   The prefixed file list identifier
+    * @throws IllegalArgumentException
+    *   if name is null or blank
     */
   def fileListName(name: String): String = {
     require(name != null && name.trim.nonEmpty, "name must not be null or blank")
@@ -60,6 +62,8 @@ object IndexPathUtils {
     *   The implicit SparkSession
     * @return
     *   true if the index exists
+    * @throws IllegalArgumentException
+    *   if name is null or blank
     */
   def exists(name: String)(implicit sparkSession: SparkSession): Boolean = {
     require(name != null && name.trim.nonEmpty, "name must not be null or blank")
@@ -91,6 +95,8 @@ object IndexPathUtils {
     *   true if any resources were successfully removed
     * @throws IndexNotFoundException
     *   if the index does not exist
+    * @throws IllegalArgumentException
+    *   if name is null or blank
     */
   def remove(name: String)(implicit sparkSession: SparkSession): Boolean = {
     require(name != null && name.trim.nonEmpty, "name must not be null or blank")

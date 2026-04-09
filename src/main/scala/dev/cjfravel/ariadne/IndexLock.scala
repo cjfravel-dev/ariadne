@@ -54,6 +54,11 @@ case class LockInfo(
   * treated as corrupt: the file is deleted and acquisition is retried, up to
   * `MaxCorruptLockRetries` times to prevent infinite recursion.
   *
+  * '''Thread safety:''' `IndexLock` instances are '''not''' safe for concurrent
+  * use from multiple threads. The `readLock`/`writeLockFile` methods perform
+  * unsynchronized filesystem I/O. Each thread should use its own `IndexLock`
+  * instance or coordinate externally.
+  *
   * @param lockPath
   *   Path to the lock file on the filesystem
   * @param indexName
@@ -100,10 +105,11 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     * @throws IndexLockException
     *   if the lock cannot be acquired within the configured timeout or after
     *   max retry attempts
+    * @throws IllegalArgumentException
+    *   if correlationId is null or blank
     */
   def acquire(correlationId: String): Unit = {
     require(correlationId != null && correlationId.trim.nonEmpty, "correlationId must not be null or blank")
-    logger.debug(s"Acquiring lock for index '$indexName' (correlationId='$correlationId')")
     val acquireStart = System.currentTimeMillis()
     doAcquire(correlationId, depth = 0)
     logger.debug(
@@ -303,10 +309,11 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     *
     * @param correlationId
     *   the correlation ID that should currently hold the lock
+    * @throws IllegalArgumentException
+    *   if correlationId is null or blank
     */
   def release(correlationId: String): Unit = {
     require(correlationId != null && correlationId.trim.nonEmpty, "correlationId must not be null or blank")
-    logger.debug(s"Releasing lock for index '$indexName' (correlationId='$correlationId')")
     val releaseStart = System.currentTimeMillis()
     readLock() match {
       case Some(lockInfo) if lockInfo.correlationId == correlationId =>
@@ -337,6 +344,8 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     *
     * @param correlationId
     *   the correlation ID that should currently hold the lock
+    * @throws IllegalArgumentException
+    *   if correlationId is null or blank
     */
   def refresh(correlationId: String): Unit = {
     require(correlationId != null && correlationId.trim.nonEmpty, "correlationId must not be null or blank")
