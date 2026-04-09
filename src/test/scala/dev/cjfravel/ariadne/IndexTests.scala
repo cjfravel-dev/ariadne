@@ -676,6 +676,46 @@ class IndexTests extends SparkTests {
     )
   }
 
+  test("select restricts columns in join result") {
+    val csvOptions = Map("header" -> "true")
+    val index = Index("select_test", table1Schema, "csv", csvOptions)
+    index.addFile(resourcePath("/data/table1_part0.csv"))
+    index.addFile(resourcePath("/data/table1_part1.csv"))
+    index.addIndex("Id")
+    index.addIndex("Version")
+    index.update
+
+    val table2 = spark.read
+      .schema(table2Schema)
+      .option("header", "true")
+      .csv(resourcePath("/data/table2_part0.csv"))
+
+    // Without select — result has all table1 columns
+    val fullResult = index.join(table2, Seq("Id", "Version"), "left_semi")
+    assert(fullResult.columns.toSet === Set("Id", "Version", "Value"))
+
+    // With select("Id", "Version") — result only has selected columns
+    val selectedResult =
+      index.select("Id", "Version").join(table2, Seq("Id", "Version"), "left_semi")
+    assert(selectedResult.columns.toSet === Set("Id", "Version"))
+    assert(selectedResult.count() === fullResult.count())
+  }
+
+  test("select validates column names") {
+    val index = Index("select_validate_test", table1Schema, "csv")
+
+    // Null/empty rejected
+    intercept[IllegalArgumentException] { index.select() }
+    intercept[IllegalArgumentException] { index.select("  ") }
+
+    // Non-existent column rejected
+    intercept[ColumnNotFoundException] { index.select("NonExistent") }
+
+    // Valid column works
+    val result = index.select("Id")
+    assert(result.getSelectedColumns === Some(Seq("Id")))
+  }
+
   test("JSON format validation - requires same format") {
     val jsonSchema = StructType(
       Seq(

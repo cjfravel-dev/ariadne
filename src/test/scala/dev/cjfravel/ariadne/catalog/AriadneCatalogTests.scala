@@ -4,8 +4,10 @@ import dev.cjfravel.ariadne.{Index, IndexCatalog, SparkTests}
 import dev.cjfravel.ariadne.Index.DataFrameOps
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.{Row, SparkSession}
+import org.apache.spark.sql.connector.catalog.Identifier
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions
+import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.scalatest.matchers.should.Matchers
 
 import java.nio.file.{Files, Path}
@@ -614,5 +616,28 @@ class AriadneCatalogTests extends SparkTests with Matchers {
     result.columns should contain allOf ("Id", "Version", "Value")
     result.columns should not contain "IdTimes10"
     result.collect().length should be(8)
+  }
+
+  test("tableExists returns true for existing index and false for missing") {
+    createTestIndex("catalog_exists_test")
+
+    val catalog = new AriadneCatalog()
+    catalog.initialize(
+      "ariadne",
+      new CaseInsensitiveStringMap(new java.util.HashMap[String, String]())
+    )
+
+    val existsIdent =
+      Identifier.of(Array.empty[String], "catalog_exists_test")
+    catalog.tableExists(existsIdent) should be(true)
+
+    val missingIdent =
+      Identifier.of(Array.empty[String], "no_such_index")
+    catalog.tableExists(missingIdent) should be(false)
+
+    // Non-default namespace should return false
+    val nsIdent =
+      Identifier.of(Array("other_ns"), "catalog_exists_test")
+    catalog.tableExists(nsIdent) should be(false)
   }
 }
