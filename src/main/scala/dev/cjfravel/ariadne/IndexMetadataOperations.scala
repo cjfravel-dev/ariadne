@@ -20,6 +20,11 @@ import com.google.gson.Gson
   * [[dev.cjfravel.ariadne.exceptions.MetadataMissingOrCorruptException]] is
   * thrown. Write failures are logged before the exception propagates.
   *
+  * '''Thread safety:''' This trait is '''not''' thread-safe. The mutable
+  * `_metadata` cache is not synchronized — concurrent calls to
+  * [[refreshMetadata]] or [[writeMetadata]] from multiple threads may produce
+  * inconsistent state. External synchronization is required for concurrent access.
+  *
   * @see [[IndexMetadata]] for the metadata schema and version migration logic
   */
 trait IndexMetadataOperations extends AriadneContextUser {
