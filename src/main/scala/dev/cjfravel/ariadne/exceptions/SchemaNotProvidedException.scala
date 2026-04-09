@@ -7,6 +7,12 @@ package dev.cjfravel.ariadne.exceptions
   * the caller did not supply a schema. A schema is required for first-time
   * index creation so that column validation can be performed.
   *
+  * '''Recovery:''' Provide a schema when creating a new index, e.g.,
+  * `Index("myIndex", schema, "parquet")`.
+  *
+  * '''Thread safety:''' Instances are immutable after construction and safe to
+  * share across threads.
+  *
   * {{{
   * // Index "newIndex" does not exist yet — schema is required
   * Index("newIndex")                       // throws SchemaNotProvidedException

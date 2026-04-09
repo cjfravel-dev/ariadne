@@ -59,6 +59,9 @@ import scala.collection.JavaConverters._
   *   "dev.cjfravel.ariadne.catalog.AriadneSparkExtension")
   * }}}
   *
+  * '''Thread safety:''' This rule holds no mutable state. Catalyst may invoke
+  * it concurrently for different query plans; each invocation is independent.
+  *
   * @param sparkSession the active SparkSession
   *
   * @see [[AriadneSparkExtension]] for registration
@@ -68,6 +71,17 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
 
   private val logger = LogManager.getLogger("ariadne")
 
+  /** Transforms a logical plan by rewriting eligible JOINs involving Ariadne tables.
+    *
+    * Uses `transformUp` to visit each Join node bottom-up. Only rewrites INNER
+    * equi-joins where every Ariadne-side column is indexed. If the rewrite
+    * fails for any reason, the original Join node is returned unchanged and
+    * Spark falls back to the standard V1Scan path.
+    *
+    * @param plan the logical plan to transform
+    * @return the transformed plan with Ariadne JOINs rewritten, or the
+    *         original plan if no rewrites were applicable
+    */
   override def apply(plan: LogicalPlan): LogicalPlan = plan.transformUp {
     case j @ Join(left, right, joinType, Some(condition), hint) =>
       val leftAriadne = extractDirectAriadneTable(left)
@@ -91,6 +105,14 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
     * Instead of replacing the entire Join, this method replaces only the Ariadne
     * scan with a pre-pruned read. The original Join node, condition, hints, and
     * ExprIds are preserved, avoiding ExprId mismatch errors.
+    *
+    * '''Driver OOM risk:''' `locateFilesFromDataFrame` collects the matching
+    * filename set to the driver. This is bounded by file count (not join key
+    * cardinality), but extremely large file lists could pressure driver memory.
+    *
+    * '''Fallback behavior:''' If any exception occurs during rewriting (e.g.,
+    * index read failure), the exception is logged and `None` is returned,
+    * causing Spark to fall back to the standard un-optimized join.
     *
     * @param ariadneIndexName the Ariadne index name
     * @param ariadnePlan the logical plan of the Ariadne side
@@ -273,6 +295,7 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
     case _ => None
   }
 
+  /** Returns all column names that have any type of index configured. */
   private def allIndexedColumns(index: Index): Set[String] = {
     val md = index.metadata
     val regular = md.indexes.asScala.toSet

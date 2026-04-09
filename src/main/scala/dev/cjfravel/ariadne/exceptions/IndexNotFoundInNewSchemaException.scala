@@ -9,6 +9,12 @@ package dev.cjfravel.ariadne.exceptions
   * in the new schema to prevent silent data loss where an indexed column would
   * become inaccessible.
   *
+  * '''Recovery:''' Add the missing column to the new schema, or remove the
+  * index on that column (via `Index.removeIndex`) before changing the schema.
+  *
+  * '''Thread safety:''' Instances are immutable after construction and safe to
+  * share across threads.
+  *
   * {{{
   * // Original index has column "user_id"
   * val newSchema = StructType(Seq(StructField("name", StringType)))

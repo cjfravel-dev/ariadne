@@ -35,6 +35,11 @@ import java.util
   * throw `UnsupportedOperationException`. Index lifecycle management is
   * performed through the [[Index]] API.
   *
+  * '''Thread safety:''' Spark creates one catalog instance per `SparkSession`.
+  * The mutable `catalogName` field is set once during `initialize` and
+  * read thereafter. Concurrent use across threads within a single session
+  * is safe after initialization.
+  *
   * @see [[AriadneTable]] for the table implementation
   * @see [[AriadneSparkExtension]] for registering the JOIN optimization rule
   */
@@ -44,11 +49,22 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
   private var catalogName: String = _
   private val defaultNs = Array("default")
 
+  /** Initializes the catalog with the name assigned in the Spark configuration.
+    *
+    * Called once by Spark when the catalog is first accessed.
+    *
+    * @param name    the catalog name from `spark.sql.catalog.{name}`
+    * @param options configuration options (currently unused)
+    */
   override def initialize(name: String, options: CaseInsensitiveStringMap): Unit = {
     this.catalogName = name
     logger.warn(s"AriadneCatalog initialized with name '$name'")
   }
 
+  /** Returns the catalog name assigned during initialization.
+    *
+    * @return the catalog name
+    */
   override def name(): String = catalogName
 
   /** Returns `Array("default")` as the default namespace.
@@ -56,6 +72,8 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     * This follows Spark conventions (Delta, Iceberg) so that
     * `ariadne.customers` resolves to `ariadne.default.customers` and
     * `SHOW TABLES IN ariadne` displays `default` in the namespace column.
+    *
+    * @return single-element array containing `"default"`
     */
   override def defaultNamespace(): Array[String] = defaultNs
 
@@ -109,6 +127,11 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     AriadneTable(indexName, index.storedSchema, index.metadata)
   }
 
+  /** Checks whether an Ariadne index with the given name exists.
+    *
+    * @param ident table identifier (name is the index name)
+    * @return true if the index exists on storage, false otherwise
+    */
   override def tableExists(ident: Identifier): Boolean = {
     val ns = ident.namespace()
     if (ns.nonEmpty && !ns.sameElements(defaultNs)) return false
@@ -116,6 +139,12 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     IndexPathUtils.exists(ident.name())
   }
 
+  /** Not supported — always throws.
+    *
+    * Use [[dev.cjfravel.ariadne.Index.apply]] to create indexes.
+    *
+    * @throws UnsupportedOperationException always
+    */
   override def createTable(
       ident: Identifier,
       schema: StructType,
@@ -127,18 +156,34 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     )
   }
 
+  /** Not supported — always throws.
+    *
+    * Use [[dev.cjfravel.ariadne.Index.remove]] to delete indexes.
+    *
+    * @throws UnsupportedOperationException always
+    */
   override def dropTable(ident: Identifier): Boolean = {
     throw new UnsupportedOperationException(
       "AriadneCatalog is read-only. Use Index.remove() to delete indexes."
     )
   }
 
+  /** Not supported — always throws.
+    *
+    * @throws UnsupportedOperationException always
+    */
   override def renameTable(oldIdent: Identifier, newIdent: Identifier): Unit = {
     throw new UnsupportedOperationException(
       "AriadneCatalog does not support renaming indexes."
     )
   }
 
+  /** Not supported — always throws.
+    *
+    * Use the [[dev.cjfravel.ariadne.Index]] API to modify indexes.
+    *
+    * @throws UnsupportedOperationException always
+    */
   override def alterTable(ident: Identifier, changes: TableChange*): Table = {
     throw new UnsupportedOperationException(
       "AriadneCatalog is read-only. Use the Index API to modify indexes."
@@ -147,15 +192,38 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
 
   // --- SupportsNamespaces (single "default" namespace) ---
 
+  /** Lists available namespaces. Returns a single `"default"` namespace.
+    *
+    * @return array containing one element: `Array("default")`
+    */
   override def listNamespaces(): Array[Array[String]] = {
     Array(defaultNs)
   }
 
+  /** Lists child namespaces under the given namespace.
+    *
+    * Since Ariadne has a flat namespace structure, this always returns empty.
+    *
+    * @param namespace the parent namespace (must be `default` or empty)
+    * @return empty array (no child namespaces)
+    * @throws org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException
+    *   if the namespace is not `default`
+    */
   override def listNamespaces(namespace: Array[String]): Array[Array[String]] = {
     validateNamespace(namespace)
     Array.empty
   }
 
+  /** Loads metadata for the given namespace.
+    *
+    * Returns an empty map for the `default` namespace. Ariadne does not
+    * store namespace-level metadata.
+    *
+    * @param namespace the namespace to load (must be `default` or empty)
+    * @return empty metadata map
+    * @throws org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException
+    *   if the namespace is not `default`
+    */
   override def loadNamespaceMetadata(
       namespace: Array[String]
   ): util.Map[String, String] = {
@@ -163,6 +231,12 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     new util.HashMap[String, String]()
   }
 
+  /** Not supported — always throws.
+    *
+    * Ariadne has a single `default` namespace.
+    *
+    * @throws UnsupportedOperationException always
+    */
   override def createNamespace(
       namespace: Array[String],
       metadata: util.Map[String, String]
@@ -172,6 +246,12 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     )
   }
 
+  /** Not supported — always throws.
+    *
+    * Ariadne has a single `default` namespace.
+    *
+    * @throws UnsupportedOperationException always
+    */
   override def alterNamespace(
       namespace: Array[String],
       changes: NamespaceChange*
@@ -181,6 +261,12 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     )
   }
 
+  /** Not supported — always throws.
+    *
+    * Ariadne has a single `default` namespace.
+    *
+    * @throws UnsupportedOperationException always
+    */
   override def dropNamespace(
       namespace: Array[String],
       cascade: Boolean

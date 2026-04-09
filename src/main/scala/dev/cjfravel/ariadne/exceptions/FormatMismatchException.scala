@@ -7,6 +7,13 @@ package dev.cjfravel.ariadne.exceptions
   * different format than what was originally configured (e.g., creating an
   * index as "parquet" then attempting to use it as "json").
   *
+  * '''Recovery:''' Use the correct format matching the stored metadata, or
+  * delete and re-create the index with the desired format. Call
+  * `IndexCatalog.describe(name)` to inspect the stored format.
+  *
+  * '''Thread safety:''' Instances are immutable after construction and safe to
+  * share across threads.
+  *
   * {{{
   * // First creation stores format = "parquet"
   * Index("myIndex", schema, "parquet")
