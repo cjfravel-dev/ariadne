@@ -185,12 +185,14 @@ trait IndexQueryOperations extends IndexJoinOperations {
     *   A set of file paths matching all query criteria, or an empty set
     *   if no matches are found or no index exists
     *
+    * @throws IllegalArgumentException if `indexes` is null
+    *
     * @note If a staging table exists, its contents are collected to the driver
     *       for merging. This may cause driver OOM for very large staging tables.
     *
     * @example
     * {{{
-    * val matchingFiles = index.locateFiles(Map("userId" -> Set("u1", "u2")))
+    * val matchingFiles = index.locateFiles(Map("userId" -> Array("u1", "u2")))
     * }}}
     */
   def locateFiles(indexes: Map[String, Array[Any]]): Set[String] = {
@@ -610,9 +612,13 @@ trait IndexQueryOperations extends IndexJoinOperations {
     * @return
     *   A set of file names matching the criteria.
     *
+    * @throws IllegalArgumentException if `valuesDf` is null or `columnMappings`
+    *   is null or empty
+    *
     * @example
     * {{{
-    * val files = index.locateFilesFromDataFrame(lookupDf, Seq("userId"))
+    * val columnMappings = Map("userId" -> "userId")
+    * val files = index.locateFilesFromDataFrame(lookupDf, columnMappings, Seq("userId"))
     * }}}
     */
   def locateFilesFromDataFrame(
@@ -879,12 +885,23 @@ trait IndexQueryOperations extends IndexJoinOperations {
     * distinct values per file): min, max, avg, median, and standard deviation.
     * Also includes the total number of indexed files.
     *
+    * Returns an empty DataFrame if no index table exists. If `storageColumns`
+    * is empty (e.g., only bloom or range indexes), the result contains zero
+    * stat rows.
+    *
     * @return Single-row DataFrame with FileCount and per-column stat structs,
     *         or an empty DataFrame if no index exists
     *
     * @example
     * {{{
-    * index.stats()  // prints index statistics to console
+    * // Compute and display index statistics
+    * val statsDF = index.stats()
+    * statsDF.show()
+    * // +----------+---------+---------+---------+---------+------------+------+
+    * // |    Column|FileCount|MinValues|MaxValues|AvgValues|MedianValues|StdDev|
+    * // +----------+---------+---------+---------+---------+------------+------+
+    * // | user_id  |     150 |       1 |    5000 |   120.3 |         45 | 340.2|
+    * // +----------+---------+---------+---------+---------+------------+------+
     * }}}
     */
   def stats(): DataFrame = {

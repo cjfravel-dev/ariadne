@@ -75,6 +75,8 @@ trait IndexJoinOperations extends IndexBuildOperations {
     *   DataFrame if no files match.
     * @throws dev.cjfravel.ariadne.exceptions.ColumnNotFoundException
     *   if join columns are not in the selected columns, schema, or indexes
+    * @throws IllegalArgumentException
+    *   if none of the join columns have indexes, or if df/usingColumns are null/empty
     */
   protected def joinDf(df: DataFrame, usingColumns: Seq[String]): DataFrame = {
     require(df != null, "DataFrame must not be null")
@@ -292,6 +294,18 @@ trait IndexJoinOperations extends IndexBuildOperations {
     * The join direction is `indexedData.join(df)` — the index-located data is
     * on the left. For the reverse direction, use [[Index.DataFrameOps.join]].
     *
+    * @example
+    * {{{
+    * val index = Index("orders", ordersSchema)
+    * index.addIndex("customer_id")
+    * index.update
+    *
+    * val lookupDf = Seq("c1", "c2").toDF("customer_id")
+    * val result = index.join(lookupDf, Seq("customer_id"))
+    * // Left join variant:
+    * val leftResult = index.join(lookupDf, Seq("customer_id"), "left")
+    * }}}
+    *
     * @param df The DataFrame to join against indexed data
     * @param usingColumns The column names to join on (must be indexed columns)
     * @param joinType The Spark join type: "inner", "left", "right", "left_semi",
@@ -299,6 +313,8 @@ trait IndexJoinOperations extends IndexBuildOperations {
     * @return The joined DataFrame
     * @throws dev.cjfravel.ariadne.exceptions.ColumnNotFoundException
     *   if join columns are not in the schema or indexes
+    * @throws IllegalArgumentException
+    *   if none of the join columns have indexes
     */
   def join(
       df: DataFrame,

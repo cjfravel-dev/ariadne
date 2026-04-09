@@ -39,6 +39,12 @@ trait IndexFileOperations extends IndexMetadataOperations {
     * @return The StructType schema parsed from metadata
     * @throws dev.cjfravel.ariadne.exceptions.MissingSchemaException if the schema is null in metadata
     * @throws SchemaParseException if the schema string cannot be parsed as a StructType
+    *
+    * @example
+    * {{{
+    * val schema = index.storedSchema
+    * schema.printTreeString()
+    * }}}
     */
   def storedSchema: StructType = {
     if (metadata.schema == null) {
@@ -169,10 +175,16 @@ trait IndexFileOperations extends IndexMetadataOperations {
 
   /** Applies computed indexes to a DataFrame by adding computed columns.
     *
+    * Each computed index is a Spark SQL expression stored in metadata. The
+    * expression is evaluated via `expr()` and added as a new column. If no
+    * computed indexes are configured, the DataFrame is returned unchanged.
+    *
     * @param df
     *   The base DataFrame
     * @return
     *   DataFrame with computed index columns added
+    * @throws org.apache.spark.sql.AnalysisException
+    *   if a computed index expression is invalid or references non-existent columns
     */
   protected def applyComputedIndexes(df: DataFrame): DataFrame = {
     logger.debug(s"Applying ${metadata.computed_indexes.size()} computed index(es)")
