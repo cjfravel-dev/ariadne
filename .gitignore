@@ -2,4 +2,5 @@
 .metals/*
 .vscode/*
 target/*
-dependency-reduced-pom.xmlexamples/notebooks/.ipynb_checkpoints/
+dependency-reduced-pom.xml
+examples/notebooks/.ipynb_checkpoints/
