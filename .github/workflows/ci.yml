@@ -36,7 +36,7 @@ jobs:
           cache: maven
 
       - name: Build and test with coverage
-        run: mvn verify scoverage:report -P ${{ matrix.profile }} -B -q
+        run: mvn verify scoverage:report -P ${{ matrix.profile }} -Dgpg.skip=true -B -q
 
       - name: Upload coverage report
         if: always()
