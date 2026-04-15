@@ -4,8 +4,7 @@
 
 If you discover a security vulnerability in Ariadne, **please do not open a public issue**. Instead, report it privately:
 
-- **Email**: [ariadne-support@cjfravel.dev](mailto:ariadne-support@cjfravel.dev)
-- **Subject**: `[SECURITY] <brief description>`
+- **GitHub**: Report via [GitHub Security Advisories](https://github.com/cjfravel-dev/ariadne/security/advisories/new)
 
 Please include:
 

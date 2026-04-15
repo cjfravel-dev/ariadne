@@ -74,4 +74,4 @@ The goal is quality contributions from people who understand what they're submit
 
 ## Questions?
 
-Open a [GitHub Discussion](https://github.com/cjfravel-dev/ariadne/discussions) or email [ariadne-support@cjfravel.dev](mailto:ariadne-support@cjfravel.dev).
+Open a [GitHub Discussion](https://github.com/cjfravel-dev/ariadne/discussions).
