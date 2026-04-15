@@ -55,7 +55,7 @@ mvn package
 1. Fork the repository and create your branch from `main`
 2. Make your changes, ensuring tests pass (`mvn test`)
 3. Update documentation if your changes affect public APIs
-4. If you add a new version, ensure it appears in `README.md` (the build verifies this)
+4. **Do not change the version in `pom.xml` or `README.md`** — versioning is managed by the maintainer
 5. Open a pull request with a clear description of your changes
 
 ### Contributor License Agreement
