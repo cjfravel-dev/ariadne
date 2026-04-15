@@ -16,9 +16,10 @@ Please include:
 
 ## Response Timeline
 
-- **Acknowledgment**: Within 48 hours of your report
-- **Initial assessment**: Within 1 week
-- **Fix or mitigation**: Depending on severity, typically within 2–4 weeks
+This is a volunteer-maintained open-source project. We'll do our best to respond promptly, but timelines may vary:
+
+- **Acknowledgment**: We aim to acknowledge reports as soon as possible
+- **Fix or mitigation**: Depends on severity and complexity
 
 ## Supported Versions
 
