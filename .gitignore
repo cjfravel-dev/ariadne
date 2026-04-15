@@ -4,3 +4,6 @@
 target/*
 dependency-reduced-pom.xml
 examples/notebooks/.ipynb_checkpoints/
+spark-warehouse/
+derby.log
+metastore_db/

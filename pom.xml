@@ -30,7 +30,7 @@
     <scm>
         <connection>scm:git:git://github.com/cjfravel-dev/ariadne.git</connection>
         <developerConnection>scm:git:ssh://github.com:cjfravel-dev/ariadne.git</developerConnection>
-        <url>http://github.com/cjfravel-dev/ariadne/tree/main</url>
+        <url>https://github.com/cjfravel-dev/ariadne/tree/main</url>
     </scm>
 
     <properties>
