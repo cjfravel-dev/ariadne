@@ -62,6 +62,16 @@ mvn package
 
 By submitting a pull request, you agree to the terms of our [Contributor License Agreement](CLA.md). Your contribution will not be merged until the CLA is accepted.
 
+## AI-Assisted Contributions
+
+We welcome contributions that use AI tools (Copilot, ChatGPT, etc.) to help write code, tests, or documentation. However, every pull request must reflect genuine human understanding:
+
+- **You must review and comprehend all AI-generated code before submitting.** If you can't explain what it does and why, it's not ready.
+- **Purely AI-generated PRs with no human review will be closed.** We need contributors who can discuss their changes, respond to feedback, and reason about edge cases.
+- **Attribute AI assistance honestly.** There's no stigma — just be transparent.
+
+The goal is quality contributions from people who understand what they're submitting, regardless of how they got there.
+
 ## Questions?
 
 Open a [GitHub Discussion](https://github.com/cjfravel-dev/ariadne/discussions) or email [ariadne-support@cjfravel.dev](mailto:ariadne-support@cjfravel.dev).
