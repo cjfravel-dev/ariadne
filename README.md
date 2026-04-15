@@ -1,5 +1,11 @@
 # Ariadne
 
+[![CI](https://github.com/cjfravel-dev/ariadne/actions/workflows/ci.yml/badge.svg)](https://github.com/cjfravel-dev/ariadne/actions/workflows/ci.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/dev.cjfravel/ariadne-spark35_2.12?label=Maven%20Central)](https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12)
+[![License](https://img.shields.io/badge/license-MIT%20%2B%20SaaS-blue)](LICENSE.md)
+[![Spark](https://img.shields.io/badge/Apache%20Spark-3.4%20%7C%203.5-E25A1C?logo=apachespark&logoColor=white)](https://spark.apache.org/)
+[![Scala](https://img.shields.io/badge/Scala-2.12-DC322F?logo=scala&logoColor=white)](https://www.scala-lang.org/)
+
 Like [Ariadne](https://en.wikipedia.org/wiki/Ariadne) from Greek mythology, this library helps you navigate your data labyrinth. And just like Ariadne, I hope you'll one day betray it—like Theseus—and move on to something better, such as [Apache Iceberg](https://iceberg.apache.org/) or [Delta Lake](https://delta.io).
 
 But in the meantime, if your data lake is more of a data swamp and you lack a way to generate simple indexes for your files, Ariadne can help.

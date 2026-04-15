@@ -28,9 +28,9 @@
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/cjfravel-dev/ariadne.git</connection>
-        <developerConnection>scm:git:ssh://github.com:cjfravel-dev/ariadne.git</developerConnection>
-        <url>http://github.com/cjfravel-dev/ariadne/tree/main</url>
+        <connection>scm:git:https://github.com/cjfravel-dev/ariadne.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/cjfravel-dev/ariadne.git</developerConnection>
+        <url>https://github.com/cjfravel-dev/ariadne/tree/main</url>
     </scm>
 
     <properties>
