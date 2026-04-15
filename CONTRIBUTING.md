@@ -24,7 +24,7 @@ Open a [feature request](https://github.com/cjfravel-dev/ariadne/issues/new?temp
 
 - **Java 11** (`JAVA_HOME=/usr/lib/jvm/java-11-openjdk` or equivalent)
 - **Maven 3.x**
-- **scalafmt** (optional, for formatting)   
+- **scalafmt** (required — all code must be formatted before submitting)   
 
 ### Build and Test
 
