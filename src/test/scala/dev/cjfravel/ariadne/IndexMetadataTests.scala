@@ -364,7 +364,7 @@ class IndexMetadataTests extends AnyFunSuite {
     assert(metadata.total_indexed_file_size === 1048576L)
   }
 
-  test("v1 -> v9 full migration") {
+  test("v1 -> v10 full migration") {
     val stream = getClass.getResourceAsStream("/index_metadata/v1.json")
     require(stream != null, "Resource not found: /index_metadata/v1.json")
     val jsonString = new String(stream.readAllBytes(), StandardCharsets.UTF_8)
@@ -380,5 +380,20 @@ class IndexMetadataTests extends AnyFunSuite {
     assert(metadata.range_indexes.size() === 0)
     assert(metadata.auto_bloom_indexes.size() === 0)
     assert(metadata.total_indexed_file_size === -1L)
+    assert(metadata.batches_since_compact === 0)
+  }
+
+  test("missing required format field rejected") {
+    val json = """{"schema":"x","indexes":["a"]}"""
+    intercept[dev.cjfravel.ariadne.exceptions.MetadataMissingOrCorruptException] {
+      IndexMetadata(json)
+    }
+  }
+
+  test("missing required schema field rejected") {
+    val json = """{"format":"parquet","indexes":["a"]}"""
+    intercept[dev.cjfravel.ariadne.exceptions.MetadataMissingOrCorruptException] {
+      IndexMetadata(json)
+    }
   }
 }

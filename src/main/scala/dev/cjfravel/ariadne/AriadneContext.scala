@@ -1,6 +1,7 @@
 package dev.cjfravel.ariadne
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.broadcast.Broadcast
 import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.logging.log4j.{Logger, LogManager}
 import io.delta.tables.DeltaTable
@@ -330,6 +331,52 @@ trait AriadneContextUser {
     }
     value.foreach(v => logger.warn(s"autoCompactThreshold initialized: $v"))
     value
+  }
+
+  /** Executes a block using an isolated [[SparkSession]] with Delta schema
+    * auto-merge enabled.
+    *
+    * The isolated session shares the underlying `SparkContext` and cached data
+    * with the parent session but has its own `SQLConf`. Setting
+    * `spark.databricks.delta.schema.autoMerge.enabled` on the isolated session
+    * therefore does not leak to the parent session or to other threads, making
+    * schema-evolving Delta MERGE operations safe to run concurrently across
+    * [[Index]] instances.
+    *
+    * Any [[io.delta.tables.DeltaTable]] used inside `fn` must be loaded via
+    * `DeltaTable.forPath(session, path)` using the isolated session argument —
+    * Delta reads the auto-merge flag from the session that loaded the table,
+    * so tables loaded from the parent session will not pick up the flag.
+    *
+    * Used uniformly across Spark 3.4/3.5 because `DeltaMergeBuilder.withSchemaEvolution`
+    * is only available in Delta 3.2+ (Spark 3.5).
+    *
+    * @param fn block receiving the isolated `SparkSession`
+    * @tparam T the block's return type
+    * @return the result of evaluating `fn`
+    */
+  protected def withSchemaAutoMergeSession[T](fn: SparkSession => T): T = {
+    val isolated = spark.newSession()
+    isolated.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+    fn(isolated)
+  }
+
+  /** Safely destroys a broadcast variable, logging but swallowing any exception.
+    *
+    * Intended for use inside `finally` blocks where a cleanup failure must not
+    * mask the original exception propagating out of the `try` block. Tolerates
+    * a null broadcast.
+    *
+    * @param broadcast the broadcast to destroy; may be null
+    */
+  protected def safeDestroyBroadcast(broadcast: Broadcast[_]): Unit = {
+    if (broadcast != null) {
+      try broadcast.destroy()
+      catch {
+        case e: Exception =>
+          logger.warn(s"Failed to destroy broadcast variable: ${e.getMessage}")
+      }
+    }
   }
 
   /** False positive rate for auto-bloom filters on large index columns.

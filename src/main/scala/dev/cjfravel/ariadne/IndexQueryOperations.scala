@@ -456,10 +456,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
       else {
         val values = valuesDf
           .select(joinColumn)
+          .where(col(joinColumn).isNotNull)
           .distinct()
           .collect()
           .map(_.get(0))
-          .filter(_ != null)
 
         if (values.isEmpty) None
         else getAutoBloomCandidates(storageColumn, values, indexDf)
@@ -821,11 +821,11 @@ trait IndexQueryOperations extends IndexJoinOperations {
       }
       val distinctValues = valuesDf
         .select(col(column))
+        .where(col(column).isNotNull)
         .distinct()
         .limit(10000)
         .collect()
         .map(_.get(0))
-        .filter(_ != null)
 
       if (distinctValues.isEmpty) {
         Set.empty

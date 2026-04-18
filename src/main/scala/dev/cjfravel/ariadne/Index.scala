@@ -8,6 +8,7 @@ import org.apache.hadoop.fs.Path
 import org.apache.logging.log4j.{Logger, LogManager}
 import dev.cjfravel.ariadne.Index.DataFrameOps
 import com.google.gson.Gson
+import io.delta.tables.DeltaTable
 import scala.collection.JavaConverters._
 import java.util
 import java.util.{Collections, UUID}
@@ -747,21 +748,15 @@ case class Index private (
               val updateDf = nullSizeFiles.toSeq.toDF("filename")
                 .withColumn("file_size", sizeUdf(col("filename")))
 
-              val previousAutoMerge = spark.conf.getOption("spark.databricks.delta.schema.autoMerge.enabled")
-              // NOTE: SparkConf mutation is not thread-safe — concurrent Index instances
-              // sharing the same SparkSession could clobber each other's config values.
-              spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
-              try {
-                dt.as("target")
+              // Use an isolated session with autoMerge enabled so concurrent Index
+              // instances don't race on spark.databricks.delta.schema.autoMerge.enabled.
+              withSchemaAutoMergeSession { session =>
+                DeltaTable.forPath(session, indexFilePath.toString)
+                  .as("target")
                   .merge(updateDf.as("source"), "target.filename = source.filename")
                   .whenMatched()
                   .update(Map("file_size" -> col("source.file_size")))
                   .execute()
-              } finally {
-                previousAutoMerge match {
-                  case Some(v) => spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", v)
-                  case None => spark.conf.unset("spark.databricks.delta.schema.autoMerge.enabled")
-                }
               }
 
               // Update total from the full index table
@@ -769,7 +764,7 @@ case class Index private (
               metadata.total_indexed_file_size = if (totalResult.isNullAt(0)) 0L else totalResult.getLong(0)
               writeMetadata(metadata)
             } finally {
-              sizesBroadcast.destroy()
+              safeDestroyBroadcast(sizesBroadcast)
             }
             logger.warn(s"Backfilled file sizes for ${nullSizeFiles.size} files")
           }
@@ -1021,7 +1016,7 @@ case class Index private (
       // Clean up cached DataFrame from auto-bloom processing
       lastAutoBloomCache.foreach(_.unpersist())
       lastAutoBloomCache = None
-      fileSizesBroadcast.destroy()
+      safeDestroyBroadcast(fileSizesBroadcast)
     }
   }
 
@@ -1209,7 +1204,7 @@ object Index {
       allowSchemaMismatch: Boolean = false,
       readOptions: Option[Map[String, String]] = None
   )(implicit spark: SparkSession): Index = {
-    require(name != null && name.trim.nonEmpty, "index name must not be null or blank")
+    IndexPathUtils.validateIndexName(name)
     val index = Index(name, schema)(spark)
 
     val metadataExists = index.metadataExists

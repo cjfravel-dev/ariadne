@@ -3,6 +3,7 @@ package dev.cjfravel.ariadne
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import org.apache.hadoop.fs.Path
+import io.delta.tables.DeltaTable
 import scala.collection.JavaConverters._
 
 /** Trait providing index building and maintenance operations for [[Index]] instances.
@@ -803,14 +804,12 @@ trait IndexBuildOperations extends BloomFilterOperations {
       delta(indexFilePath) match {
         case Some(deltaTable) =>
           logger.warn(s"Merging staging data into main index at ${indexFilePath}")
-          // Enable schema auto-merge so new index columns evolve the target table.
-          // NOTE: THREAD-SAFETY: SparkConf mutation is not thread-safe — concurrent
-          // Index instances sharing the same SparkSession may race on this setting.
-          // Delta MERGE requires the global config (per-writer .option does not apply).
-          val previousAutoMerge = spark.conf.getOption("spark.databricks.delta.schema.autoMerge.enabled")
-          spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
-          try {
-            deltaTable
+          // Use an isolated session with autoMerge enabled so concurrent Index
+          // instances sharing a SparkSession don't race on the auto-merge flag.
+          // Delta MERGE reads the flag from the session that loaded the table,
+          // so the DeltaTable is reloaded on the isolated session below.
+          withSchemaAutoMergeSession { session =>
+            DeltaTable.forPath(session, indexFilePath.toString)
               .as("target")
               .merge(
                 stagingDf.as("source"),
@@ -821,11 +820,6 @@ trait IndexBuildOperations extends BloomFilterOperations {
               .whenNotMatched()
               .insertAll()
               .execute()
-          } finally {
-            previousAutoMerge match {
-              case Some(v) => spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", v)
-              case None => spark.conf.unset("spark.databricks.delta.schema.autoMerge.enabled")
-            }
           }
         case None =>
           logger.warn(s"Creating new main index from staging at ${indexFilePath}")
