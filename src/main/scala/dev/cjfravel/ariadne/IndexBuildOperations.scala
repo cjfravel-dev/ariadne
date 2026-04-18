@@ -3,7 +3,6 @@ package dev.cjfravel.ariadne
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import org.apache.hadoop.fs.Path
-import io.delta.tables.DeltaTable
 import scala.collection.JavaConverters._
 
 /** Trait providing index building and maintenance operations for [[Index]] instances.
@@ -804,12 +803,10 @@ trait IndexBuildOperations extends BloomFilterOperations {
       delta(indexFilePath) match {
         case Some(deltaTable) =>
           logger.warn(s"Merging staging data into main index at ${indexFilePath}")
-          // Use an isolated session with autoMerge enabled so concurrent Index
-          // instances sharing a SparkSession don't race on the auto-merge flag.
-          // Delta MERGE reads the flag from the session that loaded the table,
-          // so the DeltaTable is reloaded on the isolated session below.
-          withSchemaAutoMergeSession { session =>
-            DeltaTable.forPath(session, indexFilePath.toString)
+          // Mutates a shared SparkSession config; see withSchemaAutoMerge
+          // for thread-safety caveats.
+          withSchemaAutoMerge {
+            deltaTable
               .as("target")
               .merge(
                 stagingDf.as("source"),

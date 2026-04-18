@@ -333,32 +333,56 @@ trait AriadneContextUser {
     value
   }
 
-  /** Executes a block using an isolated [[SparkSession]] with Delta schema
-    * auto-merge enabled.
+  /** Executes a block with `spark.databricks.delta.schema.autoMerge.enabled`
+    * temporarily set to `true` on the active [[SparkSession]], restoring the
+    * previous value (or unsetting it) afterward.
     *
-    * The isolated session shares the underlying `SparkContext` and cached data
-    * with the parent session but has its own `SQLConf`. Setting
-    * `spark.databricks.delta.schema.autoMerge.enabled` on the isolated session
-    * therefore does not leak to the parent session or to other threads, making
-    * schema-evolving Delta MERGE operations safe to run concurrently across
-    * [[Index]] instances.
+    * '''Thread-safety warning:''' This method mutates a shared [[SparkSession]]
+    * configuration. Concurrent callers that share the same `SparkSession` may
+    * race on this flag, including:
+    *  - `Index.update` running in two threads against different indexes
+    *  - the per-index update lock does NOT protect the session, only the
+    *    index's own storage path
     *
-    * Any [[io.delta.tables.DeltaTable]] used inside `fn` must be loaded via
-    * `DeltaTable.forPath(session, path)` using the isolated session argument —
-    * Delta reads the auto-merge flag from the session that loaded the table,
-    * so tables loaded from the parent session will not pick up the flag.
+    * The risk is bounded — the flag only affects Delta MERGE operations that
+    * read it during their execution window, and Ariadne's own merges always
+    * intend `true`. The damage from a race is therefore limited to a foreign
+    * thread observing `true` instead of its expected `false` (potentially
+    * widening a target schema that thread did not intend to evolve), or the
+    * restoration step writing `true` back when the original value was `false`
+    * but a concurrent caller had already restored it.
     *
-    * Used uniformly across Spark 3.4/3.5 because `DeltaMergeBuilder.withSchemaEvolution`
-    * is only available in Delta 3.2+ (Spark 3.5).
+    * '''Why not `spark.newSession()`?''' An isolated session would eliminate
+    * the race, but `newSession` is not reliably supported on all third-party
+    * Spark platforms (some hosted environments restrict it). Until Ariadne
+    * drops Delta 2.4 support and can use `DeltaMergeBuilder.withSchemaEvolution`
+    * (added in Delta 3.2 / Spark 3.5) uniformly, we accept the documented
+    * race in exchange for portability.
     *
-    * @param fn block receiving the isolated `SparkSession`
+    * Callers should serialize concurrent writes to the same Delta table via
+    * the existing per-index update lock; cross-index concurrency on the same
+    * `SparkSession` should be avoided where possible.
+    *
+    * TODO(delta-2.4-deprecation): Once Spark 3.4 / Delta 2.4 support is
+    * removed, replace the body of this method with a per-merge
+    * `DeltaMergeBuilder.withSchemaEvolution()` call at each call site, and
+    * delete this helper entirely.
+    *
+    * @param fn block to execute with auto-merge enabled
     * @tparam T the block's return type
     * @return the result of evaluating `fn`
     */
-  protected def withSchemaAutoMergeSession[T](fn: SparkSession => T): T = {
-    val isolated = spark.newSession()
-    isolated.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
-    fn(isolated)
+  protected def withSchemaAutoMerge[T](fn: => T): T = {
+    val key = "spark.databricks.delta.schema.autoMerge.enabled"
+    val previous = spark.conf.getOption(key)
+    spark.conf.set(key, "true")
+    try fn
+    finally {
+      previous match {
+        case Some(v) => spark.conf.set(key, v)
+        case None    => spark.conf.unset(key)
+      }
+    }
   }
 
   /** Safely destroys a broadcast variable, logging but swallowing any exception.
