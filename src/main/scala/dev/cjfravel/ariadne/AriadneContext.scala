@@ -1,6 +1,7 @@
 package dev.cjfravel.ariadne
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.broadcast.Broadcast
 import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.logging.log4j.{Logger, LogManager}
 import io.delta.tables.DeltaTable
@@ -330,6 +331,76 @@ trait AriadneContextUser {
     }
     value.foreach(v => logger.warn(s"autoCompactThreshold initialized: $v"))
     value
+  }
+
+  /** Executes a block with `spark.databricks.delta.schema.autoMerge.enabled`
+    * temporarily set to `true` on the active [[SparkSession]], restoring the
+    * previous value (or unsetting it) afterward.
+    *
+    * '''Thread-safety warning:''' This method mutates a shared [[SparkSession]]
+    * configuration. Concurrent callers that share the same `SparkSession` may
+    * race on this flag, including:
+    *  - `Index.update` running in two threads against different indexes
+    *  - the per-index update lock does NOT protect the session, only the
+    *    index's own storage path
+    *
+    * The risk is bounded — the flag only affects Delta MERGE operations that
+    * read it during their execution window, and Ariadne's own merges always
+    * intend `true`. The damage from a race is therefore limited to a foreign
+    * thread observing `true` instead of its expected `false` (potentially
+    * widening a target schema that thread did not intend to evolve), or the
+    * restoration step writing `true` back when the original value was `false`
+    * but a concurrent caller had already restored it.
+    *
+    * '''Why not `spark.newSession()`?''' An isolated session would eliminate
+    * the race, but `newSession` is not reliably supported on all third-party
+    * Spark platforms (some hosted environments restrict it). Until Ariadne
+    * drops Delta 2.4 support and can use `DeltaMergeBuilder.withSchemaEvolution`
+    * (added in Delta 3.2 / Spark 3.5) uniformly, we accept the documented
+    * race in exchange for portability.
+    *
+    * Callers should serialize concurrent writes to the same Delta table via
+    * the existing per-index update lock; cross-index concurrency on the same
+    * `SparkSession` should be avoided where possible.
+    *
+    * TODO(delta-2.4-deprecation): Once Spark 3.4 / Delta 2.4 support is
+    * removed, replace the body of this method with a per-merge
+    * `DeltaMergeBuilder.withSchemaEvolution()` call at each call site, and
+    * delete this helper entirely.
+    *
+    * @param fn block to execute with auto-merge enabled
+    * @tparam T the block's return type
+    * @return the result of evaluating `fn`
+    */
+  protected def withSchemaAutoMerge[T](fn: => T): T = {
+    val key = "spark.databricks.delta.schema.autoMerge.enabled"
+    val previous = spark.conf.getOption(key)
+    spark.conf.set(key, "true")
+    try fn
+    finally {
+      previous match {
+        case Some(v) => spark.conf.set(key, v)
+        case None    => spark.conf.unset(key)
+      }
+    }
+  }
+
+  /** Safely destroys a broadcast variable, logging but swallowing any exception.
+    *
+    * Intended for use inside `finally` blocks where a cleanup failure must not
+    * mask the original exception propagating out of the `try` block. Tolerates
+    * a null broadcast.
+    *
+    * @param broadcast the broadcast to destroy; may be null
+    */
+  protected def safeDestroyBroadcast(broadcast: Broadcast[_]): Unit = {
+    if (broadcast != null) {
+      try broadcast.destroy()
+      catch {
+        case e: Exception =>
+          logger.warn(s"Failed to destroy broadcast variable: ${e.getMessage}")
+      }
+    }
   }
 
   /** False positive rate for auto-bloom filters on large index columns.

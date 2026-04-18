@@ -803,13 +803,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
       delta(indexFilePath) match {
         case Some(deltaTable) =>
           logger.warn(s"Merging staging data into main index at ${indexFilePath}")
-          // Enable schema auto-merge so new index columns evolve the target table.
-          // NOTE: THREAD-SAFETY: SparkConf mutation is not thread-safe — concurrent
-          // Index instances sharing the same SparkSession may race on this setting.
-          // Delta MERGE requires the global config (per-writer .option does not apply).
-          val previousAutoMerge = spark.conf.getOption("spark.databricks.delta.schema.autoMerge.enabled")
-          spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
-          try {
+          // Mutates a shared SparkSession config; see withSchemaAutoMerge
+          // for thread-safety caveats.
+          withSchemaAutoMerge {
             deltaTable
               .as("target")
               .merge(
@@ -821,11 +817,6 @@ trait IndexBuildOperations extends BloomFilterOperations {
               .whenNotMatched()
               .insertAll()
               .execute()
-          } finally {
-            previousAutoMerge match {
-              case Some(v) => spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", v)
-              case None => spark.conf.unset("spark.databricks.delta.schema.autoMerge.enabled")
-            }
           }
         case None =>
           logger.warn(s"Creating new main index from staging at ${indexFilePath}")

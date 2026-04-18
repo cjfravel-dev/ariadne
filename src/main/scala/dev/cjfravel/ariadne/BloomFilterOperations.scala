@@ -304,10 +304,10 @@ trait BloomFilterOperations extends IndexFileOperations {
       // Collect distinct values from the query DataFrame
       val values = valuesDf
         .select(column)
+        .where(col(column).isNotNull)
         .distinct()
         .collect()
         .map(_.get(0))
-        .filter(_ != null)
 
       if (values.isEmpty) Set.empty
       else {

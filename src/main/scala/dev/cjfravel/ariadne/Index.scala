@@ -717,6 +717,17 @@ case class Index private (
     * index.update
     * }}}
     *
+    * @note '''Thread-safety:''' `update` mutates the shared
+    *       [[org.apache.spark.sql.SparkSession]] configuration
+    *       `spark.databricks.delta.schema.autoMerge.enabled` while merging
+    *       staging data into the main index. The per-index update lock
+    *       prevents two writers from corrupting the same Delta table, but it
+    *       does '''not''' prevent the session-level config race when
+    *       `update` runs concurrently against ''different'' indexes that
+    *       share a `SparkSession`. Run `update` serially across indexes in
+    *       the same JVM, or give each `Index` its own `SparkSession`.
+    *       See `AriadneContextUser.withSchemaAutoMerge` for full details.
+    *
     * @throws IndexLockException if the update lock cannot be acquired within the configured timeout
     */
   def update: Unit = {
@@ -747,21 +758,14 @@ case class Index private (
               val updateDf = nullSizeFiles.toSeq.toDF("filename")
                 .withColumn("file_size", sizeUdf(col("filename")))
 
-              val previousAutoMerge = spark.conf.getOption("spark.databricks.delta.schema.autoMerge.enabled")
-              // NOTE: SparkConf mutation is not thread-safe — concurrent Index instances
-              // sharing the same SparkSession could clobber each other's config values.
-              spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
-              try {
+              // Mutates a shared SparkSession config; see withSchemaAutoMerge
+              // for thread-safety caveats.
+              withSchemaAutoMerge {
                 dt.as("target")
                   .merge(updateDf.as("source"), "target.filename = source.filename")
                   .whenMatched()
                   .update(Map("file_size" -> col("source.file_size")))
                   .execute()
-              } finally {
-                previousAutoMerge match {
-                  case Some(v) => spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", v)
-                  case None => spark.conf.unset("spark.databricks.delta.schema.autoMerge.enabled")
-                }
               }
 
               // Update total from the full index table
@@ -769,7 +773,7 @@ case class Index private (
               metadata.total_indexed_file_size = if (totalResult.isNullAt(0)) 0L else totalResult.getLong(0)
               writeMetadata(metadata)
             } finally {
-              sizesBroadcast.destroy()
+              safeDestroyBroadcast(sizesBroadcast)
             }
             logger.warn(s"Backfilled file sizes for ${nullSizeFiles.size} files")
           }
@@ -1021,7 +1025,7 @@ case class Index private (
       // Clean up cached DataFrame from auto-bloom processing
       lastAutoBloomCache.foreach(_.unpersist())
       lastAutoBloomCache = None
-      fileSizesBroadcast.destroy()
+      safeDestroyBroadcast(fileSizesBroadcast)
     }
   }
 
@@ -1209,7 +1213,7 @@ object Index {
       allowSchemaMismatch: Boolean = false,
       readOptions: Option[Map[String, String]] = None
   )(implicit spark: SparkSession): Index = {
-    require(name != null && name.trim.nonEmpty, "index name must not be null or blank")
+    IndexPathUtils.validateIndexName(name)
     val index = Index(name, schema)(spark)
 
     val metadataExists = index.metadataExists

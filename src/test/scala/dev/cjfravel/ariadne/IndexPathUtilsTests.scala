@@ -79,4 +79,24 @@ class IndexPathUtilsTests extends SparkTests with Matchers {
     // Verify it no longer exists
     IndexPathUtils.exists("path_utils_test") should be(false)
   }
+
+  test("validateIndexName rejects unsafe names") {
+    val bad = Seq("../escape", "a/b", "a\\b", ".hidden", "..", "a\u0000b", "", " ")
+    bad.foreach { name =>
+      withClue(s"name='$name' should be rejected: ") {
+        assertThrows[IllegalArgumentException] {
+          IndexPathUtils.validateIndexName(name)
+        }
+      }
+    }
+    assertThrows[IllegalArgumentException] {
+      IndexPathUtils.validateIndexName(null)
+    }
+  }
+
+  test("validateIndexName accepts safe names") {
+    Seq("orders", "my_index", "customer-data", "v2.final", "A1B2").foreach { name =>
+      IndexPathUtils.validateIndexName(name)
+    }
+  }
 }

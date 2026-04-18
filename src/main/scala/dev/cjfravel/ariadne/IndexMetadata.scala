@@ -160,6 +160,15 @@ object IndexMetadata {
     if (indexMetadata == null) {
       throw new MetadataMissingOrCorruptException()
     }
+    // Required fields must be present — a JSON file missing these is corrupt,
+    // not a valid older version.
+    if (indexMetadata.format == null || indexMetadata.schema == null) {
+      throw new MetadataMissingOrCorruptException(
+        new IllegalStateException(
+          "IndexMetadata is missing required field 'format' or 'schema'"
+        )
+      )
+    }
     // v0 -> v1
     if (indexMetadata.indexes == null) {
       indexMetadata.indexes = new util.ArrayList[String]()

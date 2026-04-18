@@ -32,6 +32,34 @@ object IndexPathUtils {
     new Path(contextUser.storagePath, "indexes")
   }
 
+  /** Validates that an index name is safe to use as a path component.
+    *
+    * Rejects names that are null, blank, contain path separators (`/`, `\`),
+    * contain the parent-directory segment `..`, contain null bytes, or begin
+    * with `.` (to avoid colliding with hidden files). Valid index names are
+    * used directly as subdirectory names under the Ariadne storage root, so
+    * unchecked input would permit path traversal (e.g., `../foo`) or
+    * collisions with internal control files.
+    *
+    * @param name the index name to validate
+    * @throws IllegalArgumentException if the name is null, blank, or contains unsafe characters
+    */
+  def validateIndexName(name: String): Unit = {
+    require(name != null && name.trim.nonEmpty, "index name must not be null or blank")
+    require(
+      !name.contains('/') && !name.contains('\\') && !name.contains('\u0000'),
+      s"index name must not contain path separators or null bytes: '$name'"
+    )
+    require(
+      !name.startsWith("."),
+      s"index name must not start with '.': '$name'"
+    )
+    require(
+      name != ".." && !name.split("[/\\\\]").contains(".."),
+      s"index name must not contain parent-directory segments: '$name'"
+    )
+  }
+
   /** Returns the file list name for a given index name.
     *
     * @param name
@@ -39,10 +67,10 @@ object IndexPathUtils {
     * @return
     *   The prefixed file list identifier
     * @throws IllegalArgumentException
-    *   if name is null or blank
+    *   if name is null, blank, or contains unsafe path characters
     */
   def fileListName(name: String): String = {
-    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
+    validateIndexName(name)
     s"[ariadne_index] $name"
   }
 
@@ -51,10 +79,11 @@ object IndexPathUtils {
     * An index is considered to exist if either its file list entry or its
     * storage directory is present.
     *
-    * '''Note:''' This check is subject to a TOCTOU (time-of-check/time-of-use)
-    * race condition — the index may be created or removed between this call and
-    * a subsequent operation. Callers should not rely on this result for
-    * correctness in concurrent environments.
+    * @note This check is subject to a TOCTOU (time-of-check/time-of-use) race
+    *       condition — the index may be created or removed between this call
+    *       and a subsequent operation. Callers must not rely on this result
+    *       for correctness in concurrent environments; use an external lock
+    *       or perform the dependent operation defensively.
     *
     * @param name
     *   The index name to check
@@ -63,10 +92,10 @@ object IndexPathUtils {
     * @return
     *   true if the index exists
     * @throws IllegalArgumentException
-    *   if name is null or blank
+    *   if name is null, blank, or contains unsafe path characters
     */
   def exists(name: String)(implicit sparkSession: SparkSession): Boolean = {
-    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
+    validateIndexName(name)
     val contextUser = new AriadneContextUser {
       implicit def spark: SparkSession = sparkSession
     }
@@ -81,11 +110,11 @@ object IndexPathUtils {
     * removed. The method returns `true` if at least one resource was
     * successfully deleted.
     *
-    * '''Note:''' The [[exists]] guard is subject to a TOCTOU
-    * (time-of-check/time-of-use) race — another process may remove the index
-    * between the existence check and the actual deletion, or create a new index
-    * with the same name concurrently. External locking is required to prevent
-    * this in multi-process environments.
+    * @note The [[exists]] guard is subject to a TOCTOU (time-of-check/time-of-use)
+    *       race — another process may remove the index between the existence
+    *       check and the actual deletion, or create a new index with the same
+    *       name concurrently. External locking is required to prevent this in
+    *       multi-process environments.
     *
     * @param name
     *   the index name to remove
@@ -96,10 +125,10 @@ object IndexPathUtils {
     * @throws IndexNotFoundException
     *   if the index does not exist
     * @throws IllegalArgumentException
-    *   if name is null or blank
+    *   if name is null, blank, or contains unsafe path characters
     */
   def remove(name: String)(implicit sparkSession: SparkSession): Boolean = {
-    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
+    validateIndexName(name)
     if (!exists(name)(sparkSession)) {
       throw new IndexNotFoundException(name)
     }
