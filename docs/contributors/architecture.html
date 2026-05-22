@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Architecture — Ariadne</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-section="contributors" data-page="architecture">
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Ariadne</span>
+    </a>
+    <nav class="primary-nav">
+      <a href="../index.html" data-section="home">Home</a>
+      <a href="../users/getting-started.html" data-section="users">User Guide</a>
+      <a href="index.html" data-section="contributors">Contributors</a>
+      <a class="gh" href="https://github.com/cjfravel-dev/ariadne">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="sidebar">
+    <h5>Contributors</h5>
+    <ul>
+      <li><a href="index.html" data-page="index">Contributing</a></li>
+      <li><a href="architecture.html" data-page="architecture">Architecture</a></li>
+      <li><a href="security.html" data-page="security">Security Policy</a></li>
+      <li><a href="cla.html" data-page="cla">CLA</a></li>
+    </ul>
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#trait-stack">Trait stack</a></li>
+      <li><a href="#storage">Storage layout</a></li>
+      <li><a href="#traits">The traits in detail</a></li>
+      <li><a href="#supporting">Supporting types</a></li>
+      <li><a href="#flows">Data flows</a></li>
+      <li><a href="#features">Key features</a></li>
+      <li><a href="#metadata-versions">Metadata versioning</a></li>
+      <li><a href="#concurrency">Thread safety</a></li>
+      <li><a href="#extending">Extending Ariadne</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <div class="page-header">
+      <span class="eyebrow">Contributors</span>
+      <h1>Architecture</h1>
+      <p class="lede">How Ariadne is organized internally — the trait stack, what each layer is responsible for, on-disk storage, the data flows behind each public operation, and the design decisions worth knowing if you're contributing code.</p>
+    </div>
+
+    <h2 id="overview">Overview</h2>
+    <p>The Ariadne index system is a modular Scala layer over Apache Spark and Delta Lake. The single public type, <code>Index</code>, is a case class that <em>extends</em> a stack of traits — each adding one tightly-scoped layer of behavior to the one below it. There's no inheritance branching; the chain is strictly linear, which keeps testing focused and dependencies obvious.</p>
+
+    <p>Around the trait stack sit a few utility objects (<code>IndexPathUtils</code>, <code>IndexCatalog</code>, <code>SchemaHelper</code>), supporting types for tracked files and locks (<code>FileList</code>, <code>IndexLock</code>), and the metadata container (<code>IndexMetadata</code>) that round out the system.</p>
+
+    <h2 id="trait-stack">Trait stack</h2>
+    <p>Each trait below builds on the one above using <code>self: Index =&gt;</code>, so every trait can call into <code>Index</code>'s case-class members but only the bottom layer (<code>AriadneContextUser</code>) directly touches Spark.</p>
+
+    <div class="diagram">
+      <div class="trait-stack">
+        <div class="trait-box main">Index <span style="opacity:.7;font-weight:normal;">(case class · public API)</span></div>
+        <div class="trait-arrow"></div>
+        <div class="trait-box">IndexQueryOperations</div>
+        <div class="trait-arrow"></div>
+        <div class="trait-box">IndexJoinOperations</div>
+        <div class="trait-arrow"></div>
+        <div class="trait-box">IndexBuildOperations</div>
+        <div class="trait-arrow"></div>
+        <div class="trait-box">BloomFilterOperations</div>
+        <div class="trait-arrow"></div>
+        <div class="trait-box">IndexFileOperations</div>
+        <div class="trait-arrow"></div>
+        <div class="trait-box">IndexMetadataOperations</div>
+        <div class="trait-arrow"></div>
+        <div class="trait-box">AriadneContextUser</div>
+      </div>
+      <div class="support-row">
+        <div class="support-box">IndexPathUtils<span class="label">utility object</span></div>
+        <div class="support-box">FileList<span class="label">file tracking</span></div>
+        <div class="support-box">IndexLock<span class="label">concurrency</span></div>
+        <div class="support-box">IndexCatalog<span class="label">global directory</span></div>
+      </div>
+    </div>
+
+    <h2 id="storage">Storage layout</h2>
+    <p>Everything Ariadne owns lives under <code>spark.ariadne.storagePath/{indexName}/</code>. The layout is deliberately flat: metadata is one JSON file, hot index data is one Delta table, anything that explodes too large gets its own Delta table.</p>
+
+<div class="storage-tree">
+{storagePath}/{indexName}/
+├── <span class="label">metadata.json</span>         <span class="comment"># config: schema, format, index types, read opts</span>
+├── <span class="label">index/</span>                <span class="comment"># main Delta table — value arrays, range structs, bloom bytes</span>
+├── <span class="label">staging/</span>              <span class="comment"># transient Delta table during batched update</span>
+├── <span class="label">large_indexes/</span>        <span class="comment"># one Delta table per column that exceeded largeIndexLimit</span>
+│   ├── user_id/         <span class="comment">#   exploded (filename, value) rows</span>
+│   ├── category/
+│   └── ...
+├── <span class="label">.filelist.lock</span>        <span class="comment"># held during addFile</span>
+└── <span class="label">.update.lock</span>          <span class="comment"># held during update / deleteFiles / compact / vacuum</span>
+</div>
+
+    <p>The list of tracked files is kept separately by <code>FileList</code> (a tiny two-column Delta table: <code>filename</code>, <code>addedAt</code>) so adding files doesn't require touching the main index.</p>
+
+    <h2 id="traits">The traits in detail</h2>
+
+    <h3>AriadneContextUser</h3>
+    <p>The base. Provides the <code>SparkSession</code>, Hadoop <code>FileSystem</code> handle, the resolved <code>storagePath</code>, and a small set of filesystem and Delta convenience methods (<code>exists</code>, <code>delete</code>, <code>open</code>, <code>delta(path)</code>). Every other trait sits on top of this.</p>
+
+    <h3>IndexMetadataOperations</h3>
+    <p>Reads and writes <code>metadata.json</code>, validates the format string against the supported set, caches the parsed metadata, and exposes the public <code>format</code> and <code>refreshMetadata()</code> accessors. Schema serialization (round-tripping <code>StructType</code> through JSON) lives here.</p>
+
+    <h3>IndexFileOperations</h3>
+    <p>Owns the read pipeline. Given a <code>Set[String]</code> of file paths, it produces a DataFrame that has had: format-specific read options applied, computed-index columns added, array fields exploded into their virtual columns, and (if the user called <code>select</code>) been projected down to the requested columns. It also adds a stable filename column via <code>input_file_name()</code> when needed for downstream joins.</p>
+
+    <h3>BloomFilterOperations</h3>
+    <p>Build and query layer for Guava-backed bloom filters. Builds binary <code>bloom_*</code> columns during <code>update</code>, deserializes and tests them at query time, and exposes the set of columns that have bloom indexes. The implementation distinguishes <em>explicit</em> bloom indexes (added via <code>addBloomIndex</code>) from <em>auto</em>-bloom filters added automatically to large regular-index columns — both are handled here.</p>
+
+    <h3>IndexBuildOperations</h3>
+    <p>The most substantial layer. Handles the full <code>update</code> pipeline: pre-flight file analysis, optimal batching, building each index type into DataFrame columns, splitting columns into the large-index pathway when they exceed thresholds, appending to staging and large-index tables, and consolidating staging into the main index via Delta <code>MERGE</code>.</p>
+
+    <h3>IndexJoinOperations</h3>
+    <p>Provides the optimized <code>join</code> entry point and the internal <code>joinDf</code> that consumers like the SQL catalog use. Maps the join columns to their storage-side names (e.g. <code>user_id</code> → <code>bloom_user_id</code> for bloom indexes; exploded-field aliases back to their array column), applies temporal deduplication for any temporal-indexed join column, and produces the joined DataFrame.</p>
+
+    <h3>IndexQueryOperations</h3>
+    <p>File location and statistics. <code>locateFiles(map)</code> and <code>locateFilesFromDataFrame</code> intersect the candidate-file sets across every index type involved in a query (regular, bloom, temporal, range, auto-bloom). <code>stats()</code> assembles a per-column statistics DataFrame. Internal helpers like <code>collectFilenamesViaStaging</code> exist here to avoid driver OOM on huge result sets.</p>
+
+    <h3>Index (the case class)</h3>
+    <p>The public API surface. Combines every trait above, plus the user-facing methods that don't belong to any one layer: <code>addIndex</code>, <code>addBloomIndex</code>, <code>addComputedIndex</code>, <code>addExplodedFieldIndex</code>, <code>addTemporalIndex</code>, <code>addRangeIndex</code>, <code>addFile</code>, <code>update</code>, <code>deleteFiles</code>, <code>compact</code>, <code>vacuum</code>, <code>select</code>, <code>indexes</code>, <code>hasFile</code>.</p>
+
+    <p>Factory methods live in the companion object:</p>
+<pre><code class="language-scala">Index(name, schema, format)
+Index(name, schema, format, allowSchemaMismatch)
+Index(name, schema, format, readOptions)
+Index(name, schema, format, allowSchemaMismatch, readOptions)
+Index(name)  // reconnect to an existing index — metadata must exist</code></pre>
+
+    <h2 id="supporting">Supporting types</h2>
+
+    <h3>IndexPathUtils</h3>
+    <p>Stateless object for path-shaped utilities: sanitizing file names for storage, resolving the storage path, checking if an index exists, removing an index. Used everywhere paths are constructed; centralizing it keeps the path conventions in one place.</p>
+
+    <h3>IndexCatalog</h3>
+    <p>Global, stateless directory of every index under <code>storagePath</code>. Every call rescans the filesystem — there's no in-memory cache to invalidate. Exposes <code>list</code>, <code>exists</code>, <code>describe</code>, <code>describeAll</code>, <code>get</code>, <code>toDF</code>, <code>remove</code>, and <code>findIndexes(file)</code>. The companion <code>IndexSummary</code> case class is the projection used by <code>describe</code>.</p>
+
+    <h3>FileList</h3>
+    <p>The tracked-file ledger for a single index. Backed by a two-column Delta table (<code>filename: String</code>, <code>addedAt: Timestamp</code>). Add and remove operations are merge-based; <code>hasFile</code> reads the table. Held under its own lock so updates to the file list don't block the main update lock.</p>
+
+    <h3>IndexLock</h3>
+    <p>File-based mutex implemented on top of Hadoop <code>create(overwrite=false)</code> for atomic acquisition. Lock files carry a JSON payload — correlation ID, acquisition time, last-refresh time, owner — used to detect stale locks and auto-heal them after <code>lockTimeout</code> seconds. Long-running operations call <code>refresh()</code> periodically so an honest in-progress job isn't mistaken for a crash.</p>
+
+<pre><code class="language-json">{
+  "correlationId": "uuid",
+  "acquiredAt": "ISO-8601",
+  "lastRefreshedAt": "ISO-8601",
+  "owner": "spark-app-id"
+}</code></pre>
+
+    <h3>IndexMetadata</h3>
+    <p>The case class persisted to <code>metadata.json</code>. Uses Java collections (<code>util.List</code>, <code>util.Map</code>) for Gson serialization compatibility — don't switch these to Scala collections without rewriting the serializer. Supports forward migration from older metadata versions via null-checks in <code>IndexMetadata.apply(jsonString)</code>.</p>
+
+    <h3>SchemaHelper</h3>
+    <p>Small utility object for schema introspection: <code>fieldExists</code> and <code>fieldType</code>, both with nested-field-path support.</p>
+
+    <h2 id="flows">Data flows</h2>
+
+    <h3>update</h3>
+    <ol class="flow">
+      <li><strong>Pre-flight scan.</strong><p><code>analyzeFiles</code> reads distinct counts so the batcher can avoid producing a batch that pushes a column over <code>largeIndexLimit</code>.</p></li>
+      <li><strong>Optimal batching.</strong><p><code>createOptimalBatches</code> groups files into batches sized to keep memory bounded and large-index splits predictable.</p></li>
+      <li><strong>Per-batch build.</strong><p>Read files → apply computed indexes → build regular, exploded, bloom, temporal, range, and auto-bloom DataFrame columns → append to <code>staging/</code> and to each <code>large_indexes/{column}</code>.</p></li>
+      <li><strong>Periodic consolidation.</strong><p>Every <code>stagingConsolidationThreshold</code> batches, <code>consolidateStaging</code> merges staging into the main index via Delta <code>MERGE</code>. If <code>autoCompactThreshold</code> is set and reached, an <code>OPTIMIZE</code> runs too.</p></li>
+      <li><strong>Final consolidation.</strong><p>At the end, any remaining staged data is merged in and the staging table is deleted.</p></li>
+    </ol>
+
+    <h3>join</h3>
+    <ol class="flow">
+      <li><strong>Locate candidate files.</strong><p><code>locateFilesFromDataFrame</code> intersects per-index-type candidate sets: regular array matches, bloom probes, temporal matches, range overlap, and auto-bloom pre-filter for any large-index column.</p></li>
+      <li><strong>Read the filtered files.</strong><p><code>readFiles(candidateSet)</code> goes through the full read pipeline (format → computed → exploded → select).</p></li>
+      <li><strong>Temporal deduplication.</strong><p>For any join column that is temporally indexed, keep only the latest row per key.</p></li>
+      <li><strong>Standard Spark join.</strong><p>The result joins against the user's DataFrame on the requested keys with the requested join type.</p></li>
+    </ol>
+
+    <h3>deleteFiles</h3>
+    <ol class="flow">
+      <li><strong>Acquire update lock.</strong><p>Single-writer guarantee while we touch Delta state.</p></li>
+      <li><strong>Read file sizes from the main index.</strong><p>So we can correctly decrement <code>total_indexed_file_size</code>.</p></li>
+      <li><strong>Merge-delete from the main index.</strong><p>Removes rows matching the filenames.</p></li>
+      <li><strong>Merge-delete from each large-index table.</strong><p>One per column.</p></li>
+      <li><strong>Merge-delete from staging (if present).</strong><p>In case a previous update was interrupted mid-flight.</p></li>
+      <li><strong>Update metadata, remove from FileList, release lock.</strong></li>
+    </ol>
+
+    <h3>compact &amp; vacuum</h3>
+    <p><code>compact()</code> runs Delta <code>OPTIMIZE</code> on the main index table and every large-index table under the update lock. <code>vacuum(retentionHours)</code> does the same with Delta <code>VACUUM</code>. Auto-compaction is driven by <code>autoCompactThreshold</code> and a <code>batches_since_compact</code> counter persisted in metadata, so the counter survives across separate Spark jobs.</p>
+
+    <h2 id="features">Key features</h2>
+
+    <h3>Large index handling</h3>
+    <p>When a column exceeds <code>largeIndexLimit</code> distinct values, it can no longer live as a Spark array column in the main index — that array would blow memory at query time. Instead, that one column gets its own consolidated Delta table at <code>large_indexes/{column}/</code> containing exploded <code>(filename, value)</code> rows for <em>all</em> files. Delta optimization works cleanly on this shape, and Z-ordering is meaningful.</p>
+
+    <h3>Staged append + consolidation</h3>
+    <p>Naive per-batch <code>MERGE</code> into the main index is quadratic-ish in the number of batches. Ariadne instead appends every batch to a <code>staging/</code> Delta table and only merges into the main index periodically. The win on long updates is substantial:</p>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Batches</th><th>Naive merges</th><th>Staged merges</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>50</td><td>~1,275</td><td><strong>1</strong></td></tr>
+          <tr><td>100</td><td>~5,050</td><td><strong>2</strong></td></tr>
+          <tr><td>180</td><td>~16,290</td><td><strong>4</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Staging also acts as a checkpoint: a crash mid-update leaves consolidated work in the main index and any in-flight work in staging, which the next <code>update</code> picks up.</p>
+
+    <h3>Bloom filter indexes</h3>
+    <p>Stored as binary columns in the main index Delta table with a <code>bloom_</code> prefix. The serialized payload is the raw bytes of a Guava <code>BloomFilter[CharSequence]</code>. Query path deserializes the bloom for each candidate file and tests the join values; matching files proceed to the actual read. Lower <code>fpr</code> = larger filters but fewer wasted file reads.</p>
+
+    <h3>Range indexes</h3>
+    <p>Per-file <code>min</code> and <code>max</code> stored as a struct column in the main index with a <code>range_</code> prefix. Range columns are intentionally kept out of the regular <code>storageColumns</code> set — they have their own <code>rangeStorageColumns</code> handling because they're struct-typed, not array-typed. At query time, files whose range doesn't overlap any query value are dropped before reads start.</p>
+
+    <h3>Auto-bloom for large indexes</h3>
+    <p>Querying a <code>large_indexes/{column}</code> table is more expensive than reading an array column, because each row is one filename/value pair. Auto-bloom adds a bloom filter (column-prefixed <code>auto_bloom_</code>) to the main index whenever a column's distinct count crosses <code>largeIndexLimit</code>. At query time, the bloom pre-filters candidate files <em>before</em> the more expensive large-index scan — typically reducing I/O by an order of magnitude.</p>
+
+    <p>Build flow is integrated into the staged-append path: bloom filters are added as a binary column to the staging DataFrame, and metadata is only updated after data is safely staged. Backwards compatibility is handled by metadata v7→v8 migration, plus the <code>filesNeedingColumnUpdate</code> check, which ensures files indexed before auto-bloom was introduced get caught on the next update.</p>
+
+    <h3>Index repartitioning for very large joins</h3>
+    <p>The <code>explode</code> step on index array columns can produce massive intermediate DataFrames that cause <code>FetchFailedException</code> on shuffles. The optional <code>indexRepartitionCount</code> setting repartitions the index DataFrame both before <code>explode</code> in <code>locateFilesFromDataFrame</code> and after <code>readFiles</code> in <code>joinDf</code>. It's not enabled by default because the extra shuffle hurts small joins.</p>
+
+    <h2 id="metadata-versions">Metadata versioning</h2>
+    <p><code>IndexMetadata.apply(jsonString)</code> migrates old metadata files forward via sequential null-checks. When adding a new field, add a corresponding null-check migration step. Current migration history:</p>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Version</th><th>Adds</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>v1 → v2</td><td><code>computed_indexes</code></td></tr>
+          <tr><td>v2 → v3</td><td><code>exploded_field_indexes</code></td></tr>
+          <tr><td>v3 → v4</td><td><code>read_options</code></td></tr>
+          <tr><td>v4 → v5</td><td><code>bloom_indexes</code></td></tr>
+          <tr><td>v5 → v6</td><td><code>temporal_indexes</code></td></tr>
+          <tr><td>v6 → v7</td><td><code>range_indexes</code></td></tr>
+          <tr><td>v7 → v8</td><td><code>auto_bloom_indexes</code></td></tr>
+          <tr><td>v8 → v9</td><td><code>total_indexed_file_size</code> (per-file size tracking, pruning metrics)</td></tr>
+          <tr><td>v9 → v10</td><td><code>batches_since_compact</code> (cross-job auto-compaction counter)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="concurrency">Thread safety</h2>
+
+    <h3>Index instance thread safety</h3>
+    <div class="callout warn">
+      <p><strong><code>Index</code> instances are not safe for concurrent mutation.</strong></p>
+    </div>
+    <ul>
+      <li><code>select()</code> mutates internal <code>selectedColumns</code> state and returns <code>this</code>, not a copy.</li>
+      <li><code>_metadata</code> is a mutable <code>var</code> read and written from multiple call sites without synchronization.</li>
+      <li><code>IndexMetadata</code> uses mutable Java collections that are not thread-safe.</li>
+    </ul>
+
+    <p><strong>Safe patterns</strong></p>
+    <ul>
+      <li>One thread per <code>Index</code> instance.</li>
+      <li>Separate <code>Index</code> instances per thread — they coordinate via the file-based locks.</li>
+      <li>Read-only operations (<code>locateFiles</code>, <code>stats</code>, <code>printIndex</code>) are safe across threads as long as nothing is mutating concurrently.</li>
+    </ul>
+
+    <h3>Lock file concurrency</h3>
+    <p>File-based locks coordinate across separate Spark jobs and applications:</p>
+    <ul>
+      <li>Atomic acquisition via Hadoop <code>create(overwrite=false)</code>.</li>
+      <li>Stale-lock auto-healing has a known TOCTOU window, mitigated by a retry-depth guard.</li>
+      <li>Lock refresh during long <code>update</code> calls prevents false stale detection.</li>
+    </ul>
+
+    <h3>Driver memory considerations</h3>
+    <p>A few operations collect data to the driver and can OOM on large indexes. They're documented in scaladoc with <code>@note</code> or inline comments:</p>
+    <ul>
+      <li><code>FileList.addFile()</code> collects all filenames for duplicate checking.</li>
+      <li><code>BloomFilterOperations.locateFilesWithBloom()</code> collects bloom filters.</li>
+      <li><code>IndexQueryOperations.getAutoBloomCandidates()</code> collects auto-bloom data.</li>
+      <li><code>locateFilesWithRangeFromDataFrame()</code> truncates to 10,000 distinct values to keep this bounded.</li>
+    </ul>
+
+    <h2 id="extending">Extending Ariadne</h2>
+
+    <p>The trait stack is intentionally easy to extend in place:</p>
+    <ul>
+      <li><strong>Metadata operations</strong> — extend <code>IndexMetadataOperations</code>.</li>
+      <li><strong>File reading</strong> — extend <code>IndexFileOperations</code>.</li>
+      <li><strong>Bloom-filter work</strong> — extend <code>BloomFilterOperations</code>.</li>
+      <li><strong>Index building</strong> — extend <code>IndexBuildOperations</code>.</li>
+      <li><strong>Join behavior</strong> — extend <code>IndexJoinOperations</code>.</li>
+      <li><strong>Query / introspection</strong> — extend <code>IndexQueryOperations</code>.</li>
+      <li><strong>Path or naming utilities</strong> — add to the <code>IndexPathUtils</code> object.</li>
+    </ul>
+
+    <p>Each trait has a focused test suite. For example, join changes live in <code>IndexJoinOperationsTests</code>:</p>
+
+<pre><code class="language-scala">class IndexJoinOperationsTests extends SparkTests {
+  test("join should cache results for repeated operations") {
+    val index = Index("test", schema, "parquet")
+    index.addIndex("id")
+    // ...
+  }
+}</code></pre>
+
+    <p>New error conditions get a typed exception extending <code>AriadneException</code> — see the table on the <a href="../users/troubleshooting.html#exception-ref">Troubleshooting</a> page for the existing set and conventions.</p>
+
+    <div class="callout tip">
+      <p><strong>Logging convention:</strong> use <code>logger.warn(...)</code> for normal operational messages. This is intentional — Spark surfaces warn-level output in cluster environments. Reserve <code>debug</code> for verbose entries, and never silently swallow exceptions: log them, then rethrow or handle.</p>
+    </div>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div>© 2024–2026 CJ Fravel · <a href="https://github.com/cjfravel-dev/ariadne/blob/main/LICENSE.md">MIT + SaaS License</a></div>
+    <div>
+      <a href="https://github.com/cjfravel-dev/ariadne">GitHub</a> ·
+      <a href="https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12">Maven Central</a> ·
+      <a href="https://github.com/cjfravel-dev/ariadne/discussions">Discussions</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>

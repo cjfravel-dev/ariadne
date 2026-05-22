@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Index Types — Ariadne</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-section="users" data-page="index-types">
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Ariadne</span>
+    </a>
+    <nav class="primary-nav">
+      <a href="../index.html" data-section="home">Home</a>
+      <a href="getting-started.html" data-section="users">User Guide</a>
+      <a href="../contributors/index.html" data-section="contributors">Contributors</a>
+      <a class="gh" href="https://github.com/cjfravel-dev/ariadne">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="sidebar">
+    <h5>User Guide</h5>
+    <ul>
+      <li><a href="getting-started.html" data-page="getting-started">Getting Started</a></li>
+      <li><a href="index-types.html" data-page="index-types">Index Types</a></li>
+      <li><a href="usage.html" data-page="usage">Usage Guide</a></li>
+      <li><a href="configuration.html" data-page="configuration">Configuration</a></li>
+      <li><a href="maintenance.html" data-page="maintenance">Maintenance</a></li>
+      <li><a href="troubleshooting.html" data-page="troubleshooting">Troubleshooting</a></li>
+    </ul>
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#cheatsheet">Cheat sheet</a></li>
+      <li><a href="#regular">Regular</a></li>
+      <li><a href="#bloom">Bloom filter</a></li>
+      <li><a href="#range">Range</a></li>
+      <li><a href="#temporal">Temporal</a></li>
+      <li><a href="#computed">Computed</a></li>
+      <li><a href="#exploded">Exploded field</a></li>
+      <li><a href="#combining">Combining types</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <div class="page-header">
+      <span class="eyebrow">User Guide</span>
+      <h1>Index Types</h1>
+      <p class="lede">Six index types cover different data shapes. A column can have exactly one type — choose based on cardinality and the kind of query you run against it.</p>
+    </div>
+
+    <h2 id="cheatsheet">Cheat sheet</h2>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Best for</th>
+            <th>Storage shape</th>
+            <th>False positives?</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="#regular"><strong>Regular</strong></a></td>
+            <td>Low-to-medium cardinality columns (regions, statuses, categories)</td>
+            <td>Distinct-value array per file</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td><a href="#bloom"><strong>Bloom</strong></a></td>
+            <td>High-cardinality keys (user IDs, transaction IDs)</td>
+            <td>Binary bloom filter per file</td>
+            <td>Yes (configurable)</td>
+          </tr>
+          <tr>
+            <td><a href="#range"><strong>Range</strong></a></td>
+            <td>Naturally ordered columns (dates, amounts)</td>
+            <td>min/max struct per file</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td><a href="#temporal"><strong>Temporal</strong></a></td>
+            <td>Slowly-changing entities (latest-version semantics)</td>
+            <td>(value, max_ts) array per file</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td><a href="#computed"><strong>Computed</strong></a></td>
+            <td>Indexing a derived value via SQL expression</td>
+            <td>Same as the underlying index type</td>
+            <td>Inherited</td>
+          </tr>
+          <tr>
+            <td><a href="#exploded"><strong>Exploded field</strong></a></td>
+            <td>Joining on elements inside nested array columns</td>
+            <td>Distinct-value array per file</td>
+            <td>No</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout note">
+      <p><strong>Mutually exclusive per column.</strong> Each column gets exactly one index type. Attempting to add a second type throws <code>IllegalArgumentException</code>. Different columns can use different types within the same index — see <a href="#combining">Combining types</a>.</p>
+    </div>
+
+    <h2 id="regular">Regular index</h2>
+    <p>The simplest option. Stores the distinct values found in each file as a Spark array. At query time Ariadne checks each file's array against the join keys and skips any file whose array doesn't contain a match.</p>
+
+<pre><code class="language-scala">index.addIndex("region")
+index.addIndex("status")</code></pre>
+
+    <p><strong>Use when:</strong> the column has at most a few thousand distinct values per file, and you need exact (no-false-positive) pruning.</p>
+
+    <div class="callout tip">
+      <p><strong>Auto-bloom kicks in for you.</strong> When a regular index column exceeds <code>spark.ariadne.largeIndexLimit</code> (default 500,000) distinct values, Ariadne automatically also builds a bloom filter to speed up lookups. You don't have to switch to <code>addBloomIndex</code> manually unless you want to control the FPR.</p>
+    </div>
+
+    <h2 id="bloom">Bloom filter index</h2>
+    <p>A space-efficient probabilistic index for high-cardinality columns. Bloom filters use roughly 10 bits per element at a 1% false-positive rate. They may occasionally include a file that doesn't actually match (false positive) but will <strong>never</strong> miss a file that does.</p>
+
+<pre><code class="language-scala">index.addBloomIndex("user_id", fpr = 0.01)     // 1% FPR (default)
+index.addBloomIndex("session_id", fpr = 0.001) // 0.1% — tighter, larger filter</code></pre>
+
+    <p><strong>Use when:</strong> the column is high-cardinality (IDs, hashes) and storing every distinct value as an array would be expensive.</p>
+
+    <div class="callout warn">
+      <p><strong>False positives mean extra files get read.</strong> A 1% FPR is a good default. Tighten it (e.g. <code>0.001</code>) only when over-reading is more expensive than the larger filter.</p>
+    </div>
+
+    <h2 id="range">Range index</h2>
+    <p>Stores per-file <code>min</code> and <code>max</code> values for a column. At query time, files whose <code>[min, max]</code> range doesn't overlap any query value are skipped entirely.</p>
+
+<pre><code class="language-scala">index.addRangeIndex("event_date")
+index.addRangeIndex("amount")</code></pre>
+
+    <p><strong>Use when:</strong> your data is naturally ordered or batched along a column — daily Parquet drops, monthly extracts, amount-bucketed files. Range indexes are cheap to maintain and very effective on date/time columns.</p>
+
+    <h2 id="temporal">Temporal index</h2>
+    <p>For columns where the same entity appears in multiple files over time (e.g. nightly snapshots, slowly-changing dimensions), and you only want the latest version. During joins, Ariadne automatically deduplicates — keeping only the row with the latest timestamp per key.</p>
+
+<pre><code class="language-scala">index.addTemporalIndex("user_id", "updated_at")
+
+// If user_id=1 exists in both january.parquet and june.parquet,
+// only the June row is returned from the join.</code></pre>
+
+    <p><strong>Use when:</strong> you have append-only history files but want point-in-time-latest semantics on read. The timestamp column must be present in every file you index.</p>
+
+    <h2 id="computed">Computed index</h2>
+    <p>Index a value derived from a SQL expression — the computed column doesn't have to physically exist in your files. Useful for partition-like prefixes, hash buckets, or date-component breakdowns.</p>
+
+<pre><code class="language-scala">index.addComputedIndex("category", "substring(Id, 1, 4)")
+index.addComputedIndex("year",     "year(event_timestamp)")
+index.addComputedIndex("bucket",   "abs(hash(user_id)) % 16")</code></pre>
+
+    <p><strong>Use when:</strong> the natural join key is a transformation of a stored column. The expression is evaluated during <code>update</code> and again on the query DataFrame at join time.</p>
+
+    <h2 id="exploded">Exploded field index</h2>
+    <p>Index elements inside array columns. Without this, joining on a nested array field would require reading every file. With it, Ariadne indexes the flattened values and prunes accordingly.</p>
+
+<pre><code class="language-scala">// Index users[].id as a virtual column named "user_id"
+index.addExplodedFieldIndex("users", "id", "user_id")
+
+// Index tags[].name as "tag_name"
+index.addExplodedFieldIndex("tags", "name", "tag_name")</code></pre>
+
+    <p>You join on the alias name (<code>user_id</code>, <code>tag_name</code>), not the original nested path. Ariadne maps it back to the underlying array column when reading.</p>
+
+    <p><strong>Use when:</strong> you have JSON/Parquet with embedded arrays of structs and want lookups against fields inside those arrays.</p>
+
+    <h2 id="combining">Combining types on one index</h2>
+    <p>Different columns within the same index can use different types. On a multi-column join, Ariadne intersects the candidate files from each indexed column — a file must satisfy <strong>all</strong> conditions to be loaded.</p>
+
+<pre><code class="language-scala">val index = Index("events", eventSchema, "parquet")
+index.addRangeIndex("event_date")     // prune by date overlap
+index.addBloomIndex("user_id", 0.01)  // probabilistic filter on user IDs
+index.addIndex("region")              // exact filter on region
+index.addFile(eventFiles: _*)
+index.update
+
+val result = index.join(
+  queryDf,
+  Seq("event_date", "user_id", "region"),
+  "inner"
+)</code></pre>
+
+    <div class="callout tip">
+      <p><strong>Stack types deliberately.</strong> A common, effective combo is <em>range on the partition column + bloom on the join key + regular on the low-cardinality filter</em>. Each type narrows the file set on a different axis.</p>
+    </div>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div>© 2024–2026 CJ Fravel · <a href="https://github.com/cjfravel-dev/ariadne/blob/main/LICENSE.md">MIT + SaaS License</a></div>
+    <div>
+      <a href="https://github.com/cjfravel-dev/ariadne">GitHub</a> ·
+      <a href="https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12">Maven Central</a> ·
+      <a href="https://github.com/cjfravel-dev/ariadne/discussions">Discussions</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contributing — Ariadne</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-section="contributors" data-page="index">
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Ariadne</span>
+    </a>
+    <nav class="primary-nav">
+      <a href="../index.html" data-section="home">Home</a>
+      <a href="../users/getting-started.html" data-section="users">User Guide</a>
+      <a href="index.html" data-section="contributors">Contributors</a>
+      <a class="gh" href="https://github.com/cjfravel-dev/ariadne">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="sidebar">
+    <h5>Contributors</h5>
+    <ul>
+      <li><a href="index.html" data-page="index">Contributing</a></li>
+      <li><a href="architecture.html" data-page="architecture">Architecture</a></li>
+      <li><a href="security.html" data-page="security">Security Policy</a></li>
+      <li><a href="cla.html" data-page="cla">CLA</a></li>
+    </ul>
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#issues">Bugs &amp; features</a></li>
+      <li><a href="#setup">Development setup</a></li>
+      <li><a href="#build">Build &amp; test</a></li>
+      <li><a href="#style">Code style</a></li>
+      <li><a href="#pr">Pull requests</a></li>
+      <li><a href="#ai">AI-assisted contributions</a></li>
+      <li><a href="#help">Questions</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <div class="page-header">
+      <span class="eyebrow">Contributors</span>
+      <h1>Contributing to Ariadne</h1>
+      <p class="lede">Thanks for your interest. This page covers everything you need to file a bug, set up a dev environment, and submit a high-quality pull request.</p>
+    </div>
+
+    <h2 id="issues">Reporting bugs &amp; requesting features</h2>
+
+    <div class="split">
+      <div class="split-card">
+        <h2>🐛 Bug report</h2>
+        <p>Open a <a href="https://github.com/cjfravel-dev/ariadne/issues/new?template=bug_report.md">GitHub issue</a> and include:</p>
+        <ul>
+          <li>A clear description of the problem</li>
+          <li>Steps to reproduce</li>
+          <li>Expected vs. actual behavior</li>
+          <li>Spark version, Scala version, Ariadne version</li>
+        </ul>
+      </div>
+      <div class="split-card contributors">
+        <h2>✨ Feature request</h2>
+        <p>Open a <a href="https://github.com/cjfravel-dev/ariadne/issues/new?template=feature_request.md">feature request</a> describing:</p>
+        <ul>
+          <li>The use case or problem you're trying to solve</li>
+          <li>Your proposed solution, if you have one</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2 id="setup">Development setup</h2>
+
+    <h3>Prerequisites</h3>
+    <dl class="kv">
+      <dt>Java 11</dt><dd><code>JAVA_HOME=/usr/lib/jvm/java-11-openjdk</code> or equivalent — newer JDKs are not supported by the target Spark versions.</dd>
+      <dt>Maven 3.x</dt><dd>Used for build, test, packaging.</dd>
+      <dt>scalafmt</dt><dd>Required — all code must be formatted before submission (<code>runner.dialect = scala213</code>).</dd>
+    </dl>
+
+    <div class="callout warn">
+      <p><strong>Don't upgrade Scala or Spark.</strong> Scala 2.12.17 and Spark 3.4/3.5 are pinned to match Azure Synapse runtime dependencies. Bumping them is out of scope for normal PRs.</p>
+    </div>
+
+    <h2 id="build">Build &amp; test</h2>
+
+<pre><code class="language-bash"># Run all tests (default: Spark 3.4 profile)
+mvn test
+
+# Run tests with the Spark 3.5 profile
+mvn test -P spark35
+
+# Run a single test suite
+mvn test -Dsuites="dev.cjfravel.ariadne.IndexTests"
+
+# Run one test within a suite
+mvn test -Dsuites="dev.cjfravel.ariadne.IndexTests#my test name"
+
+# Package (produces the shaded JAR)
+mvn package</code></pre>
+
+    <p>The <code>test</code> phase also runs <code>dev/scripts/readme-has-version.sh</code>, which fails if the version in <code>pom.xml</code> isn't reflected in the docs. Always update both when bumping the version.</p>
+
+    <h2 id="style">Code style</h2>
+    <ul>
+      <li>Format with <strong>scalafmt</strong> (<code>runner.dialect = scala213</code>).</li>
+      <li>Standard Scala naming: <code>camelCase</code> for methods/vals, <code>PascalCase</code> for types.</li>
+      <li>Expression-oriented style — prefer <code>if/else</code> expressions over <code>return</code>.</li>
+      <li>Use <code>import scala.collection.JavaConverters._</code> (the project is Scala 2.12; <code>CollectionConverters</code> is 2.13+).</li>
+      <li>Every public class, trait, object, and method must have Scaladoc.</li>
+      <li><code>logger.warn(...)</code> for normal operational messages — this is intentional and matches how Spark surfaces logs in cluster environments. Reserve <code>debug</code> for verbose/low-value entries.</li>
+      <li>No silent <code>catch</code> blocks. Always log the exception before swallowing or rethrowing.</li>
+    </ul>
+
+    <h2 id="pr">Submitting a pull request</h2>
+    <ol>
+      <li>Fork the repository and branch from <code>main</code>.</li>
+      <li>Make your changes, ensuring <code>mvn test</code> passes.</li>
+      <li>Update documentation if your changes affect the public API.</li>
+      <li><strong>Don't change the version</strong> in <code>pom.xml</code> or the docs — versioning is managed by the maintainer.</li>
+      <li>Open a pull request with a clear description.</li>
+    </ol>
+
+    <div class="callout note">
+      <p><strong>Contributor License Agreement.</strong> By submitting a PR you agree to the terms of the <a href="cla.html">CLA</a>. PRs cannot be merged until the CLA is accepted.</p>
+    </div>
+
+    <h2 id="ai">AI-assisted contributions</h2>
+    <p>AI assistance (Copilot, ChatGPT, etc.) is welcome — but every PR must reflect genuine human understanding:</p>
+    <ul>
+      <li><strong>Review and comprehend all AI-generated code before submitting.</strong> If you can't explain what it does and why, it's not ready.</li>
+      <li><strong>Purely AI-generated PRs with no human review will be closed.</strong> We need contributors who can discuss their changes, respond to feedback, and reason about edge cases.</li>
+      <li><strong>Attribute AI assistance honestly.</strong> There's no stigma — just be transparent.</li>
+    </ul>
+    <p>The goal is quality contributions from people who understand what they're submitting, regardless of how they got there.</p>
+
+    <h2 id="help">Questions</h2>
+    <p>Open a <a href="https://github.com/cjfravel-dev/ariadne/discussions">GitHub Discussion</a>.</p>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div>© 2024–2026 CJ Fravel · <a href="https://github.com/cjfravel-dev/ariadne/blob/main/LICENSE.md">MIT + SaaS License</a></div>
+    <div>
+      <a href="https://github.com/cjfravel-dev/ariadne">GitHub</a> ·
+      <a href="https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12">Maven Central</a> ·
+      <a href="https://github.com/cjfravel-dev/ariadne/discussions">Discussions</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Maintenance — Ariadne</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-section="users" data-page="maintenance">
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Ariadne</span>
+    </a>
+    <nav class="primary-nav">
+      <a href="../index.html" data-section="home">Home</a>
+      <a href="getting-started.html" data-section="users">User Guide</a>
+      <a href="../contributors/index.html" data-section="contributors">Contributors</a>
+      <a class="gh" href="https://github.com/cjfravel-dev/ariadne">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="sidebar">
+    <h5>User Guide</h5>
+    <ul>
+      <li><a href="getting-started.html" data-page="getting-started">Getting Started</a></li>
+      <li><a href="index-types.html" data-page="index-types">Index Types</a></li>
+      <li><a href="usage.html" data-page="usage">Usage Guide</a></li>
+      <li><a href="configuration.html" data-page="configuration">Configuration</a></li>
+      <li><a href="maintenance.html" data-page="maintenance">Maintenance</a></li>
+      <li><a href="troubleshooting.html" data-page="troubleshooting">Troubleshooting</a></li>
+    </ul>
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#delete">Removing files</a></li>
+      <li><a href="#compact">Compaction</a></li>
+      <li><a href="#vacuum">Vacuum</a></li>
+      <li><a href="#auto-compact">Auto-compaction</a></li>
+      <li><a href="#remove-index">Removing an index</a></li>
+      <li><a href="#metrics">Pruning metrics</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <div class="page-header">
+      <span class="eyebrow">User Guide</span>
+      <h1>Maintenance</h1>
+      <p class="lede">Keeping indexes healthy over time — removing dropped files, compacting Delta storage, vacuuming history, and reading pruning metrics.</p>
+    </div>
+
+    <h2 id="delete">Removing files</h2>
+    <p>When source files are archived, replaced, or deleted, remove them from the index so they're not considered during joins:</p>
+
+<pre><code class="language-scala">index.deleteFiles(
+  "s3a://lake/orders/old_data_2023.parquet",
+  "s3a://lake/orders/archived_events.parquet"
+)</code></pre>
+
+    <p>This removes the corresponding rows from the main index, every large-index table for that column, and the staging table if one exists. It also removes the file from the tracked file list so a future <code>update</code> doesn't try to re-scan it.</p>
+
+    <div class="callout tip">
+      <p><strong>Pair with <code>IndexCatalog.findIndexes</code></strong> if you don't know which indexes reference a given file:</p>
+<pre><code class="language-scala">val path = "s3a://bucket/data/old_file.parquet"
+IndexCatalog.findIndexes(path).foreach { name =&gt;
+  IndexCatalog.get(name).deleteFiles(path)
+}</code></pre>
+    </div>
+
+    <h2 id="compact">Compaction</h2>
+    <p>Repeated <code>update</code> calls accumulate small Delta files. Run <code>compact()</code> periodically to consolidate them:</p>
+
+<pre><code class="language-scala">index.compact()</code></pre>
+
+    <p>This runs Delta <code>OPTIMIZE</code> on the main index table and every large-index table. Read performance improves; write performance is unaffected.</p>
+
+    <h2 id="vacuum">Vacuum</h2>
+    <p>Delta keeps old file versions for time-travel. After compaction, those old versions become unreachable but still occupy storage. <code>vacuum</code> removes files older than the retention window:</p>
+
+<pre><code class="language-scala">index.vacuum()                       // default: 168 hours (7 days)
+index.vacuum(retentionHours = 72)    // 3-day retention</code></pre>
+
+    <div class="callout warn">
+      <p><strong>Be conservative with short retention.</strong> Any active read transaction older than the retention window can fail. The Delta default of 7 days exists for good reason — only shorten it if you know nothing in your environment time-travels.</p>
+    </div>
+
+    <h2 id="auto-compact">Auto-compaction</h2>
+    <p>For long-running jobs that do many small <code>update</code> calls, enable auto-compaction so you don't have to schedule it separately:</p>
+
+<pre><code class="language-scala">spark.conf.set("spark.ariadne.autoCompactThreshold", "10")</code></pre>
+
+    <p>After every 10 update batches, Ariadne runs <code>compact()</code> automatically. The batch counter is persisted in index metadata, so it accumulates correctly across Spark jobs.</p>
+
+    <div class="callout note">
+      <p>If <code>autoCompactThreshold</code> is unset and the counter reaches 50, Ariadne logs a warning recommending compaction. Manual <code>compact()</code> also resets the counter.</p>
+    </div>
+
+    <h2 id="remove-index">Removing an index entirely</h2>
+    <p>Delete the index and all its data:</p>
+
+<pre><code class="language-scala">Index.remove("myIndex")          // delete and remove from catalog
+IndexCatalog.remove("myIndex")   // same — equivalent</code></pre>
+
+    <p>This deletes the metadata file, all Delta tables (main index, staging, every large-index table), and the tracked file list. The underlying source data files are <em>not</em> touched.</p>
+
+    <h2 id="metrics">Pruning metrics</h2>
+    <p>Every join logs how effective the index was at pruning files. This is the easiest way to confirm Ariadne is actually doing its job:</p>
+
+<pre><code class="language-bash">Index pruning: loaded 42 of 10000 files (1.23 GB of 45.67 GB) — 97% data pruned</code></pre>
+
+    <p>The numbers are exact (not estimates). If you're seeing 0% pruned consistently, your join probably isn't on an indexed column, or every key matches every file — see <a href="troubleshooting.html">Troubleshooting</a>.</p>
+
+    <p>For more detail, enable debug logging:</p>
+
+<pre><code class="language-scala">spark.conf.set("spark.ariadne.debug", "true")</code></pre>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div>© 2024–2026 CJ Fravel · <a href="https://github.com/cjfravel-dev/ariadne/blob/main/LICENSE.md">MIT + SaaS License</a></div>
+    <div>
+      <a href="https://github.com/cjfravel-dev/ariadne">GitHub</a> ·
+      <a href="https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12">Maven Central</a> ·
+      <a href="https://github.com/cjfravel-dev/ariadne/discussions">Discussions</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>
