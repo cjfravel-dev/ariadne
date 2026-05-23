@@ -81,7 +81,7 @@
     <dl class="kv">
       <dt>Java 11</dt><dd><code>JAVA_HOME=/usr/lib/jvm/java-11-openjdk</code> or equivalent — newer JDKs are not supported by the target Spark versions.</dd>
       <dt>Maven 3.x</dt><dd>Used for build, test, packaging.</dd>
-      <dt>scalafmt</dt><dd>Required — all code must be formatted before submission (<code>runner.dialect = scala213</code>).</dd>
+      <dt>scalafmt</dt><dd>Required — all code must be formatted before submission (<code>runner.dialect = scala212</code>).</dd>
     </dl>
 
     <div class="callout warn">
@@ -106,7 +106,7 @@ mvn package</code></pre>
 
     <h2 id="style">Code style</h2>
     <ul>
-      <li>Format with <strong>scalafmt</strong> (<code>runner.dialect = scala213</code>).</li>
+      <li>Format with <strong>scalafmt</strong> (<code>runner.dialect = scala212</code>).</li>
       <li>Standard Scala naming: <code>camelCase</code> for methods/vals, <code>PascalCase</code> for types.</li>
       <li>Expression-oriented style — prefer <code>if/else</code> expressions over <code>return</code>.</li>
       <li>Use <code>import scala.collection.JavaConverters._</code> (the project is Scala 2.12; <code>CollectionConverters</code> is 2.13+).</li>
