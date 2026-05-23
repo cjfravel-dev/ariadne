@@ -154,29 +154,13 @@ h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity: 1; }
   letter-spacing: -0.01em;
 }
 .brand:hover { color: var(--c-gold); text-decoration: none; }
-.brand-mark {
+.brand-icon {
   display: inline-block;
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--c-copper), var(--c-gold));
-  position: relative;
-}
-.brand-mark::after {
-  content: "";
-  position: absolute;
-  inset: 7px;
-  border-radius: 50%;
-  background: var(--c-navy);
-}
-.brand-mark::before {
-  content: "";
-  position: absolute;
-  top: 50%; left: 50%;
-  width: 2px; height: 18px;
-  background: var(--c-gold);
-  transform: translate(-50%, -50%) rotate(35deg);
-  border-radius: 1px;
-  z-index: 1;
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  /* Drop the navy outline into the navy header by punching a subtle gold glow */
+  filter: drop-shadow(0 0 6px rgba(212, 168, 106, 0.35));
 }
 
 .primary-nav {
@@ -285,6 +269,15 @@ h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity: 1; }
   pointer-events: none;
 }
 .hero-inner { max-width: 800px; margin: 0 auto; position: relative; }
+.hero-mark {
+  display: block;
+  width: 140px;
+  height: 140px;
+  margin: 0 auto 18px;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.35))
+          drop-shadow(0 0 18px rgba(212, 168, 106, 0.25));
+}
 .hero h1 {
   color: #fff;
   font-size: 3rem;
@@ -734,6 +727,7 @@ dl.kv dd { margin: 0; color: var(--c-text-muted); }
   }
   .hero h1 { font-size: 2.25rem; }
   .hero { padding: 56px 20px 64px; }
+  .hero-mark { width: 96px; height: 96px; margin-bottom: 14px; }
   .primary-nav a { padding: 8px 10px; font-size: 0.9rem; }
   .brand-name { display: none; }
 }

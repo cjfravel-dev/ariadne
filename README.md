@@ -1,4 +1,6 @@
-# Ariadne
+<p align="center">
+  <img src="docs/assets/ariadne.png" alt="Ariadne" width="420">
+</p>
 
 [![CI](https://github.com/cjfravel-dev/ariadne/actions/workflows/ci.yml/badge.svg)](https://github.com/cjfravel-dev/ariadne/actions/workflows/ci.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/dev.cjfravel/ariadne-spark35_2.12?label=Maven%20Central)](https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12)
