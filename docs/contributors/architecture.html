@@ -245,7 +245,7 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
     <h3>Auto-bloom for large indexes</h3>
     <p>Querying a <code>large_indexes/{column}</code> table is more expensive than reading an array column, because each row is one filename/value pair. Auto-bloom adds a bloom filter (column-prefixed <code>auto_bloom_</code>) to the main index whenever a column's distinct count crosses <code>largeIndexLimit</code>. At query time, the bloom pre-filters candidate files <em>before</em> the more expensive large-index scan — typically reducing I/O by an order of magnitude.</p>
 
-    <p>Build flow is integrated into the staged-append path: bloom filters are added as a binary column to the staging DataFrame, and metadata is only updated after data is safely staged. Backwards compatibility is handled by metadata v7→v8 migration, plus the <code>filesNeedingColumnUpdate</code> check, which ensures files indexed before auto-bloom was introduced get caught on the next update.</p>
+    <p>Build flow is integrated into the staged-append path: bloom filters are added as a binary column to the staging DataFrame, and metadata is only updated after data is safely staged.</p>
 
     <h3>Index repartitioning for very large joins</h3>
     <p>The <code>explode</code> step on index array columns can produce massive intermediate DataFrames that cause <code>FetchFailedException</code> on shuffles. The optional <code>indexRepartitionCount</code> setting repartitions the index DataFrame both before <code>explode</code> in <code>locateFilesFromDataFrame</code> and after <code>readFiles</code> in <code>joinDf</code>. It's not enabled by default because the extra shuffle hurts small joins.</p>

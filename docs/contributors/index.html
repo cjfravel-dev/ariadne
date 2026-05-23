@@ -39,6 +39,7 @@
       <li><a href="#setup">Development setup</a></li>
       <li><a href="#build">Build &amp; test</a></li>
       <li><a href="#style">Code style</a></li>
+      <li><a href="#compat">Backwards compatibility</a></li>
       <li><a href="#pr">Pull requests</a></li>
       <li><a href="#ai">AI-assisted contributions</a></li>
       <li><a href="#help">Questions</a></li>
@@ -114,6 +115,10 @@ mvn package</code></pre>
       <li><code>logger.warn(...)</code> for normal operational messages — this is intentional and matches how Spark surfaces logs in cluster environments. Reserve <code>debug</code> for verbose/low-value entries.</li>
       <li>No silent <code>catch</code> blocks. Always log the exception before swallowing or rethrowing.</li>
     </ul>
+
+    <h2 id="compat">Backwards compatibility</h2>
+    <p>Ariadne aims to be backwards compatible between releases — existing indexes should keep working when users upgrade, and the public Scala API shouldn't break under feet. Treat that as the default expectation when proposing changes.</p>
+    <p>That said, Ariadne is still in beta. If a breaking change clearly benefits the project more than the disruption costs, it can land — but only with the maintainer's explicit sign-off. Don't assume a breaking change will be accepted just because it's cleaner; open an issue or discussion to align first.</p>
 
     <h2 id="pr">Submitting a pull request</h2>
     <ol>
