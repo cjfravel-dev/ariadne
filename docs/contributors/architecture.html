@@ -232,20 +232,7 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
     <p>When a column exceeds <code>largeIndexLimit</code> distinct values, it can no longer live as a Spark array column in the main index — that array would blow memory at query time. Instead, that one column gets its own consolidated Delta table at <code>large_indexes/{column}/</code> containing exploded <code>(filename, value)</code> rows for <em>all</em> files. Delta optimization works cleanly on this shape, and Z-ordering is meaningful.</p>
 
     <h3>Staged append + consolidation</h3>
-    <p>Naive per-batch <code>MERGE</code> into the main index is quadratic-ish in the number of batches. Ariadne instead appends every batch to a <code>staging/</code> Delta table and only merges into the main index periodically. The win on long updates is substantial:</p>
-
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr><th>Batches</th><th>Naive merges</th><th>Staged merges</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>50</td><td>~1,275</td><td><strong>1</strong></td></tr>
-          <tr><td>100</td><td>~5,050</td><td><strong>2</strong></td></tr>
-          <tr><td>180</td><td>~16,290</td><td><strong>4</strong></td></tr>
-        </tbody>
-      </table>
-    </div>
+    <p>Merging into the main index on every batch is expensive: each <code>MERGE</code> rewrites Delta files that grow as the index grows, so per-batch merge cost climbs as the update proceeds. Ariadne instead appends every batch to a <code>staging/</code> Delta table and only merges into the main index once per <code>stagingConsolidationThreshold</code> batches (plus a final consolidation at the end). For a 180-batch update with the default threshold of 50, that's 4 merges instead of 180.</p>
 
     <p>Staging also acts as a checkpoint: a crash mid-update leaves consolidated work in the main index and any in-flight work in staging, which the next <code>update</code> picks up.</p>
 
