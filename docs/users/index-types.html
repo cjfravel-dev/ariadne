@@ -110,10 +110,10 @@
 <pre><code class="language-scala">index.addIndex("region")
 index.addIndex("status")</code></pre>
 
-    <p><strong>Use when:</strong> the column has at most a few thousand distinct values per file, and you need exact (no-false-positive) pruning.</p>
+    <p><strong>Use when:</strong> you need exact (no-false-positive) pruning. Regular indexes scale to very large distinct-value counts per file — once a column crosses <code>spark.ariadne.largeIndexLimit</code> (default 500,000), Ariadne switches that column to an exploded, row-per-value layout in a separate Delta table and adds an auto-bloom for fast lookups. That keeps queries fast, but index <code>update</code> does more work (extra shuffle and writes), so it's worth choosing <a href="#bloom">a bloom index</a> directly when you don't need exact pruning.</p>
 
     <div class="callout tip">
-      <p><strong>Auto-bloom kicks in for you.</strong> When a regular index column exceeds <code>spark.ariadne.largeIndexLimit</code> (default 500,000) distinct values, Ariadne automatically also builds a bloom filter to speed up lookups. You don't have to switch to <code>addBloomIndex</code> manually unless you want to control the FPR.</p>
+      <p><strong>Auto-bloom kicks in for you.</strong> When a regular index column exceeds <code>spark.ariadne.largeIndexLimit</code> distinct values, Ariadne automatically also builds a bloom filter to speed up lookups. You don't have to switch to <code>addBloomIndex</code> manually unless you want to control the FPR.</p>
     </div>
 
     <h2 id="bloom">Bloom filter index</h2>
