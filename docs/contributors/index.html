@@ -85,16 +85,13 @@
     </dl>
 
     <div class="callout warn">
-      <p><strong>Don't upgrade Scala or Spark.</strong> Scala 2.12.17 and Spark 3.4/3.5 are pinned to match Azure Synapse runtime dependencies. Bumping them is out of scope for normal PRs.</p>
+      <p><strong>Don't upgrade Scala or Spark.</strong> Scala 2.12.17 and Spark 3.5 are pinned to match runtime dependencies. Bumping them is out of scope for normal PRs.</p>
     </div>
 
     <h2 id="build">Build &amp; test</h2>
 
-<pre><code class="language-bash"># Run all tests (default: Spark 3.4 profile)
+<pre><code class="language-bash"># Run all tests
 mvn test
-
-# Run tests with the Spark 3.5 profile
-mvn test -P spark35
 
 # Run a single test suite
 mvn test -Dsuites="dev.cjfravel.ariadne.IndexTests"

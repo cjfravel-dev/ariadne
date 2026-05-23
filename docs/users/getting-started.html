@@ -54,20 +54,12 @@
     </div>
 
     <h2 id="install">Installation</h2>
-    <p>Ariadne ships two artifacts — one for Spark 3.5 (default) and one for Spark 3.4 (Azure Synapse). Choose the one matching your cluster.</p>
+    <p>Ariadne is built for Spark 3.5 / Delta 3.2. Add the dependency that matches your build tool.</p>
 
     <h3>Maven</h3>
-<pre><code class="language-xml">&lt;!-- Spark 3.5 / Delta 3.2 (default) --&gt;
-&lt;dependency&gt;
+<pre><code class="language-xml">&lt;dependency&gt;
     &lt;groupId&gt;dev.cjfravel&lt;/groupId&gt;
     &lt;artifactId&gt;ariadne-spark35_2.12&lt;/artifactId&gt;
-    &lt;version&gt;0.1.1-beta&lt;/version&gt;
-&lt;/dependency&gt;
-
-&lt;!-- Spark 3.4 / Delta 2.4 (Azure Synapse) --&gt;
-&lt;dependency&gt;
-    &lt;groupId&gt;dev.cjfravel&lt;/groupId&gt;
-    &lt;artifactId&gt;ariadne-spark34_2.12&lt;/artifactId&gt;
     &lt;version&gt;0.1.1-beta&lt;/version&gt;
 &lt;/dependency&gt;</code></pre>
 
@@ -75,7 +67,7 @@
 <pre><code class="language-scala">libraryDependencies += "dev.cjfravel" %% "ariadne-spark35" % "0.1.1-beta"</code></pre>
 
     <div class="callout note">
-      <p><strong>Scala 2.12 only.</strong> Both artifacts are built against Scala 2.12, matching the Spark versions they target. Scala 2.13 is not supported.</p>
+      <p><strong>Scala 2.12 only.</strong> The artifact is built against Scala 2.12 to match Spark. Scala 2.13 is not supported.</p>
     </div>
 
     <h2 id="configure">Configure storage</h2>

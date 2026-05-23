@@ -18,7 +18,6 @@ Closes #
 
 - [ ] All existing tests pass (`mvn test`)
 - [ ] New tests added for new functionality
-- [ ] Tested with both Spark 3.4 and 3.5 profiles
 
 ## Checklist
 
