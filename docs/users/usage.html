@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Usage Guide — Ariadne</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" type="image/png" href="../assets/icon.png">
+</head>
+<body data-section="users" data-page="usage">
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="../index.html">
+      <img class="brand-icon" src="../assets/icon.png" alt="" aria-hidden="true">
+      <img class="brand-name-img" src="../assets/name.png" alt="Ariadne">
+    </a>
+    <nav class="primary-nav">
+      <a href="../index.html" data-section="home">Home</a>
+      <a href="getting-started.html" data-section="users">User Guide</a>
+      <a href="../contributors/index.html" data-section="contributors">Contributors</a>
+      <a class="gh" href="https://github.com/cjfravel-dev/ariadne">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="sidebar">
+    <h5>User Guide</h5>
+    <ul>
+      <li><a href="getting-started.html" data-page="getting-started">Getting Started</a></li>
+      <li><a href="index-types.html" data-page="index-types">Index Types</a></li>
+      <li><a href="usage.html" data-page="usage">Usage Guide</a></li>
+      <li><a href="configuration.html" data-page="configuration">Configuration</a></li>
+      <li><a href="maintenance.html" data-page="maintenance">Maintenance</a></li>
+      <li><a href="troubleshooting.html" data-page="troubleshooting">Troubleshooting</a></li>
+    </ul>
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#joins">Joining</a></li>
+      <li><a href="#select">Column selection</a></li>
+      <li><a href="#locate">File lookups</a></li>
+      <li><a href="#json">JSON &amp; read options</a></li>
+      <li><a href="#schema-evolution">Schema evolution</a></li>
+      <li><a href="#catalog">Index catalog</a></li>
+      <li><a href="#sql-catalog">Spark SQL catalog</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <div class="page-header">
+      <span class="eyebrow">User Guide</span>
+      <h1>Usage Guide</h1>
+      <p class="lede">Everything you'll do with an existing Ariadne index — joins, column selection, file lookups, catalog access, and SQL.</p>
+    </div>
+
+    <h2 id="joins">Joining</h2>
+    <p>An Ariadne index participates in normal Spark joins. Either direction works and yields the same physical plan up to side ordering.</p>
+
+<pre><code class="language-scala">import dev.cjfravel.ariadne.Index._  // brings in the df.join(index, …) implicit
+
+// DataFrame on the left
+val a = customerDf.join(index, Seq("customer_id"), "inner")
+
+// Index on the left
+val b = index.join(customerDf, Seq("customer_id"), "inner")</code></pre>
+
+    <h2 id="select">Column selection</h2>
+    <p>Reduce I/O by reading only the columns you need from the source files. <code>select</code> mutates and returns the same <code>Index</code>, so it chains cleanly into a join:</p>
+
+<pre><code class="language-scala">val result = index
+  .select("user_id", "name", "email")
+  .join(queryDf, Seq("user_id"), "inner")</code></pre>
+
+    <div class="callout warn">
+      <p><strong>Not thread-safe.</strong> <code>select()</code> mutates internal state on the Index instance. Don't share one instance across threads while calling <code>select</code>.</p>
+    </div>
+
+    <h2 id="locate">File lookups without joining</h2>
+    <p>Sometimes you just want to know <em>which files</em> would be read for a given set of keys — for audit, prefetching, or building your own job graph.</p>
+
+<pre><code class="language-scala">val files: Set[String] = index.locateFiles(Map(
+  "user_id"   -> Array("u1", "u2", "u3"),
+  "region"    -> Array("us-west")
+))</code></pre>
+
+    <p>The map keys are indexed column names; values are arrays of candidate values. Multi-column lookups use AND semantics — a file must match on every key.</p>
+
+    <h2 id="json">JSON &amp; format read options</h2>
+    <p>Pass format-specific read options at index creation. They're persisted in metadata and applied every time the source files are read.</p>
+
+<pre><code class="language-scala">val jsonIndex = Index(
+  "events",
+  jsonSchema,
+  "json",
+  readOptions = Map("multiLine" -> "true")
+)
+jsonIndex.addExplodedFieldIndex("users", "id", "user_id")
+jsonIndex.addFile("events.json")
+jsonIndex.update</code></pre>
+
+    <p>Same mechanism works for CSV (<code>"header" -&gt; "true"</code>, <code>"delimiter" -&gt; "|"</code>, etc.).</p>
+
+    <h2 id="schema-evolution">Schema evolution</h2>
+    <p>If your source schema changes — a column is added, types widen — reconnect with the new schema and explicitly opt in to the mismatch:</p>
+
+<pre><code class="language-scala">val index = Index("myIndex", newSchema, "parquet", allowSchemaMismatch = true)</code></pre>
+
+    <p>The hard requirement: <strong>every previously indexed column must still exist in the new schema</strong>. Otherwise you'll get an <code>IndexNotFoundInNewSchemaException</code> and need to remove and rebuild.</p>
+
+    <h2 id="catalog">Ariadne index catalog</h2>
+    <p>The <code>IndexCatalog</code> object is a stateless directory of every index under your <code>storagePath</code>. Useful for discovery, cleanup, and tooling.</p>
+
+<pre><code class="language-scala">import dev.cjfravel.ariadne.IndexCatalog
+
+IndexCatalog.list()                 // Seq[String] of all index names
+IndexCatalog.exists("myIndex")
+IndexCatalog.describe("myIndex")    // IndexSummary: types, file count, format
+IndexCatalog.describeAll()
+IndexCatalog.toDF().show()          // tabular view of all indexes
+IndexCatalog.get("myIndex")         // reconnect — same as Index("myIndex")
+IndexCatalog.remove("myIndex")      // delete an index and all its data
+
+// Clean up indexes that reference a deleted file
+IndexCatalog.findIndexes("abfss://data@mystorage.dfs.core.windows.net/old.parquet").foreach { name =&gt;
+  IndexCatalog.get(name).deleteFiles("abfss://data@mystorage.dfs.core.windows.net/old.parquet")
+}</code></pre>
+
+    <h2 id="sql-catalog">Spark SQL catalog</h2>
+    <p>Ariadne can expose every index as a Spark SQL table. Register the catalog and SQL extension on your <code>SparkConf</code> <strong>before</strong> the SparkContext is created (this is a hard requirement for <code>spark.sql.extensions</code>):</p>
+
+<pre><code class="language-scala">val conf = new SparkConf()
+  .set("spark.sql.catalog.ariadne",
+       "dev.cjfravel.ariadne.catalog.AriadneCatalog")
+  .set("spark.sql.extensions",
+       "dev.cjfravel.ariadne.catalog.AriadneSparkExtension")</code></pre>
+
+    <p>Every index under <code>storagePath</code> is automatically discoverable — no per-index registration:</p>
+
+<pre><code class="language-sql">SHOW TABLES IN ariadne;
+DESCRIBE ariadne.customers;
+
+SELECT * FROM ariadne.customers WHERE id = 123;
+
+SELECT *
+FROM ariadne.customers c
+JOIN orders o ON c.id = o.customerid;</code></pre>
+
+    <div class="callout note">
+      <p><strong>Read-only catalog.</strong> Index creation, updates, and deletion all happen through the Scala API — not through SQL DDL.</p>
+    </div>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div>© 2024–2026 CJ Fravel · <a href="https://github.com/cjfravel-dev/ariadne/blob/main/LICENSE.md">MIT + SaaS License</a></div>
+    <div>
+      <a href="https://github.com/cjfravel-dev/ariadne">GitHub</a> ·
+      <a href="https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12">Maven Central</a> ·
+      <a href="https://github.com/cjfravel-dev/ariadne/discussions">Discussions</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>

@@ -23,9 +23,11 @@ import com.google.gson.Gson
   * '''Thread safety:''' This trait is '''not''' thread-safe. The mutable
   * `_metadata` cache is not synchronized — concurrent calls to
   * [[refreshMetadata]] or [[writeMetadata]] from multiple threads may produce
-  * inconsistent state. External synchronization is required for concurrent access.
+  * inconsistent state. External synchronization is required for concurrent
+  * access.
   *
-  * @see [[IndexMetadata]] for the metadata schema and version migration logic
+  * @see
+  *   [[IndexMetadata]] for the metadata schema and version migration logic
   */
 trait IndexMetadataOperations extends AriadneContextUser {
   self: Index =>
@@ -54,8 +56,8 @@ trait IndexMetadataOperations extends AriadneContextUser {
     * invoke it explicitly to pick up external changes.
     *
     * @throws MetadataMissingOrCorruptException
-    *   if the metadata file does not exist, cannot be read, or contains
-    *   invalid JSON
+    *   if the metadata file does not exist, cannot be read, or contains invalid
+    *   JSON
     */
   def refreshMetadata(): Unit = {
     logger.debug(s"Entering refreshMetadata for index '${name}'")
@@ -103,7 +105,8 @@ trait IndexMetadataOperations extends AriadneContextUser {
     _metadata
   }
 
-  /** Writes metadata to the `metadata.json` file and updates the in-memory cache.
+  /** Writes metadata to the `metadata.json` file and updates the in-memory
+    * cache.
     *
     * Creates the parent directory if it does not exist. The write is ''not''
     * atomic — a crash mid-write may leave a corrupt file that triggers
@@ -141,7 +144,8 @@ trait IndexMetadataOperations extends AriadneContextUser {
     logger.debug(s"Completed writeMetadata for index '${name}'")
   }
 
-  /** Returns the file format of the indexed data (e.g., "parquet", "csv", "json").
+  /** Returns the file format of the indexed data (e.g., "parquet", "csv",
+    * "json").
     * @return
     *   the format string from the stored metadata
     */

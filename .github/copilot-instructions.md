@@ -25,7 +25,7 @@ mvn package
 
 The `test` phase also runs `dev/scripts/readme-has-version.sh`, which fails if the version in `pom.xml` is not present in `README.md`. Always update `README.md` when bumping the version.
 
-Formatting: scalafmt (`runner.dialect = scala213`). Run with `scalafmt` or via your editor.
+Formatting: scalafmt (`runner.dialect = scala212`). Run with `scalafmt` or via your editor.
 
 ## Architecture
 

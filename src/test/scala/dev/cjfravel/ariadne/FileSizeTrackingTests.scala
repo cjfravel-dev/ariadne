@@ -26,13 +26,17 @@ class FileSizeTrackingTests extends SparkTests with Matchers {
     )
     val fs = metadataPath.getFileSystem(spark.sparkContext.hadoopConfiguration)
     val inputStream = fs.open(metadataPath)
-    val jsonString = Source.fromInputStream(inputStream)(StandardCharsets.UTF_8).mkString
+    val jsonString =
+      Source.fromInputStream(inputStream)(StandardCharsets.UTF_8).mkString
     inputStream.close()
     IndexMetadata(jsonString)
   }
 
   /** Writes metadata to disk for the given index name. */
-  private def writeMetadataToDisk(indexName: String, metadata: IndexMetadata): Unit = {
+  private def writeMetadataToDisk(
+      indexName: String,
+      metadata: IndexMetadata
+  ): Unit = {
     val metadataPath = new org.apache.hadoop.fs.Path(
       tempDir.toString + "/indexes/" + indexName + "/metadata.json"
     )
@@ -126,7 +130,8 @@ class FileSizeTrackingTests extends SparkTests with Matchers {
     index.update
 
     // Verify file_size exists
-    val indexDf = spark.read.format("delta").load(indexPath("filesize_backfill"))
+    val indexDf =
+      spark.read.format("delta").load(indexPath("filesize_backfill"))
     indexDf.columns should contain("file_size")
     val originalSize = indexDf.select("file_size").head().getLong(0)
     originalSize should be > 0L
@@ -134,8 +139,11 @@ class FileSizeTrackingTests extends SparkTests with Matchers {
     // Simulate old index by nulling out file_size via Delta merge
     import io.delta.tables.DeltaTable
     val dt = DeltaTable.forPath(spark, indexPath("filesize_backfill"))
-    val allFiles = spark.read.format("delta").load(indexPath("filesize_backfill"))
-      .select("filename").distinct()
+    val allFiles = spark.read
+      .format("delta")
+      .load(indexPath("filesize_backfill"))
+      .select("filename")
+      .distinct()
     dt.as("target")
       .merge(allFiles.as("source"), "target.filename = source.filename")
       .whenMatched()
@@ -153,11 +161,13 @@ class FileSizeTrackingTests extends SparkTests with Matchers {
     nullCount should be > 0L
 
     // Reload index and call update - should trigger backfill
-    val reloadedIndex = Index("filesize_backfill", table1Schema, "csv", csvOptions)
+    val reloadedIndex =
+      Index("filesize_backfill", table1Schema, "csv", csvOptions)
     reloadedIndex.update
 
     // Verify file_size is populated again
-    val backfilledDf = spark.read.format("delta").load(indexPath("filesize_backfill"))
+    val backfilledDf =
+      spark.read.format("delta").load(indexPath("filesize_backfill"))
     val backfilledSize = backfilledDf.select("file_size").head().getLong(0)
     backfilledSize shouldBe originalSize
 

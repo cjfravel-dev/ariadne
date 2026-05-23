@@ -9,8 +9,8 @@ package dev.cjfravel.ariadne.exceptions
   *
   * '''Recovery:''' This is typically non-fatal during cleanup operations. If
   * encountered during `IndexCatalog.remove`, it is caught and logged
-  * internally. If encountered directly, the file list has already been
-  * deleted and no further action is needed.
+  * internally. If encountered directly, the file list has already been deleted
+  * and no further action is needed.
   *
   * '''Thread safety:''' Instances are immutable after construction and safe to
   * share across threads.
@@ -20,7 +20,8 @@ package dev.cjfravel.ariadne.exceptions
   * FileList.remove("[ariadne_index] myIndex")
   * }}}
   *
-  * @param name The name of the FileList that was not found
+  * @param name
+  *   The name of the FileList that was not found
   */
 class FileListNotFoundException(name: String)
     extends AriadneException(s"FileList $name was not found")

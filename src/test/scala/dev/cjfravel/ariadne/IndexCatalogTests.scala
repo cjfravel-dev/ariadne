@@ -150,7 +150,9 @@ class IndexCatalogTests extends SparkTests {
     assert(summary.columns.contains("Version"))
   }
 
-  test("describe returns correct summary for index with exploded field indexes") {
+  test(
+    "describe returns correct summary for index with exploded field indexes"
+  ) {
     val index = Index("catalog_desc_exploded", schemaWithArray, "parquet")
     index.addExplodedFieldIndex("Tags", "name", "tag_name")
 
@@ -293,9 +295,16 @@ class IndexCatalogTests extends SparkTests {
 
     val df = IndexCatalog.toDF()
     val expectedColumns = Set(
-      "name", "format", "regular_indexes", "bloom_indexes",
-      "computed_indexes", "temporal_indexes", "range_indexes",
-      "exploded_field_indexes", "file_count", "total_indexed_file_size"
+      "name",
+      "format",
+      "regular_indexes",
+      "bloom_indexes",
+      "computed_indexes",
+      "temporal_indexes",
+      "range_indexes",
+      "exploded_field_indexes",
+      "file_count",
+      "total_indexed_file_size"
     )
     assert(df.columns.toSet == expectedColumns)
   }
@@ -318,7 +327,8 @@ class IndexCatalogTests extends SparkTests {
     Index("catalog_df_count_b", schema1, "parquet")
 
     val df = IndexCatalog.toDF()
-    val relevantRows = df.filter(df("name").startsWith("catalog_df_count_")).collect()
+    val relevantRows =
+      df.filter(df("name").startsWith("catalog_df_count_")).collect()
     assert(relevantRows.length == 2)
   }
 

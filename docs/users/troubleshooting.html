@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Troubleshooting — Ariadne</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" type="image/png" href="../assets/icon.png">
+</head>
+<body data-section="users" data-page="troubleshooting">
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="../index.html">
+      <img class="brand-icon" src="../assets/icon.png" alt="" aria-hidden="true">
+      <img class="brand-name-img" src="../assets/name.png" alt="Ariadne">
+    </a>
+    <nav class="primary-nav">
+      <a href="../index.html" data-section="home">Home</a>
+      <a href="getting-started.html" data-section="users">User Guide</a>
+      <a href="../contributors/index.html" data-section="contributors">Contributors</a>
+      <a class="gh" href="https://github.com/cjfravel-dev/ariadne">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="sidebar">
+    <h5>User Guide</h5>
+    <ul>
+      <li><a href="getting-started.html" data-page="getting-started">Getting Started</a></li>
+      <li><a href="index-types.html" data-page="index-types">Index Types</a></li>
+      <li><a href="usage.html" data-page="usage">Usage Guide</a></li>
+      <li><a href="configuration.html" data-page="configuration">Configuration</a></li>
+      <li><a href="maintenance.html" data-page="maintenance">Maintenance</a></li>
+      <li><a href="troubleshooting.html" data-page="troubleshooting">Troubleshooting</a></li>
+    </ul>
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#exception-ref">Exception reference</a></li>
+      <li><a href="#fetch-failed">FetchFailedException</a></li>
+      <li><a href="#lock">IndexLockException</a></li>
+      <li><a href="#oom">Out-of-memory during update</a></li>
+      <li><a href="#corrupt">Metadata corruption</a></li>
+      <li><a href="#schema-mismatch">SchemaMismatchException</a></li>
+      <li><a href="#no-pruning">Joins don't prune</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <div class="page-header">
+      <span class="eyebrow">User Guide</span>
+      <h1>Troubleshooting</h1>
+      <p class="lede">A reference for the exceptions Ariadne throws and recipes for the most common runtime problems.</p>
+    </div>
+
+    <h2 id="exception-ref">Exception reference</h2>
+    <p>Every exception extends <code>AriadneException</code>, so you can catch the whole family with a single handler:</p>
+
+<pre><code class="language-scala">import dev.cjfravel.ariadne.exceptions._
+
+try {
+  index.update
+} catch {
+  case e: AriadneException =&gt; // handle any Ariadne error
+}</code></pre>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Exception</th><th>When it's thrown</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>SchemaNotProvidedException</code></td><td>Creating a new index without a schema.</td></tr>
+          <tr><td><code>SchemaMismatchException</code></td><td>Source schema changed and <code>allowSchemaMismatch</code> is <code>false</code>.</td></tr>
+          <tr><td><code>FormatMismatchException</code></td><td>Format passed at construction doesn't match what's stored.</td></tr>
+          <tr><td><code>IndexNotFoundException</code></td><td>Removing or referencing an index that doesn't exist.</td></tr>
+          <tr><td><code>IndexNotFoundInNewSchemaException</code></td><td>New schema is missing a previously indexed column.</td></tr>
+          <tr><td><code>ColumnNotFoundException</code></td><td>Referencing a column that's not in the schema or indexes.</td></tr>
+          <tr><td><code>IndexLockException</code></td><td>Lock acquisition timed out (default 1 hr).</td></tr>
+          <tr><td><code>MetadataMissingOrCorruptException</code></td><td>Index metadata is unreadable — delete and re-create.</td></tr>
+          <tr><td><code>MissingFormatException</code></td><td>Creating a new index without a format.</td></tr>
+          <tr><td><code>MissingSchemaException</code></td><td>Schema field is null in metadata (corrupted file).</td></tr>
+          <tr><td><code>SchemaParseException</code></td><td>Stored schema string can't be parsed.</td></tr>
+          <tr><td><code>FileListNotFoundException</code></td><td>Removing a file list that doesn't exist.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="fetch-failed"><code>FetchFailedException</code> during joins</h2>
+    <p>Large indexes can produce enormous intermediate DataFrames during the array <code>explode</code> step, which overwhelms Spark's shuffle. Spread the work across more partitions:</p>
+
+<pre><code class="language-scala">spark.conf.set("spark.ariadne.indexRepartitionCount", "500")
+
+// If your data files are also very large
+spark.conf.set("spark.ariadne.repartitionDataFiles", "true")</code></pre>
+
+    <p>Typical values for <code>indexRepartitionCount</code>: 100–500, depending on cluster size and data volume. Don't set it for small indexes — the extra shuffle hurts more than it helps.</p>
+
+    <h2 id="lock"><code>IndexLockException</code></h2>
+    <p>Two causes:</p>
+    <ol>
+      <li>Another job is legitimately holding the lock. Wait for it to finish.</li>
+      <li>A previous job crashed mid-operation and left a stale lock.</li>
+    </ol>
+
+    <p>Stale locks auto-heal after <code>spark.ariadne.lockTimeout</code> seconds (default 30 min). If you're certain no job is running and don't want to wait, delete the lock file directly:</p>
+
+<pre><code class="language-bash">{storagePath}/{indexName}/.update.lock
+{storagePath}/{indexName}/.filelist.lock</code></pre>
+
+    <div class="callout warn">
+      <p><strong>Don't delete locks blindly.</strong> If you nuke a lock while a job is actually holding it, two writers will race and you'll get corrupted Delta state. Confirm no job is running first.</p>
+    </div>
+
+    <h2 id="oom">Out-of-memory during <code>update</code></h2>
+    <p>High-cardinality columns produce large in-memory arrays during the build phase. Two levers:</p>
+
+    <ol>
+      <li>
+        <strong>Lower the large-index threshold</strong> so high-cardinality columns get split into separate Delta tables earlier:
+<pre><code class="language-scala">spark.conf.set("spark.ariadne.largeIndexLimit", "100000")</code></pre>
+      </li>
+      <li>
+        <strong>Switch to bloom indexes</strong> for the offending column — bloom filters use a fixed, predictable amount of memory per file:
+<pre><code class="language-scala">index.addBloomIndex("high_cardinality_col", fpr = 0.01)</code></pre>
+      </li>
+    </ol>
+
+    <h2 id="corrupt"><code>MetadataMissingOrCorruptException</code></h2>
+    <p>The <code>metadata.json</code> file for the index is missing or unparseable. There's no in-place repair — remove and rebuild:</p>
+
+<pre><code class="language-scala">Index.remove("myIndex")
+val index = Index("myIndex", schema, "parquet")
+// re-add indexes and files, then update</code></pre>
+
+    <h2 id="schema-mismatch"><code>SchemaMismatchException</code></h2>
+    <p>Your source data schema changed since the index was built. Reconnect with the new schema and opt in to the mismatch:</p>
+
+<pre><code class="language-scala">val index = Index("myIndex", newSchema, "parquet", allowSchemaMismatch = true)</code></pre>
+
+    <p>Caveat: <strong>all previously indexed columns must still exist in the new schema</strong>. If a column was renamed or removed, you'll get <code>IndexNotFoundInNewSchemaException</code> and need to remove and rebuild.</p>
+
+    <h2 id="no-pruning">Joins log 0% pruning</h2>
+    <p>The pruning-metrics line shows <code>loaded N of N files</code> — every file was read. Common causes:</p>
+
+    <ul>
+      <li><strong>You're not joining on an indexed column.</strong> Check <code>index.indexes</code> and confirm the join key is in the set.</li>
+      <li><strong>Your join type isn't optimizable.</strong> <code>full_outer</code> always reads every file. Use <code>inner</code> or <code>left_semi</code> for pruning.</li>
+      <li><strong>Through the SQL catalog: not an INNER equi-join.</strong> Catalyst only pre-prunes for INNER equi-joins on same-name fully-indexed columns. Other shapes fall back to full scan.</li>
+      <li><strong>Every file genuinely contains every key.</strong> If your data is small or your keys are very common, there's nothing to prune.</li>
+    </ul>
+
+    <p>Enable debug logging for a per-stage breakdown:</p>
+<pre><code class="language-scala">spark.conf.set("spark.ariadne.debug", "true")</code></pre>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div>© 2024–2026 CJ Fravel · <a href="https://github.com/cjfravel-dev/ariadne/blob/main/LICENSE.md">MIT + SaaS License</a></div>
+    <div>
+      <a href="https://github.com/cjfravel-dev/ariadne">GitHub</a> ·
+      <a href="https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12">Maven Central</a> ·
+      <a href="https://github.com/cjfravel-dev/ariadne/discussions">Discussions</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>

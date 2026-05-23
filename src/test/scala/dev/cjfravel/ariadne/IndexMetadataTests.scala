@@ -9,7 +9,8 @@ import java.nio.file.Files
 import collection.JavaConverters._
 
 /** Tests for [[IndexMetadata]] JSON parsing and version migration logic,
-  * verifying forward-compatible deserialization from v1 through the latest schema version.
+  * verifying forward-compatible deserialization from v1 through the latest
+  * schema version.
   */
 class IndexMetadataTests extends AnyFunSuite {
   test("v1") {
@@ -23,7 +24,6 @@ class IndexMetadataTests extends AnyFunSuite {
     assert(metadata.indexes.contains("Test"))
     assert(metadata.indexes.contains("Test2"))
   }
-  
 
   test("v1 -> v2") {
     val stream = getClass.getResourceAsStream("/index_metadata/v1.json")
@@ -97,13 +97,13 @@ class IndexMetadataTests extends AnyFunSuite {
     assert(metadata.computed_indexes.containsKey("test") === true)
     assert(metadata.computed_indexes.containsKey("test2") === true)
     assert(metadata.exploded_field_indexes.size() === 2)
-    
+
     val explodedFieldIndexes = metadata.exploded_field_indexes.asScala.toSeq
     val userIdIndex = explodedFieldIndexes.find(_.as_column == "user_id").get
     assert(userIdIndex.array_column === "users")
     assert(userIdIndex.field_path === "id")
     assert(userIdIndex.as_column === "user_id")
-    
+
     val tagNameIndex = explodedFieldIndexes.find(_.as_column == "tag_name").get
     assert(tagNameIndex.array_column === "tags")
     assert(tagNameIndex.field_path === "name")
@@ -167,12 +167,12 @@ class IndexMetadataTests extends AnyFunSuite {
     assert(metadata.exploded_field_indexes.size() === 2)
     assert(metadata.read_options.size() === 2)
     assert(metadata.bloom_indexes.size() === 2)
-    
+
     val bloomIndexes = metadata.bloom_indexes.asScala.toSeq
     val transactionIdIndex = bloomIndexes.find(_.column == "transaction_id").get
     assert(transactionIdIndex.column === "transaction_id")
     assert(transactionIdIndex.fpr === 0.01)
-    
+
     val sessionIdIndex = bloomIndexes.find(_.column == "session_id").get
     assert(sessionIdIndex.column === "session_id")
     assert(sessionIdIndex.fpr === 0.001)

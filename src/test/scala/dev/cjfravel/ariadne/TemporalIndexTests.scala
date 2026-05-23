@@ -33,7 +33,8 @@ class TemporalIndexTests extends SparkTests with Matchers {
   )
 
   test("addTemporalIndex should add a temporal index configuration") {
-    val index = Index("temporal_add_test", temporalSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("temporal_add_test", temporalSchema, "csv", Map("header" -> "true"))
 
     index.addTemporalIndex("Id", "UpdatedAt")
 
@@ -41,7 +42,12 @@ class TemporalIndexTests extends SparkTests with Matchers {
   }
 
   test("addTemporalIndex should be idempotent") {
-    val index = Index("temporal_idempotent_test", temporalSchema, "csv", Map("header" -> "true"))
+    val index = Index(
+      "temporal_idempotent_test",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
 
     index.addTemporalIndex("Id", "UpdatedAt")
     index.addTemporalIndex("Id", "UpdatedAt") // Should not throw
@@ -50,7 +56,12 @@ class TemporalIndexTests extends SparkTests with Matchers {
   }
 
   test("addTemporalIndex should reject non-existent value column") {
-    val index = Index("temporal_bad_col_test", temporalSchema, "csv", Map("header" -> "true"))
+    val index = Index(
+      "temporal_bad_col_test",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
 
     a[ColumnNotFoundException] should be thrownBy {
       index.addTemporalIndex("NonExistent", "UpdatedAt")
@@ -58,7 +69,12 @@ class TemporalIndexTests extends SparkTests with Matchers {
   }
 
   test("addTemporalIndex should reject non-existent timestamp column") {
-    val index = Index("temporal_bad_ts_test", temporalSchema, "csv", Map("header" -> "true"))
+    val index = Index(
+      "temporal_bad_ts_test",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
 
     a[ColumnNotFoundException] should be thrownBy {
       index.addTemporalIndex("Id", "NonExistent")
@@ -66,13 +82,23 @@ class TemporalIndexTests extends SparkTests with Matchers {
   }
 
   test("addTemporalIndex and addIndex should be mutually exclusive") {
-    val index1 = Index("temporal_excl_regular1", temporalSchema, "csv", Map("header" -> "true"))
+    val index1 = Index(
+      "temporal_excl_regular1",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
     index1.addIndex("Id")
     an[IllegalArgumentException] should be thrownBy {
       index1.addTemporalIndex("Id", "UpdatedAt")
     }
 
-    val index2 = Index("temporal_excl_regular2", temporalSchema, "csv", Map("header" -> "true"))
+    val index2 = Index(
+      "temporal_excl_regular2",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
     index2.addTemporalIndex("Id", "UpdatedAt")
     an[IllegalArgumentException] should be thrownBy {
       index2.addIndex("Id")
@@ -80,13 +106,23 @@ class TemporalIndexTests extends SparkTests with Matchers {
   }
 
   test("addTemporalIndex and addBloomIndex should be mutually exclusive") {
-    val index1 = Index("temporal_excl_bloom1", temporalSchema, "csv", Map("header" -> "true"))
+    val index1 = Index(
+      "temporal_excl_bloom1",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
     index1.addBloomIndex("Id")
     an[IllegalArgumentException] should be thrownBy {
       index1.addTemporalIndex("Id", "UpdatedAt")
     }
 
-    val index2 = Index("temporal_excl_bloom2", temporalSchema, "csv", Map("header" -> "true"))
+    val index2 = Index(
+      "temporal_excl_bloom2",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
     index2.addTemporalIndex("Id", "UpdatedAt")
     an[IllegalArgumentException] should be thrownBy {
       index2.addBloomIndex("Id")
@@ -94,7 +130,12 @@ class TemporalIndexTests extends SparkTests with Matchers {
   }
 
   test("metadata should persist temporal index configuration") {
-    val index1 = Index("temporal_persist_test", temporalSchema, "csv", Map("header" -> "true"))
+    val index1 = Index(
+      "temporal_persist_test",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
     index1.addTemporalIndex("Id", "UpdatedAt")
 
     // Reload the index
@@ -103,7 +144,12 @@ class TemporalIndexTests extends SparkTests with Matchers {
   }
 
   test("should build temporal index during update") {
-    val index = Index("temporal_build_test", temporalSchema, "csv", Map("header" -> "true"))
+    val index = Index(
+      "temporal_build_test",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
 
     val csvPath = resourcePath("/data/temporal_part0.csv")
     index.addFile(csvPath)
@@ -115,7 +161,12 @@ class TemporalIndexTests extends SparkTests with Matchers {
   }
 
   test("should locate files using temporal index with file pruning") {
-    val index = Index("temporal_locate_test", temporalSchema, "csv", Map("header" -> "true"))
+    val index = Index(
+      "temporal_locate_test",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
 
     val csvPath0 = resourcePath("/data/temporal_part0.csv")
     val csvPath1 = resourcePath("/data/temporal_part1.csv")
@@ -140,7 +191,12 @@ class TemporalIndexTests extends SparkTests with Matchers {
   }
 
   test("temporal join should return only the latest version of each entity") {
-    val index = Index("temporal_dedup_test", temporalSchema, "csv", Map("header" -> "true"))
+    val index = Index(
+      "temporal_dedup_test",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
 
     val csvPath0 = resourcePath("/data/temporal_part0.csv")
     val csvPath1 = resourcePath("/data/temporal_part1.csv")
@@ -158,11 +214,18 @@ class TemporalIndexTests extends SparkTests with Matchers {
 
     val result = index.join(queryData, Seq("Id"), "inner")
     result.count() should be(1) // Only one row for Id=1
-    result.select("Value").collect().head.getDouble(0) should be(150.0) // Latest value
+    result.select("Value").collect().head.getDouble(0) should be(
+      150.0
+    ) // Latest value
   }
 
   test("temporal join should deduplicate across multiple entities") {
-    val index = Index("temporal_multi_dedup_test", temporalSchema, "csv", Map("header" -> "true"))
+    val index = Index(
+      "temporal_multi_dedup_test",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
 
     val csvPath0 = resourcePath("/data/temporal_part0.csv")
     val csvPath1 = resourcePath("/data/temporal_part1.csv")
@@ -181,13 +244,22 @@ class TemporalIndexTests extends SparkTests with Matchers {
     val result = index.join(queryData, Seq("Id"), "inner")
     result.count() should be(2) // One per Id
 
-    val resultMap = result.select("Id", "Value").collect().map(r => r.getInt(0) -> r.getDouble(1)).toMap
+    val resultMap = result
+      .select("Id", "Value")
+      .collect()
+      .map(r => r.getInt(0) -> r.getDouble(1))
+      .toMap
     resultMap(1) should be(150.0) // Latest for Id=1
     resultMap(2) should be(250.0) // Latest for Id=2
   }
 
   test("temporal join should handle entities only in one file") {
-    val index = Index("temporal_single_file_test", temporalSchema, "csv", Map("header" -> "true"))
+    val index = Index(
+      "temporal_single_file_test",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
 
     val csvPath0 = resourcePath("/data/temporal_part0.csv")
     val csvPath1 = resourcePath("/data/temporal_part1.csv")
@@ -204,13 +276,22 @@ class TemporalIndexTests extends SparkTests with Matchers {
     val result = index.join(queryData, Seq("Id"), "inner")
     result.count() should be(2)
 
-    val resultMap = result.select("Id", "Value").collect().map(r => r.getInt(0) -> r.getDouble(1)).toMap
+    val resultMap = result
+      .select("Id", "Value")
+      .collect()
+      .map(r => r.getInt(0) -> r.getDouble(1))
+      .toMap
     resultMap(3) should be(300.0) // Only version
     resultMap(5) should be(500.0) // Only version
   }
 
   test("temporal join with DataFrame.join implicit should work") {
-    val index = Index("temporal_implicit_join_test", temporalSchema, "csv", Map("header" -> "true"))
+    val index = Index(
+      "temporal_implicit_join_test",
+      temporalSchema,
+      "csv",
+      Map("header" -> "true")
+    )
 
     val csvPath0 = resourcePath("/data/temporal_part0.csv")
     val csvPath1 = resourcePath("/data/temporal_part1.csv")
@@ -239,22 +320,28 @@ class TemporalIndexTests extends SparkTests with Matchers {
 
     // Create test data with categories and timestamps
     val testData1 = spark.createDataFrame(
-      spark.sparkContext.parallelize(Seq(
-        Row(1, "A", 100.0, java.sql.Timestamp.valueOf("2024-01-15 10:00:00")),
-        Row(2, "B", 200.0, java.sql.Timestamp.valueOf("2024-01-15 10:00:00"))
-      )),
+      spark.sparkContext.parallelize(
+        Seq(
+          Row(1, "A", 100.0, java.sql.Timestamp.valueOf("2024-01-15 10:00:00")),
+          Row(2, "B", 200.0, java.sql.Timestamp.valueOf("2024-01-15 10:00:00"))
+        )
+      ),
       mixedSchema
     )
     val testData2 = spark.createDataFrame(
-      spark.sparkContext.parallelize(Seq(
-        Row(1, "A", 150.0, java.sql.Timestamp.valueOf("2024-06-15 12:00:00")),
-        Row(3, "C", 300.0, java.sql.Timestamp.valueOf("2024-06-15 12:00:00"))
-      )),
+      spark.sparkContext.parallelize(
+        Seq(
+          Row(1, "A", 150.0, java.sql.Timestamp.valueOf("2024-06-15 12:00:00")),
+          Row(3, "C", 300.0, java.sql.Timestamp.valueOf("2024-06-15 12:00:00"))
+        )
+      ),
       mixedSchema
     )
 
-    val tempPath1 = s"${System.getProperty("java.io.tmpdir")}/temporal_mixed_1_${System.currentTimeMillis()}"
-    val tempPath2 = s"${System.getProperty("java.io.tmpdir")}/temporal_mixed_2_${System.currentTimeMillis()}"
+    val tempPath1 =
+      s"${System.getProperty("java.io.tmpdir")}/temporal_mixed_1_${System.currentTimeMillis()}"
+    val tempPath2 =
+      s"${System.getProperty("java.io.tmpdir")}/temporal_mixed_2_${System.currentTimeMillis()}"
     testData1.coalesce(1).write.mode("overwrite").parquet(tempPath1)
     testData2.coalesce(1).write.mode("overwrite").parquet(tempPath2)
 
@@ -275,9 +362,12 @@ class TemporalIndexTests extends SparkTests with Matchers {
       )
       val result = index.join(queryData, Seq("Id"), "inner")
       result.count() should be(1)
-      result.select("Value").collect().head.getDouble(0) should be(150.0) // Latest
+      result.select("Value").collect().head.getDouble(0) should be(
+        150.0
+      ) // Latest
     } finally {
-      val fs = org.apache.hadoop.fs.FileSystem.get(spark.sparkContext.hadoopConfiguration)
+      val fs = org.apache.hadoop.fs.FileSystem
+        .get(spark.sparkContext.hadoopConfiguration)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath1), true)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath2), true)
     }
@@ -293,20 +383,26 @@ class TemporalIndexTests extends SparkTests with Matchers {
     )
 
     val testData1 = spark.createDataFrame(
-      spark.sparkContext.parallelize(Seq(
-        Row(1, 100.0, null)  // null timestamp
-      )),
+      spark.sparkContext.parallelize(
+        Seq(
+          Row(1, 100.0, null) // null timestamp
+        )
+      ),
       nullTsSchema
     )
     val testData2 = spark.createDataFrame(
-      spark.sparkContext.parallelize(Seq(
-        Row(1, 150.0, java.sql.Timestamp.valueOf("2024-06-15 12:00:00"))
-      )),
+      spark.sparkContext.parallelize(
+        Seq(
+          Row(1, 150.0, java.sql.Timestamp.valueOf("2024-06-15 12:00:00"))
+        )
+      ),
       nullTsSchema
     )
 
-    val tempPath1 = s"${System.getProperty("java.io.tmpdir")}/temporal_null_1_${System.currentTimeMillis()}"
-    val tempPath2 = s"${System.getProperty("java.io.tmpdir")}/temporal_null_2_${System.currentTimeMillis()}"
+    val tempPath1 =
+      s"${System.getProperty("java.io.tmpdir")}/temporal_null_1_${System.currentTimeMillis()}"
+    val tempPath2 =
+      s"${System.getProperty("java.io.tmpdir")}/temporal_null_2_${System.currentTimeMillis()}"
     testData1.coalesce(1).write.mode("overwrite").parquet(tempPath1)
     testData2.coalesce(1).write.mode("overwrite").parquet(tempPath2)
 
@@ -322,9 +418,12 @@ class TemporalIndexTests extends SparkTests with Matchers {
       )
       val result = index.join(queryData, Seq("Id"), "inner")
       result.count() should be(1)
-      result.select("Value").collect().head.getDouble(0) should be(150.0) // Non-null ts wins
+      result.select("Value").collect().head.getDouble(0) should be(
+        150.0
+      ) // Non-null ts wins
     } finally {
-      val fs = org.apache.hadoop.fs.FileSystem.get(spark.sparkContext.hadoopConfiguration)
+      val fs = org.apache.hadoop.fs.FileSystem
+        .get(spark.sparkContext.hadoopConfiguration)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath1), true)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath2), true)
     }

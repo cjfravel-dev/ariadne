@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Getting Started — Ariadne</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" type="image/png" href="../assets/icon.png">
+</head>
+<body data-section="users" data-page="getting-started">
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="../index.html">
+      <img class="brand-icon" src="../assets/icon.png" alt="" aria-hidden="true">
+      <img class="brand-name-img" src="../assets/name.png" alt="Ariadne">
+    </a>
+    <nav class="primary-nav">
+      <a href="../index.html" data-section="home">Home</a>
+      <a href="getting-started.html" data-section="users">User Guide</a>
+      <a href="../contributors/index.html" data-section="contributors">Contributors</a>
+      <a class="gh" href="https://github.com/cjfravel-dev/ariadne">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="sidebar">
+    <h5>User Guide</h5>
+    <ul>
+      <li><a href="getting-started.html" data-page="getting-started">Getting Started</a></li>
+      <li><a href="index-types.html" data-page="index-types">Index Types</a></li>
+      <li><a href="usage.html" data-page="usage">Usage Guide</a></li>
+      <li><a href="configuration.html" data-page="configuration">Configuration</a></li>
+      <li><a href="maintenance.html" data-page="maintenance">Maintenance</a></li>
+      <li><a href="troubleshooting.html" data-page="troubleshooting">Troubleshooting</a></li>
+    </ul>
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#install">Installation</a></li>
+      <li><a href="#configure">Configure storage</a></li>
+      <li><a href="#first-index">Your first index</a></li>
+      <li><a href="#join">Joining with the index</a></li>
+      <li><a href="#reconnect">Reconnecting later</a></li>
+      <li><a href="#next">What to read next</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <div class="page-header">
+      <span class="eyebrow">User Guide</span>
+      <h1>Getting Started</h1>
+      <p class="lede">Install Ariadne, point it at a storage location, build your first index, and use it in a Spark join.</p>
+    </div>
+
+    <h2 id="install">Installation</h2>
+    <p>Ariadne is built for Spark 3.5 / Delta 3.2. Add the dependency that matches your build tool.</p>
+
+    <h3>Maven</h3>
+<pre><code class="language-xml">&lt;dependency&gt;
+    &lt;groupId&gt;dev.cjfravel&lt;/groupId&gt;
+    &lt;artifactId&gt;ariadne-spark35_2.12&lt;/artifactId&gt;
+    &lt;version&gt;0.1.1-beta&lt;/version&gt;
+&lt;/dependency&gt;</code></pre>
+
+    <h3>SBT</h3>
+<pre><code class="language-scala">libraryDependencies += "dev.cjfravel" %% "ariadne-spark35" % "0.1.1-beta"</code></pre>
+
+    <div class="callout note">
+      <p><strong>Scala 2.12 only.</strong> The artifact is built against Scala 2.12 to match Spark. Scala 2.13 is not supported.</p>
+    </div>
+
+    <h2 id="configure">Configure storage</h2>
+    <p>Before creating any indexes, tell Ariadne where to keep its metadata and index data. The path must be Hadoop-accessible (S3, ADLS, HDFS, or a local path for testing).</p>
+
+<pre><code class="language-scala">spark.conf.set(
+  "spark.ariadne.storagePath",
+  s"abfss://$container@$account.dfs.core.windows.net/ariadne"
+)</code></pre>
+
+    <p>That's the only required setting. See <a href="configuration.html">Configuration</a> for the full list of tuning knobs.</p>
+
+    <h2 id="first-index">Your first index</h2>
+    <p>Three steps: declare the index, tell it which columns to index and which files to track, then build it.</p>
+
+<pre><code class="language-scala">import dev.cjfravel.ariadne.Index
+
+// 1. Declare the index (name, schema of source files, file format)
+val index = Index("orders", orderSchema, "parquet")
+
+// 2. Decide what to index and which files to track
+index.addIndex("customer_id")
+index.addFile(
+  "abfss://lake@mystorage.dfs.core.windows.net/orders/2024-q1.parquet",
+  "abfss://lake@mystorage.dfs.core.windows.net/orders/2024-q2.parquet",
+  "abfss://lake@mystorage.dfs.core.windows.net/orders/2024-q3.parquet"
+)
+
+// 3. Build — scans the files and writes the index to Delta
+index.update</code></pre>
+
+    <div class="callout tip">
+      <p><strong>Adding files later is fine.</strong> Call <code>addFile</code> any time and re-run <code>update</code> — Ariadne only scans files it hasn't seen before.</p>
+    </div>
+
+    <h2 id="join">Joining with the index</h2>
+    <p>Once built, the index acts as a stand-in for your data files in a Spark join. There are two equivalent directions:</p>
+
+<pre><code class="language-scala">import dev.cjfravel.ariadne.Index._  // brings in the df.join(index, …) implicit
+
+// DataFrame on the left
+val result = customerDf.join(index, Seq("customer_id"), "inner")
+
+// Index on the left
+val result = index.join(customerDf, Seq("customer_id"), "inner")</code></pre>
+
+    <p>The join returns the same results as a normal Spark join — but under the hood, Ariadne uses the index to skip files that <em>can't</em> contain any of the keys in <code>customerDf</code>.</p>
+
+    <h2 id="reconnect">Reconnecting to an existing index</h2>
+    <p>Once an index exists on disk, you can reconnect to it without restating the schema or format:</p>
+
+<pre><code class="language-scala">val index = Index("orders")  // reads metadata, infers everything else</code></pre>
+
+    <p>The schema, format, indexed columns, and read options are all loaded from the stored metadata.</p>
+
+    <h2 id="next">What to read next</h2>
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-icon">⊞</span>
+        <h3>Index Types</h3>
+        <p>Choose the right index for your data shape — regular, bloom, range, temporal, computed, or exploded.</p>
+        <a class="card-link" href="index-types.html">Compare types</a>
+      </div>
+      <div class="card">
+        <span class="card-icon">⚡</span>
+        <h3>Usage Guide</h3>
+        <p>Column selection, file lookups, JSON, schema evolution, the Ariadne catalog, and Spark SQL access.</p>
+        <a class="card-link" href="usage.html">Read the guide</a>
+      </div>
+      <div class="card">
+        <span class="card-icon">⌖</span>
+        <h3>Configuration</h3>
+        <p>Every <code>spark.ariadne.*</code> setting, what it does, and when you'd change it.</p>
+        <a class="card-link" href="configuration.html">See all options</a>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div>© 2024–2026 CJ Fravel · <a href="https://github.com/cjfravel-dev/ariadne/blob/main/LICENSE.md">MIT + SaaS License</a></div>
+    <div>
+      <a href="https://github.com/cjfravel-dev/ariadne">GitHub</a> ·
+      <a href="https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12">Maven Central</a> ·
+      <a href="https://github.com/cjfravel-dev/ariadne/discussions">Discussions</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>

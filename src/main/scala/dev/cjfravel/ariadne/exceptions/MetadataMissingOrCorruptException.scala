@@ -1,7 +1,7 @@
 package dev.cjfravel.ariadne.exceptions
 
-/** Thrown when the index metadata file (`metadata.json`) is missing, empty,
-  * or cannot be parsed into a valid [[dev.cjfravel.ariadne.IndexMetadata]].
+/** Thrown when the index metadata file (`metadata.json`) is missing, empty, or
+  * cannot be parsed into a valid [[dev.cjfravel.ariadne.IndexMetadata]].
   *
   * Raised by `IndexMetadataOperations.refreshMetadata` when the file does not
   * exist or contains invalid JSON, and by `IndexMetadata.apply` when the JSON
@@ -22,7 +22,9 @@ package dev.cjfravel.ariadne.exceptions
   * }
   * }}}
   *
-  * @param cause The underlying exception that caused the parse failure, or null if the file is missing
+  * @param cause
+  *   The underlying exception that caused the parse failure, or null if the
+  *   file is missing
   */
 class MetadataMissingOrCorruptException(cause: Throwable = null)
     extends AriadneException(

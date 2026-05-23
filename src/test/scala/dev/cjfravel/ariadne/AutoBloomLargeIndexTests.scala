@@ -8,7 +8,8 @@ import scala.collection.JavaConverters._
 import java.nio.charset.StandardCharsets
 
 /** Tests for automatic bloom filter creation on large index columns, verifying
-  * that auto-bloom filters are built during `update` and used to pre-filter large index queries.
+  * that auto-bloom filters are built during `update` and used to pre-filter
+  * large index queries.
   */
 class AutoBloomLargeIndexTests extends SparkTests with Matchers {
 
@@ -35,13 +36,20 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
   test("should automatically create bloom filter for large columns") {
     spark.conf.set("spark.ariadne.largeIndexLimit", "1")
     try {
-      val index = Index("auto_bloom_create_test", testSchema, "csv", Map("header" -> "true"))
+      val index = Index(
+        "auto_bloom_create_test",
+        testSchema,
+        "csv",
+        Map("header" -> "true")
+      )
       index.addFile(resourcePath("/data/table1_part0.csv"))
       index.addIndex("Id")
       index.update
 
       // Verify auto_bloom column exists in the main index
-      val indexDf = spark.read.format("delta").load(new Path(index.storagePath, "index").toString)
+      val indexDf = spark.read
+        .format("delta")
+        .load(new Path(index.storagePath, "index").toString)
       indexDf.columns should contain("auto_bloom_Id")
 
       // Verify metadata tracks auto_bloom_indexes
@@ -55,7 +63,12 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
   test("should use auto-bloom to filter large index queries") {
     spark.conf.set("spark.ariadne.largeIndexLimit", "1")
     try {
-      val index = Index("auto_bloom_query_test", testSchema, "csv", Map("header" -> "true"))
+      val index = Index(
+        "auto_bloom_query_test",
+        testSchema,
+        "csv",
+        Map("header" -> "true")
+      )
       index.addFile(resourcePath("/data/table1_part0.csv"))
       index.addFile(resourcePath("/data/table1_part1.csv"))
       index.addIndex("Id")
@@ -97,7 +110,12 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
   test("should not create auto-bloom for columns under limit") {
     // Use the default large limit so nothing triggers auto-bloom
     spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
-    val index = Index("auto_bloom_no_trigger_test", testSchema, "csv", Map("header" -> "true"))
+    val index = Index(
+      "auto_bloom_no_trigger_test",
+      testSchema,
+      "csv",
+      Map("header" -> "true")
+    )
     index.addFile(resourcePath("/data/table1_part0.csv"))
     index.addIndex("Id")
     index.update
@@ -111,10 +129,17 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
     files should not be empty
   }
 
-  test("should correctly identify files with auto-bloom filter via DataFrame join") {
+  test(
+    "should correctly identify files with auto-bloom filter via DataFrame join"
+  ) {
     spark.conf.set("spark.ariadne.largeIndexLimit", "1")
     try {
-      val index = Index("auto_bloom_join_test", testSchema, "csv", Map("header" -> "true"))
+      val index = Index(
+        "auto_bloom_join_test",
+        testSchema,
+        "csv",
+        Map("header" -> "true")
+      )
       index.addFile(resourcePath("/data/table1_part0.csv"))
       index.addFile(resourcePath("/data/table1_part1.csv"))
       index.addIndex("Id")
@@ -140,7 +165,12 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
   test("should work with multiple auto-bloom columns") {
     spark.conf.set("spark.ariadne.largeIndexLimit", "1")
     try {
-      val index = Index("auto_bloom_multi_col_test", testSchema, "csv", Map("header" -> "true"))
+      val index = Index(
+        "auto_bloom_multi_col_test",
+        testSchema,
+        "csv",
+        Map("header" -> "true")
+      )
       index.addFile(resourcePath("/data/table1_part0.csv"))
       index.addFile(resourcePath("/data/table1_part1.csv"))
       index.addIndex("Id")
@@ -153,12 +183,15 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
       meta.auto_bloom_indexes.asScala should contain("Version")
 
       // Verify index has both auto_bloom columns
-      val indexDf = spark.read.format("delta").load(new Path(index.storagePath, "index").toString)
+      val indexDf = spark.read
+        .format("delta")
+        .load(new Path(index.storagePath, "index").toString)
       indexDf.columns should contain("auto_bloom_Id")
       indexDf.columns should contain("auto_bloom_Version")
 
       // Multi-column query should work
-      val files = index.locateFiles(Map("Id" -> Array(1), "Version" -> Array(1)))
+      val files =
+        index.locateFiles(Map("Id" -> Array(1), "Version" -> Array(1)))
       files should not be empty
     } finally {
       spark.conf.set("spark.ariadne.largeIndexLimit", "500000")

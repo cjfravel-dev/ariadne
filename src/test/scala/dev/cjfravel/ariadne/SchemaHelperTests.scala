@@ -4,7 +4,9 @@ import org.apache.spark.sql.types._
 
 import org.scalatest.funsuite.AnyFunSuite
 
-/** Tests for [[SchemaHelper]] verifying field lookup in flat and nested schemas. */
+/** Tests for [[SchemaHelper]] verifying field lookup in flat and nested
+  * schemas.
+  */
 class SchemaHelperTests extends AnyFunSuite {
   val schema = StructType(
     Seq(
