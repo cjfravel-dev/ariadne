@@ -108,10 +108,11 @@
     function stashTok(cls, text) {
       var i = stash.length;
       stash.push('<span class="tok-' + cls + '">' + escapeHtml(text) + '</span>');
-      // Wrap the numeric index in letters so it doesn't get matched by the
-      // number-token regex below (which uses \b\d+\b — letters keep the digits
-      // away from any word boundary).
-      return '\u0000T' + i + 'X\u0000';
+      // Wrap the index in underscores: underscores are word chars so the
+      // numeric index has no word boundary on either side (kills \b\d+\b),
+      // and they don't start with [A-Z] or [a-z] so the type/fn regexes
+      // can't grab them either.
+      return '\u0000_' + i + '_\u0000';
     }
     // Strings (double, single, triple)
     src = src.replace(/"""[\s\S]*?"""|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, function (m) {
@@ -132,13 +133,14 @@
     // Keywords / types / functions (operate on escaped text)
     if (spec.kw) src = src.replace(spec.kw, '<span class="tok-kw">$&</span>');
     if (spec.typ) src = src.replace(spec.typ, function (m, g1, g2) {
-      if (g2 !== undefined) return g1 + '<span class="tok-typ">' + g2 + '</span>';
+      // Two-group form (e.g. bash flags: g1 = leading whitespace, g2 = flag)
+      if (typeof g2 === 'string') return g1 + '<span class="tok-typ">' + g2 + '</span>';
       return '<span class="tok-typ">' + m + '</span>';
     });
     if (spec.fn) src = src.replace(spec.fn, '<span class="tok-fn">$1</span>');
 
     // Restore stashed tokens
-    src = src.replace(/\u0000T(\d+)X\u0000/g, function (_, i) { return stash[+i]; });
+    src = src.replace(/\u0000_(\d+)_\u0000/g, function (_, i) { return stash[+i]; });
     return src;
   }
 

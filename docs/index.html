@@ -67,34 +67,6 @@
       your data lake is more of a data swamp, Ariadne can help.
     </p>
 
-    <h2 id="features">What you get</h2>
-    <div class="card-grid">
-      <div class="card">
-        <span class="card-icon">⊞</span>
-        <h3>Six index types</h3>
-        <p>Regular, bloom, range, temporal, computed, and exploded-field. Mix them on one index — multi-column joins intersect their results with AND semantics, and temporal indexes auto-dedup to the latest version per key.</p>
-        <a class="card-link" href="users/index-types.html">Compare index types</a>
-      </div>
-      <div class="card">
-        <span class="card-icon">⚡</span>
-        <h3>Spark-native joins</h3>
-        <p>Use indexes in normal Spark joins (<code>df.join(index, …)</code>) or register the Ariadne SQL catalog and query them as tables — Catalyst prunes files for you in both directions.</p>
-        <a class="card-link" href="users/usage.html">Join patterns &amp; SQL</a>
-      </div>
-      <div class="card">
-        <span class="card-icon">▦</span>
-        <h3>Multi-format</h3>
-        <p>Parquet, CSV, and JSON sources, with format-specific read options persisted in metadata. Schema evolution supported via <code>allowSchemaMismatch</code> — your existing files keep working.</p>
-        <a class="card-link" href="users/index-types.html">Format support</a>
-      </div>
-      <div class="card">
-        <span class="card-icon">⌖</span>
-        <h3>Production-ready</h3>
-        <p>Backed by Delta Lake — ACID transactions, time travel, compact &amp; vacuum. File-based locks with stale-lock auto-heal, batched updates, auto-compaction, and pruning metrics built in.</p>
-        <a class="card-link" href="users/maintenance.html">Maintenance</a>
-      </div>
-    </div>
-
     <h2 id="quick-look">A quick look</h2>
 <pre><code class="language-scala">import dev.cjfravel.ariadne.Index
 import dev.cjfravel.ariadne.Index._  // brings in the df.join(index, ...) implicit
