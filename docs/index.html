@@ -70,56 +70,44 @@
       <div class="card">
         <span class="card-icon">⊞</span>
         <h3>Six index types</h3>
-        <p>Regular, bloom, range, temporal, computed, and exploded-field indexes — combine them with AND semantics on multi-column joins.</p>
+        <p>Regular, bloom, range, temporal, computed, and exploded-field. Mix them on one index — multi-column joins intersect their results with AND semantics, and temporal indexes auto-dedup to the latest version per key.</p>
         <a class="card-link" href="users/index-types.html">Compare index types</a>
       </div>
       <div class="card">
         <span class="card-icon">⚡</span>
-        <h3>Drop-in joins</h3>
-        <p>Use Ariadne indexes in normal Spark joins: <code>df.join(index, …)</code>. Pruning happens automatically — your existing query plans stay readable.</p>
-        <a class="card-link" href="users/usage.html">Join patterns</a>
+        <h3>Spark-native joins</h3>
+        <p>Use indexes in normal Spark joins (<code>df.join(index, …)</code>) or register the Ariadne SQL catalog and query them as tables — Catalyst prunes files for you in both directions.</p>
+        <a class="card-link" href="users/usage.html">Join patterns &amp; SQL</a>
       </div>
       <div class="card">
-        <span class="card-icon">𝚫</span>
-        <h3>Delta-backed</h3>
-        <p>Index metadata and data live in Delta Lake tables. ACID, time-travel, compactable, and durable on any Hadoop-accessible filesystem.</p>
-        <a class="card-link" href="contributors/architecture.html">Architecture</a>
-      </div>
-      <div class="card">
-        <span class="card-icon">▤</span>
-        <h3>Spark SQL catalog</h3>
-        <p>Register the Ariadne catalog and query indexes as tables: <code>SELECT … FROM ariadne.orders WHERE …</code> — Catalyst prunes files for you.</p>
-        <a class="card-link" href="users/usage.html#sql-catalog">SQL catalog</a>
-      </div>
-      <div class="card">
-        <span class="card-icon">⏱</span>
-        <h3>Temporal dedup</h3>
-        <p>Same entity in multiple files over time? A temporal index keeps only the latest row per key during the join — no manual window functions.</p>
-        <a class="card-link" href="users/index-types.html#temporal">Temporal indexes</a>
+        <span class="card-icon">▦</span>
+        <h3>Multi-format</h3>
+        <p>Parquet, CSV, and JSON sources, with format-specific read options persisted in metadata. Schema evolution supported via <code>allowSchemaMismatch</code> — your existing files keep working.</p>
+        <a class="card-link" href="users/index-types.html">Format support</a>
       </div>
       <div class="card">
         <span class="card-icon">⌖</span>
         <h3>Production-ready</h3>
-        <p>File locking, stale-lock auto-heal, batched updates, auto-compaction, and pruning metrics built in. No surprises in long-running jobs.</p>
+        <p>Backed by Delta Lake — ACID transactions, time travel, compact &amp; vacuum. File-based locks with stale-lock auto-heal, batched updates, auto-compaction, and pruning metrics built in.</p>
         <a class="card-link" href="users/maintenance.html">Maintenance</a>
       </div>
     </div>
 
     <h2 id="quick-look">A quick look</h2>
-    <pre><code class="language-scala">import dev.cjfravel.ariadne.Index
-import dev.cjfravel.ariadne.Index._  // for df.join(index, ...) implicit
+<pre><code class="language-scala">import dev.cjfravel.ariadne.Index
+import dev.cjfravel.ariadne.Index._  // brings in the df.join(index, ...) implicit
 
-spark.conf.set("spark.ariadne.storagePath",
-  s"abfss://$container@$account.dfs.core.windows.net/ariadne")
+// Point Ariadne at any Hadoop-accessible storage location
+spark.conf.set("spark.ariadne.storagePath", "s3a://my-bucket/ariadne")
 
-// 1. Define the index
-val index = Index("orders", orderSchema, "parquet")
-index.addIndex("customer_id")
-index.addFile(orderFiles: _*)
-index.update
+// Build an index over your data files
+val orders = Index("orders", orderSchema, "parquet")
+orders.addIndex("customer_id")
+orders.addFile(orderFiles: _*)
+orders.update
 
-// 2. Use it in a join — Ariadne only loads files that match
-val result = customerDf.join(index, Seq("customer_id"), "inner")</code></pre>
+// Use it in a normal Spark join — only matching files are loaded
+val result = customerDf.join(orders, Seq("customer_id"), "inner")</code></pre>
 
     <h2 id="split">Where to next?</h2>
     <div class="split">

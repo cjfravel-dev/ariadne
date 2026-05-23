@@ -108,7 +108,10 @@
     function stashTok(cls, text) {
       var i = stash.length;
       stash.push('<span class="tok-' + cls + '">' + escapeHtml(text) + '</span>');
-      return '\u0000' + i + '\u0000';
+      // Wrap the numeric index in letters so it doesn't get matched by the
+      // number-token regex below (which uses \b\d+\b — letters keep the digits
+      // away from any word boundary).
+      return '\u0000T' + i + 'X\u0000';
     }
     // Strings (double, single, triple)
     src = src.replace(/"""[\s\S]*?"""|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, function (m) {
@@ -135,7 +138,7 @@
     if (spec.fn) src = src.replace(spec.fn, '<span class="tok-fn">$1</span>');
 
     // Restore stashed tokens
-    src = src.replace(/\u0000(\d+)\u0000/g, function (_, i) { return stash[+i]; });
+    src = src.replace(/\u0000T(\d+)X\u0000/g, function (_, i) { return stash[+i]; });
     return src;
   }
 
