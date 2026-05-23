@@ -114,7 +114,7 @@ val result = customerDf.join(index, Seq("customer_id"), "inner")
 // Index on the left
 val result = index.join(customerDf, Seq("customer_id"), "inner")</code></pre>
 
-    <p>The join works exactly like a normal Spark join — but under the hood, Ariadne uses the index to skip files that <em>can't</em> contain any of the keys in <code>customerDf</code>.</p>
+    <p>The join returns the same results as a normal Spark join — but under the hood, Ariadne uses the index to skip files that <em>can't</em> contain any of the keys in <code>customerDf</code>. Note that this is not free: Ariadne has to evaluate <code>customerDf</code> first to learn which keys to look up, so any upstream cost of computing that side of the join is incurred before the file pruning happens.</p>
 
     <h2 id="reconnect">Reconnecting to an existing index</h2>
     <p>Once an index exists on disk, you can reconnect to it without restating the schema or format:</p>
