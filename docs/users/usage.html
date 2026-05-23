@@ -44,7 +44,6 @@
       <li><a href="#schema-evolution">Schema evolution</a></li>
       <li><a href="#catalog">Index catalog</a></li>
       <li><a href="#sql-catalog">Spark SQL catalog</a></li>
-      <li><a href="#inspect">Inspection</a></li>
     </ul>
   </aside>
 
@@ -147,51 +146,8 @@ SELECT *
 FROM ariadne.customers c
 JOIN orders o ON c.id = o.customerid;</code></pre>
 
-    <h3>How optimization works</h3>
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr><th>Query pattern</th><th>What happens</th></tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><code>SELECT * FROM ariadne.x</code></td>
-            <td>Full scan of every source file.</td>
-          </tr>
-          <tr>
-            <td><code>SELECT * FROM ariadne.x WHERE col = val</code></td>
-            <td><code>locateFiles()</code> prunes files before reading.</td>
-          </tr>
-          <tr>
-            <td><code>SELECT * FROM ariadne.x JOIN y ON …</code></td>
-            <td>Catalyst rule pre-prunes via <code>locateFiles()</code>. Only INNER equi-joins on same-name, fully-indexed columns are optimized; everything else falls back to a full scan.</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
     <div class="callout note">
       <p><strong>Read-only catalog.</strong> Index creation, updates, and deletion all happen through the Scala API — not through SQL DDL.</p>
-    </div>
-
-    <h2 id="inspect">Inspection</h2>
-    <p>Small methods for sanity checks, debugging, and tooling:</p>
-
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr><th>Method</th><th>What it returns</th></tr>
-        </thead>
-        <tbody>
-          <tr><td><code>index.indexes</code></td><td><code>Set[String]</code> of all indexed column names</td></tr>
-          <tr><td><code>index.hasFile("data/foo.parquet")</code></td><td><code>Boolean</code> — is this file tracked?</td></tr>
-          <tr><td><code>index.format</code></td><td>Data file format string (<code>"parquet"</code>, <code>"csv"</code>, <code>"json"</code>)</td></tr>
-          <tr><td><code>index.storedSchema</code></td><td>The <code>StructType</code> stored in metadata</td></tr>
-          <tr><td><code>index.stats().show()</code></td><td>Per-column statistics DataFrame</td></tr>
-          <tr><td><code>index.refreshMetadata()</code></td><td>Reload metadata from disk (after external mutation)</td></tr>
-          <tr><td><code>Index.exists("myIndex")</code></td><td><code>Boolean</code> — does this index exist?</td></tr>
-        </tbody>
-      </table>
     </div>
 
   </main>
