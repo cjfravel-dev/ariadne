@@ -42,7 +42,10 @@ object IndexPathUtils {
     *   if name is null or blank
     */
   def fileListName(name: String): String = {
-    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
+    require(
+      name != null && name.trim.nonEmpty,
+      "name must not be null or blank"
+    )
     s"[ariadne_index] $name"
   }
 
@@ -66,7 +69,10 @@ object IndexPathUtils {
     *   if name is null or blank
     */
   def exists(name: String)(implicit sparkSession: SparkSession): Boolean = {
-    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
+    require(
+      name != null && name.trim.nonEmpty,
+      "name must not be null or blank"
+    )
     val contextUser = new AriadneContextUser {
       implicit def spark: SparkSession = sparkSession
     }
@@ -99,7 +105,10 @@ object IndexPathUtils {
     *   if name is null or blank
     */
   def remove(name: String)(implicit sparkSession: SparkSession): Boolean = {
-    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
+    require(
+      name != null && name.trim.nonEmpty,
+      "name must not be null or blank"
+    )
     if (!exists(name)(sparkSession)) {
       throw new IndexNotFoundException(name)
     }
@@ -109,13 +118,16 @@ object IndexPathUtils {
     val contextUser = new AriadneContextUser {
       implicit def spark: SparkSession = sparkSession
     }
-    val fileListRemoved = try {
-      FileList.remove(fileListName(name))(sparkSession)
-    } catch {
-      case e: Exception =>
-        logger.warn(s"FileList removal failed for index '$name' (continuing with directory deletion): ${e.getMessage}")
-        false
-    }
+    val fileListRemoved =
+      try {
+        FileList.remove(fileListName(name))(sparkSession)
+      } catch {
+        case e: Exception =>
+          logger.warn(
+            s"FileList removal failed for index '$name' (continuing with directory deletion): ${e.getMessage}"
+          )
+          false
+      }
     val result = contextUser.delete(
       new Path(storagePath(sparkSession), name)
     ) || fileListRemoved

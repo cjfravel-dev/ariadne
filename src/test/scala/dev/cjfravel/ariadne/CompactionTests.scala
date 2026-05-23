@@ -3,8 +3,8 @@ package dev.cjfravel.ariadne
 import org.scalatest.matchers.should.Matchers
 import org.apache.spark.sql.types._
 
-/** Tests for `compact` and `vacuum` operations on the main index and large index
-  * Delta tables.
+/** Tests for `compact` and `vacuum` operations on the main index and large
+  * index Delta tables.
   */
 class CompactionTests extends SparkTests with Matchers {
 

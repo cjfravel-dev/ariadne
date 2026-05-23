@@ -8,28 +8,37 @@ import dev.cjfravel.ariadne.exceptions.MetadataMissingOrCorruptException
 /** Configuration for a bloom filter index.
   *
   * Bloom filters are probabilistic data structures that provide:
-  * - Guaranteed NO false negatives (if filter says "no", value definitely absent)
-  * - Configurable false positive rate (if filter says "yes", value MIGHT be present)
-  * - Space-efficient storage (approximately 10 bits per element at 1% FPR)
+  *   - Guaranteed NO false negatives (if filter says "no", value definitely
+  *     absent)
+  *   - Configurable false positive rate (if filter says "yes", value MIGHT be
+  *     present)
+  *   - Space-efficient storage (approximately 10 bits per element at 1% FPR)
   *
-  * @param column The column name to create a bloom filter for
-  * @param fpr False positive rate (0.0 to 1.0, default 0.01 = 1%)
+  * @param column
+  *   The column name to create a bloom filter for
+  * @param fpr
+  *   False positive rate (0.0 to 1.0, default 0.01 = 1%)
   */
 case class BloomIndexConfig(
     var column: String,
     var fpr: Double = 0.01
 ) {
-  require(fpr > 0 && fpr < 1, s"fpr must be between 0 and 1 (exclusive), got $fpr")
+  require(
+    fpr > 0 && fpr < 1,
+    s"fpr must be between 0 and 1 (exclusive), got $fpr"
+  )
 }
 
 /** Configuration for a temporal index.
   *
   * Temporal indexes track entity versions across files. When joining on the
-  * value column, only the row with the latest timestamp is returned, effectively
-  * deduplicating across files by recency.
+  * value column, only the row with the latest timestamp is returned,
+  * effectively deduplicating across files by recency.
   *
-  * @param column The value column to index and deduplicate on (e.g., "user_id")
-  * @param timestamp_column The timestamp column used to determine recency (e.g., "updated_at")
+  * @param column
+  *   The value column to index and deduplicate on (e.g., "user_id")
+  * @param timestamp_column
+  *   The timestamp column used to determine recency (e.g., "updated_at")
   */
 case class TemporalIndexConfig(
     var column: String,
@@ -38,11 +47,12 @@ case class TemporalIndexConfig(
 
 /** Configuration for a range index.
   *
-  * Range indexes store min/max values per file for a column, enabling
-  * file pruning at query time. Files whose [min, max] range does not
-  * overlap with the queried values are skipped.
+  * Range indexes store min/max values per file for a column, enabling file
+  * pruning at query time. Files whose [min, max] range does not overlap with
+  * the queried values are skipped.
   *
-  * @param column The column name to create a range index for
+  * @param column
+  *   The column name to create a range index for
   */
 case class RangeIndexConfig(
     var column: String
@@ -51,19 +61,24 @@ case class RangeIndexConfig(
 /** Represents a mapping for exploded field index configuration.
   *
   * This case class defines how to extract and index fields from array elements.
-  * It maps array elements to a flat structure that can be used for efficient joins
-  * by exploding the array and indexing specific fields within each element.
+  * It maps array elements to a flat structure that can be used for efficient
+  * joins by exploding the array and indexing specific fields within each
+  * element.
   *
-  * @param array_column The name of the array column in the schema
-  * @param field_path The field path to extract from each array element (e.g., "id", "profile.user_id")
-  * @param as_column The alias name to use for this extracted field in joins
+  * @param array_column
+  *   The name of the array column in the schema
+  * @param field_path
+  *   The field path to extract from each array element (e.g., "id",
+  *   "profile.user_id")
+  * @param as_column
+  *   The alias name to use for this extracted field in joins
   *
   * @example
-  * {{{
+  *   {{{
   * // For a schema with users: Array[Struct{id: Int, name: String}]
   * val mapping = ExplodedFieldMapping("users", "id", "user_id")
   * // This allows joining on "user_id" which represents users[].id
-  * }}}
+  *   }}}
   */
 case class ExplodedFieldMapping(
     var array_column: String,
@@ -74,27 +89,41 @@ case class ExplodedFieldMapping(
 /** Metadata container for Ariadne index configuration and state.
   *
   * This case class stores all metadata required to manage an Ariadne index,
-  * including schema information, indexed columns, and format details.
-  * It supports multiple versions for backward compatibility.
+  * including schema information, indexed columns, and format details. It
+  * supports multiple versions for backward compatibility.
   *
-  * @param format The file format of the indexed data (e.g., "parquet", "csv", "json")
-  * @param schema The JSON representation of the DataFrame schema
-  * @param indexes List of regular column names that are indexed
-  * @param computed_indexes Map of computed index aliases to their SQL expressions
-  * @param exploded_field_indexes List of exploded field mappings for nested data structures
-  * @param bloom_indexes List of bloom filter index configurations for probabilistic indexing
-  * @param temporal_indexes List of temporal index configurations for version-aware deduplication
-  * @param read_options Map of read options for format-specific configuration (e.g., "multiLine" -> "true" for JSON)
-  * @param total_indexed_file_size Total size in bytes of all indexed files, or -1 if not yet computed (nullable for Gson compatibility)
-  * @param batches_since_compact Number of update batches processed since the last auto-compaction,
-  *                              persisted across Spark jobs so that `autoCompactThreshold` works
-  *                              correctly even when updates happen in separate runs (v10+, nullable for Gson)
+  * @param format
+  *   The file format of the indexed data (e.g., "parquet", "csv", "json")
+  * @param schema
+  *   The JSON representation of the DataFrame schema
+  * @param indexes
+  *   List of regular column names that are indexed
+  * @param computed_indexes
+  *   Map of computed index aliases to their SQL expressions
+  * @param exploded_field_indexes
+  *   List of exploded field mappings for nested data structures
+  * @param bloom_indexes
+  *   List of bloom filter index configurations for probabilistic indexing
+  * @param temporal_indexes
+  *   List of temporal index configurations for version-aware deduplication
+  * @param read_options
+  *   Map of read options for format-specific configuration (e.g., "multiLine"
+  *   -> "true" for JSON)
+  * @param total_indexed_file_size
+  *   Total size in bytes of all indexed files, or -1 if not yet computed
+  *   (nullable for Gson compatibility)
+  * @param batches_since_compact
+  *   Number of update batches processed since the last auto-compaction,
+  *   persisted across Spark jobs so that `autoCompactThreshold` works correctly
+  *   even when updates happen in separate runs (v10+, nullable for Gson)
   *
-  * @note The field names use underscore notation to match JSON serialization format.
-  *       All fields use `var` and Java collections (`util.List`, `util.Map`) because
-  *       Gson requires mutable fields for deserialization. Do '''not''' refactor to
-  *       `val` or Scala collections without updating the Gson serialization in
-  *       [[IndexMetadata$ IndexMetadata.apply]] and [[IndexMetadataOperations]].
+  * @note
+  *   The field names use underscore notation to match JSON serialization
+  *   format. All fields use `var` and Java collections (`util.List`,
+  *   `util.Map`) because Gson requires mutable fields for deserialization. Do
+  *   '''not''' refactor to `val` or Scala collections without updating the Gson
+  *   serialization in [[IndexMetadata$ IndexMetadata.apply]] and
+  *   [[IndexMetadataOperations]].
   */
 case class IndexMetadata(
     var format: String,
@@ -116,47 +145,50 @@ case class IndexMetadata(
 
 /** Factory object for creating IndexMetadata instances from JSON.
   *
-  * Provides deserialization capabilities with automatic version migration
-  * to ensure backward compatibility across different metadata formats.
+  * Provides deserialization capabilities with automatic version migration to
+  * ensure backward compatibility across different metadata formats.
   */
 object IndexMetadata {
-  
+
   /** Creates an IndexMetadata instance from a JSON string.
     *
     * This method deserializes JSON metadata and automatically handles version
     * migration to ensure compatibility with older index formats:
-    * - v1 → v2: Adds computed_indexes field if missing
-    * - v2 → v3: Adds exploded_field_indexes field if missing
-    * - v3 → v4: Adds read_options field if missing
-    * - v4 → v5: Adds bloom_indexes field if missing
-    * - v5 → v6: Adds temporal_indexes field if missing
-    * - v6 → v7: Adds range_indexes field if missing
-    * - v7 → v8: Adds auto_bloom_indexes field if missing
-    * - v8 → v9: Adds total_indexed_file_size field if missing
-    * - v9 → v10: Adds batches_since_compact field if missing
+    *   - v1 → v2: Adds computed_indexes field if missing
+    *   - v2 → v3: Adds exploded_field_indexes field if missing
+    *   - v3 → v4: Adds read_options field if missing
+    *   - v4 → v5: Adds bloom_indexes field if missing
+    *   - v5 → v6: Adds temporal_indexes field if missing
+    *   - v6 → v7: Adds range_indexes field if missing
+    *   - v7 → v8: Adds auto_bloom_indexes field if missing
+    *   - v8 → v9: Adds total_indexed_file_size field if missing
+    *   - v9 → v10: Adds batches_since_compact field if missing
     *
-    * @param jsonString The JSON representation of the metadata
-    * @return A fully initialized IndexMetadata instance
+    * @param jsonString
+    *   The JSON representation of the metadata
+    * @return
+    *   A fully initialized IndexMetadata instance
     * @throws MetadataMissingOrCorruptException
     *   if `jsonString` is null, empty, or cannot be deserialized
     *
     * @example
-    * {{{
+    *   {{{
     * val jsonString = """{"format":"parquet","schema":"...","indexes":["id"]}"""
     * val metadata = IndexMetadata(jsonString)
     * // Returns metadata with all fields properly initialized
-    * }}}
+    *   }}}
     */
   def apply(jsonString: String): IndexMetadata = {
     if (jsonString == null || jsonString.trim.isEmpty) {
       throw new MetadataMissingOrCorruptException()
     }
-    val indexMetadata = try {
-      new Gson().fromJson(jsonString, classOf[IndexMetadata])
-    } catch {
-      case e: com.google.gson.JsonSyntaxException =>
-        throw new MetadataMissingOrCorruptException(e)
-    }
+    val indexMetadata =
+      try {
+        new Gson().fromJson(jsonString, classOf[IndexMetadata])
+      } catch {
+        case e: com.google.gson.JsonSyntaxException =>
+          throw new MetadataMissingOrCorruptException(e)
+      }
     if (indexMetadata == null) {
       throw new MetadataMissingOrCorruptException()
     }
@@ -166,12 +198,12 @@ object IndexMetadata {
     }
     // v1 -> v2
     if (indexMetadata.computed_indexes == null) {
-      indexMetadata.computed_indexes =
-        new util.HashMap[String, String]()
+      indexMetadata.computed_indexes = new util.HashMap[String, String]()
     }
     // v2 -> v3
     if (indexMetadata.exploded_field_indexes == null) {
-      indexMetadata.exploded_field_indexes = new util.ArrayList[ExplodedFieldMapping]()
+      indexMetadata.exploded_field_indexes =
+        new util.ArrayList[ExplodedFieldMapping]()
     }
     // v3 -> v4
     if (indexMetadata.read_options == null) {

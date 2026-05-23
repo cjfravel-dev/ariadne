@@ -14,13 +14,13 @@ import java.nio.file.{Files, Path}
 
 /** Tests for the Ariadne Spark SQL catalog integration.
   *
-  * Verifies that Ariadne indexes are discoverable and queryable through
-  * Spark SQL when the [[AriadneCatalog]] is configured. Tests cover:
-  *  - `SHOW TABLES` discovering all indexes
-  *  - `DESCRIBE TABLE` returning the correct source schema
-  *  - `SELECT *` reading source data files
-  *  - `WHERE` filter pushdown using `locateFiles()`
-  *  - `JOIN` optimization via the [[AriadneJoinRule]]
+  * Verifies that Ariadne indexes are discoverable and queryable through Spark
+  * SQL when the [[AriadneCatalog]] is configured. Tests cover:
+  *   - `SHOW TABLES` discovering all indexes
+  *   - `DESCRIBE TABLE` returning the correct source schema
+  *   - `SELECT *` reading source data files
+  *   - `WHERE` filter pushdown using `locateFiles()`
+  *   - `JOIN` optimization via the [[AriadneJoinRule]]
   *
   * Uses a separate SparkSession with the Ariadne catalog and extension
   * registered, distinct from the base [[SparkTests]] session.
@@ -43,8 +43,8 @@ class AriadneCatalogTests extends SparkTests with Matchers {
   )
 
   /** Override to add Ariadne catalog + extension configuration.
-    * spark.sql.extensions is a static config that must be on SparkConf
-    * BEFORE SparkContext creation — setting it on the builder is too late.
+    * spark.sql.extensions is a static config that must be on SparkConf BEFORE
+    * SparkContext creation — setting it on the builder is too late.
     */
   override def beforeAll(): Unit = {
     tempDir = Files.createTempDirectory("ariadne-catalog-test-")
@@ -118,7 +118,8 @@ class AriadneCatalogTests extends SparkTests with Matchers {
   test("DESCRIBE TABLE returns source schema") {
     createTestIndex("catalog_describe_test")
 
-    val description = spark.sql("DESCRIBE ariadne.catalog_describe_test").collect()
+    val description =
+      spark.sql("DESCRIBE ariadne.catalog_describe_test").collect()
     val colNames = description.map(_.getAs[String]("col_name")).toSet
 
     colNames should contain("Id")
@@ -127,15 +128,24 @@ class AriadneCatalogTests extends SparkTests with Matchers {
   }
 
   test("DESCRIBE TABLE handles complex types") {
-    val complexSchema = StructType(Seq(
-      StructField("event_id", StringType),
-      StructField("event_type", StringType),
-      StructField("tags", ArrayType(StructType(Seq(
-        StructField("name", StringType),
-        StructField("category", StringType)
-      )))),
-      StructField("user_ids", ArrayType(LongType))
-    ))
+    val complexSchema = StructType(
+      Seq(
+        StructField("event_id", StringType),
+        StructField("event_type", StringType),
+        StructField(
+          "tags",
+          ArrayType(
+            StructType(
+              Seq(
+                StructField("name", StringType),
+                StructField("category", StringType)
+              )
+            )
+          )
+        ),
+        StructField("user_ids", ArrayType(LongType))
+      )
+    )
 
     val index = Index("catalog_complex_describe", complexSchema, "json")
     index.addFile(resourcePath("/data/events.json"))
@@ -143,7 +153,9 @@ class AriadneCatalogTests extends SparkTests with Matchers {
     index.update
 
     val desc = spark.sql("DESCRIBE ariadne.catalog_complex_describe").collect()
-    val colMap = desc.map(r => r.getAs[String]("col_name") -> r.getAs[String]("data_type")).toMap
+    val colMap = desc
+      .map(r => r.getAs[String]("col_name") -> r.getAs[String]("data_type"))
+      .toMap
 
     colMap should contain key "event_id"
     colMap should contain key "tags"
@@ -184,7 +196,8 @@ class AriadneCatalogTests extends SparkTests with Matchers {
   test("SELECT with WHERE on indexed column") {
     createTestIndex("catalog_where_test")
 
-    val result = spark.sql("SELECT * FROM ariadne.catalog_where_test WHERE Id = 1")
+    val result =
+      spark.sql("SELECT * FROM ariadne.catalog_where_test WHERE Id = 1")
     val rows = result.collect()
 
     // Id=1 appears in both files: (1,1,5.0), (1,2,4.5), (1,3,5.0)
@@ -195,7 +208,9 @@ class AriadneCatalogTests extends SparkTests with Matchers {
   test("SELECT with WHERE IN on indexed column") {
     createTestIndex("catalog_where_in_test")
 
-    val result = spark.sql("SELECT * FROM ariadne.catalog_where_in_test WHERE Id IN (1, 2)")
+    val result = spark.sql(
+      "SELECT * FROM ariadne.catalog_where_in_test WHERE Id IN (1, 2)"
+    )
     val rows = result.collect()
 
     // Id=1: 3 rows, Id=2: 1 row = 4 total
@@ -328,10 +343,12 @@ class AriadneCatalogTests extends SparkTests with Matchers {
   test("JOIN with non-equi condition preserves all predicates") {
     createTestIndex("catalog_nonequi_test")
 
-    val nonEquiSchema = StructType(Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("MinValue", DoubleType, nullable = false)
-    ))
+    val nonEquiSchema = StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("MinValue", DoubleType, nullable = false)
+      )
+    )
     val queryData = spark.createDataFrame(
       spark.sparkContext.parallelize(Seq(Row(1, 4.9))),
       nonEquiSchema
@@ -354,7 +371,8 @@ class AriadneCatalogTests extends SparkTests with Matchers {
 
   test("JOIN with partially-indexed columns preserves all equi conditions") {
     val csvOptions = Map("header" -> "true")
-    val index = Index("catalog_partial_idx_test", indexSchema, "csv", csvOptions)
+    val index =
+      Index("catalog_partial_idx_test", indexSchema, "csv", csvOptions)
     index.addFile(resourcePath("/data/table1_part0.csv"))
     index.addFile(resourcePath("/data/table1_part1.csv"))
     index.addIndex("Id") // Only Id indexed, not Version
@@ -382,10 +400,12 @@ class AriadneCatalogTests extends SparkTests with Matchers {
   test("JOIN with different column names produces correct results") {
     createTestIndex("catalog_diffname_test")
 
-    val diffNameSchema = StructType(Seq(
-      StructField("CustomerId", IntegerType, nullable = false),
-      StructField("Id", IntegerType, nullable = false)
-    ))
+    val diffNameSchema = StructType(
+      Seq(
+        StructField("CustomerId", IntegerType, nullable = false),
+        StructField("Id", IntegerType, nullable = false)
+      )
+    )
     val queryData = spark.createDataFrame(
       spark.sparkContext.parallelize(Seq(Row(1, 999))),
       diffNameSchema
@@ -406,10 +426,12 @@ class AriadneCatalogTests extends SparkTests with Matchers {
   test("JOIN with different column names on multiple columns") {
     createTestIndex("catalog_diffname_multi_test")
 
-    val diffNameSchema = StructType(Seq(
-      StructField("CustId", IntegerType, nullable = false),
-      StructField("CustVersion", IntegerType, nullable = false)
-    ))
+    val diffNameSchema = StructType(
+      Seq(
+        StructField("CustId", IntegerType, nullable = false),
+        StructField("CustVersion", IntegerType, nullable = false)
+      )
+    )
     val queryData = spark.createDataFrame(
       spark.sparkContext.parallelize(Seq(Row(1, 1), Row(3, 2))),
       diffNameSchema
@@ -491,7 +513,8 @@ class AriadneCatalogTests extends SparkTests with Matchers {
     direct.length should be > 0
 
     // Explicit default namespace should also work
-    val explicit = spark.sql("SELECT * FROM ariadne.default.catalog_ns_test").collect()
+    val explicit =
+      spark.sql("SELECT * FROM ariadne.default.catalog_ns_test").collect()
     explicit.length shouldBe direct.length
 
     // Non-default namespace should fail
@@ -505,7 +528,8 @@ class AriadneCatalogTests extends SparkTests with Matchers {
   test("SELECT with WHERE range on indexed column returns correct results") {
     createTestIndex("catalog_range_test")
 
-    val result = spark.sql("SELECT * FROM ariadne.catalog_range_test WHERE Id > 2")
+    val result =
+      spark.sql("SELECT * FROM ariadne.catalog_range_test WHERE Id > 2")
     val rows = result.collect()
 
     // Id > 2: (3,1,4.0), (4,1,2.0), (4,2,9.0), (3,2,4.0) = 4 rows
@@ -515,20 +539,26 @@ class AriadneCatalogTests extends SparkTests with Matchers {
 
   // --- Round 2 edge case: Temporal dedup missing in join rule ---
 
-  test("SQL JOIN on temporal index applies deduplication like programmatic API") {
-    val temporalSchema = StructType(Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false),
-      StructField("UpdatedAt", TimestampType, nullable = false)
-    ))
+  test(
+    "SQL JOIN on temporal index applies deduplication like programmatic API"
+  ) {
+    val temporalSchema = StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false),
+        StructField("UpdatedAt", TimestampType, nullable = false)
+      )
+    )
     val csvOptions = Map("header" -> "true")
-    val index = Index("catalog_temporal_join_test", temporalSchema, "csv", csvOptions)
+    val index =
+      Index("catalog_temporal_join_test", temporalSchema, "csv", csvOptions)
     index.addFile(resourcePath("/data/temporal_part0.csv"))
     index.addFile(resourcePath("/data/temporal_part1.csv"))
     index.addTemporalIndex("Id", "UpdatedAt")
     index.update
 
-    val queryIdSchema = StructType(Seq(StructField("Id", IntegerType, nullable = false)))
+    val queryIdSchema =
+      StructType(Seq(StructField("Id", IntegerType, nullable = false)))
     val queryData = spark.createDataFrame(
       spark.sparkContext.parallelize(Seq(Row(1))),
       queryIdSchema
@@ -554,13 +584,16 @@ class AriadneCatalogTests extends SparkTests with Matchers {
   // --- Round 2 edge case: Temporal pushdown changes scan semantics ---
 
   test("SELECT WHERE on temporal column returns only latest version") {
-    val temporalSchema = StructType(Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false),
-      StructField("UpdatedAt", TimestampType, nullable = false)
-    ))
+    val temporalSchema = StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false),
+        StructField("UpdatedAt", TimestampType, nullable = false)
+      )
+    )
     val csvOptions = Map("header" -> "true")
-    val index = Index("catalog_temporal_where_test", temporalSchema, "csv", csvOptions)
+    val index =
+      Index("catalog_temporal_where_test", temporalSchema, "csv", csvOptions)
     index.addFile(resourcePath("/data/temporal_part0.csv"))
     index.addFile(resourcePath("/data/temporal_part1.csv"))
     index.addTemporalIndex("Id", "UpdatedAt")
@@ -568,7 +601,9 @@ class AriadneCatalogTests extends SparkTests with Matchers {
 
     // Temporal indexes mean "only the latest version" — SELECT should
     // return only the latest version, same as JOIN behavior
-    val result = spark.sql("SELECT * FROM ariadne.catalog_temporal_where_test WHERE Id = 1")
+    val result = spark.sql(
+      "SELECT * FROM ariadne.catalog_temporal_where_test WHERE Id = 1"
+    )
     val rows = result.collect()
 
     // Id=1 appears in both files but temporal dedup keeps only the latest
@@ -577,13 +612,16 @@ class AriadneCatalogTests extends SparkTests with Matchers {
   }
 
   test("SELECT * on temporal index applies dedup even without WHERE") {
-    val temporalSchema = StructType(Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false),
-      StructField("UpdatedAt", TimestampType, nullable = false)
-    ))
+    val temporalSchema = StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false),
+        StructField("UpdatedAt", TimestampType, nullable = false)
+      )
+    )
     val csvOptions = Map("header" -> "true")
-    val index = Index("catalog_temporal_select_test", temporalSchema, "csv", csvOptions)
+    val index =
+      Index("catalog_temporal_select_test", temporalSchema, "csv", csvOptions)
     index.addFile(resourcePath("/data/temporal_part0.csv"))
     index.addFile(resourcePath("/data/temporal_part1.csv"))
     index.addTemporalIndex("Id", "UpdatedAt")
@@ -604,7 +642,8 @@ class AriadneCatalogTests extends SparkTests with Matchers {
 
   test("SELECT * with computed index returns only source schema columns") {
     val csvOptions = Map("header" -> "true")
-    val index = Index("catalog_computed_cols_test", indexSchema, "csv", csvOptions)
+    val index =
+      Index("catalog_computed_cols_test", indexSchema, "csv", csvOptions)
     index.addFile(resourcePath("/data/table1_part0.csv"))
     index.addFile(resourcePath("/data/table1_part1.csv"))
     index.addIndex("Id")

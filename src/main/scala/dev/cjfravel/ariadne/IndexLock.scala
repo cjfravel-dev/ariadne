@@ -109,7 +109,10 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     *   if correlationId is null or blank
     */
   def acquire(correlationId: String): Unit = {
-    require(correlationId != null && correlationId.trim.nonEmpty, "correlationId must not be null or blank")
+    require(
+      correlationId != null && correlationId.trim.nonEmpty,
+      "correlationId must not be null or blank"
+    )
     val acquireStart = System.currentTimeMillis()
     doAcquire(correlationId, depth = 0)
     logger.debug(
@@ -158,9 +161,9 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     *
     * '''TOCTOU note:''' There is an inherent race between reading the lock,
     * determining it is stale, deleting it, and re-creating it. A third process
-    * could create a new lock between the delete and the re-acquire. The
-    * `depth` guard limits recursion, and the filesystem's atomic-create
-    * semantics (`overwrite = false`) ensure at most one writer succeeds.
+    * could create a new lock between the delete and the re-acquire. The `depth`
+    * guard limits recursion, and the filesystem's atomic-create semantics
+    * (`overwrite = false`) ensure at most one writer succeeds.
     *
     * @param correlationId
     *   unique identifier for the new lock request
@@ -200,10 +203,10 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
 
   /** Retry loop implementing exponential back-off for lock acquisition.
     *
-    * Sleeps with exponential back-off (capped at 60 s) between attempts.
-    * On each iteration the lock file is re-read to check for staleness or
-    * release. The loop terminates when the lock is successfully acquired,
-    * the caller is interrupted, or `lockMaxWait` is exceeded.
+    * Sleeps with exponential back-off (capped at 60 s) between attempts. On
+    * each iteration the lock file is re-read to check for staleness or release.
+    * The loop terminates when the lock is successfully acquired, the caller is
+    * interrupted, or `lockMaxWait` is exceeded.
     *
     * @param correlationId
     *   unique identifier for the new lock request
@@ -313,7 +316,10 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     *   if correlationId is null or blank
     */
   def release(correlationId: String): Unit = {
-    require(correlationId != null && correlationId.trim.nonEmpty, "correlationId must not be null or blank")
+    require(
+      correlationId != null && correlationId.trim.nonEmpty,
+      "correlationId must not be null or blank"
+    )
     val releaseStart = System.currentTimeMillis()
     readLock() match {
       case Some(lockInfo) if lockInfo.correlationId == correlationId =>
@@ -348,8 +354,13 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit
     *   if correlationId is null or blank
     */
   def refresh(correlationId: String): Unit = {
-    require(correlationId != null && correlationId.trim.nonEmpty, "correlationId must not be null or blank")
-    logger.debug(s"Refreshing lock for index '$indexName' (correlationId='$correlationId')")
+    require(
+      correlationId != null && correlationId.trim.nonEmpty,
+      "correlationId must not be null or blank"
+    )
+    logger.debug(
+      s"Refreshing lock for index '$indexName' (correlationId='$correlationId')"
+    )
     val refreshStart = System.currentTimeMillis()
     readLock() match {
       case Some(lockInfo) if lockInfo.correlationId == correlationId =>

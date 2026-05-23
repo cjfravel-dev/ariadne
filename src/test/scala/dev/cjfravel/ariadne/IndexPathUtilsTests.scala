@@ -7,8 +7,9 @@ import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.types._
 import dev.cjfravel.ariadne.exceptions.IndexNotFoundException
 
-/** Tests for index path utility methods covering file list naming, special character
-  * handling in file names, path existence checks, and directory removal.
+/** Tests for index path utility methods covering file list naming, special
+  * character handling in file names, path existence checks, and directory
+  * removal.
   */
 class IndexPathUtilsTests extends SparkTests with Matchers {
 
@@ -20,8 +21,12 @@ class IndexPathUtilsTests extends SparkTests with Matchers {
   )
 
   test("fileListName should format correctly") {
-    IndexPathUtils.fileListName("test_index") should be("[ariadne_index] test_index")
-    IndexPathUtils.fileListName("my-index") should be("[ariadne_index] my-index")
+    IndexPathUtils.fileListName("test_index") should be(
+      "[ariadne_index] test_index"
+    )
+    IndexPathUtils.fileListName("my-index") should be(
+      "[ariadne_index] my-index"
+    )
     assertThrows[IllegalArgumentException] {
       IndexPathUtils.fileListName("")
     }
@@ -29,7 +34,9 @@ class IndexPathUtilsTests extends SparkTests with Matchers {
 
   test("cleanFileName should handle special characters") {
     IndexPathUtils.cleanFileName("file.txt") should be("file_txt")
-    IndexPathUtils.cleanFileName("file-name_123.csv") should be("file_name_123_csv")
+    IndexPathUtils.cleanFileName("file-name_123.csv") should be(
+      "file_name_123_csv"
+    )
     IndexPathUtils.cleanFileName("file@#$%^&*()name") should be("file_name")
     IndexPathUtils.cleanFileName("___file___") should be("file")
     IndexPathUtils.cleanFileName("file____name") should be("file_name")
@@ -68,14 +75,14 @@ class IndexPathUtilsTests extends SparkTests with Matchers {
     // Create a simple index for testing
     val testIndex = Index("path_utils_test", basicSchema, "csv")
     testIndex.addFile("dummy.csv")
-    
+
     // Test exists
     IndexPathUtils.exists("path_utils_test") should be(true)
-    
+
     // Test remove
     val removed = IndexPathUtils.remove("path_utils_test")
     removed should be(true)
-    
+
     // Verify it no longer exists
     IndexPathUtils.exists("path_utils_test") should be(false)
   }

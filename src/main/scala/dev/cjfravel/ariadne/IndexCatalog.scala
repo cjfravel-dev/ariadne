@@ -1,6 +1,9 @@
 package dev.cjfravel.ariadne
 
-import dev.cjfravel.ariadne.exceptions.{IndexNotFoundException, FileListNotFoundException}
+import dev.cjfravel.ariadne.exceptions.{
+  IndexNotFoundException,
+  FileListNotFoundException
+}
 import org.apache.hadoop.fs.Path
 import org.apache.logging.log4j.LogManager
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
@@ -13,17 +16,28 @@ import scala.collection.JavaConverters._
   * file count, and cumulative indexed file size. Produced by
   * [[IndexCatalog.describe]] and [[IndexCatalog.describeAll]].
   *
-  * @param name                  unique index name
-  * @param format                data file format (e.g., "parquet", "csv", "json")
-  * @param columns               union of all indexed column names across every index type
-  * @param regularIndexes        columns with regular (array-of-values) indexes
-  * @param bloomIndexes          columns with bloom filter indexes
-  * @param computedIndexes       computed index aliases (derived via SQL expressions)
-  * @param temporalIndexes       columns with temporal (version-dedup) indexes
-  * @param rangeIndexes          columns with min/max range indexes
-  * @param explodedFieldIndexes  aliases for exploded array field indexes
-  * @param fileCount             number of files tracked by this index's file list
-  * @param totalIndexedFileSize  cumulative size in bytes of all indexed files, or -1 if unknown
+  * @param name
+  *   unique index name
+  * @param format
+  *   data file format (e.g., "parquet", "csv", "json")
+  * @param columns
+  *   union of all indexed column names across every index type
+  * @param regularIndexes
+  *   columns with regular (array-of-values) indexes
+  * @param bloomIndexes
+  *   columns with bloom filter indexes
+  * @param computedIndexes
+  *   computed index aliases (derived via SQL expressions)
+  * @param temporalIndexes
+  *   columns with temporal (version-dedup) indexes
+  * @param rangeIndexes
+  *   columns with min/max range indexes
+  * @param explodedFieldIndexes
+  *   aliases for exploded array field indexes
+  * @param fileCount
+  *   number of files tracked by this index's file list
+  * @param totalIndexedFileSize
+  *   cumulative size in bytes of all indexed files, or -1 if unknown
   */
 case class IndexSummary(
     name: String,
@@ -39,8 +53,8 @@ case class IndexSummary(
     totalIndexedFileSize: Long
 )
 
-/** Catalog for discovering, inspecting, and managing all Ariadne indexes
-  * under the configured `spark.ariadne.storagePath`.
+/** Catalog for discovering, inspecting, and managing all Ariadne indexes under
+  * the configured `spark.ariadne.storagePath`.
   *
   * `IndexCatalog` is stateless — every call scans the filesystem for the
   * current set of indexes. It complements the per-index API on [[Index]] by
@@ -74,12 +88,14 @@ object IndexCatalog {
     * stale or partially deleted directories.
     *
     * @example
-    * {{{
+    *   {{{
     * val indexNames: Seq[String] = IndexCatalog.list()
-    * }}}
+    *   }}}
     *
-    * @param spark implicit SparkSession providing configuration
-    * @return alphabetically sorted sequence of index names, or empty if none exist
+    * @param spark
+    *   implicit SparkSession providing configuration
+    * @return
+    *   alphabetically sorted sequence of index names, or empty if none exist
     */
   def list()(implicit spark: SparkSession): Seq[String] = {
     val sparkSession = spark
@@ -88,7 +104,9 @@ object IndexCatalog {
     }
     val indexesDir = IndexPathUtils.storagePath
     if (!contextUser.exists(indexesDir)) {
-      logger.warn("IndexCatalog: indexes directory does not exist, returning empty list")
+      logger.warn(
+        "IndexCatalog: indexes directory does not exist, returning empty list"
+      )
       Seq.empty
     } else {
       val statuses = contextUser.fs.listStatus(indexesDir)
@@ -112,23 +130,32 @@ object IndexCatalog {
 
   /** Checks whether an index with the given name exists.
     *
-    * An index is considered to exist if its `metadata.json` file is present
-    * in the indexes storage directory, or if its file list entry exists.
+    * An index is considered to exist if its `metadata.json` file is present in
+    * the indexes storage directory, or if its file list entry exists.
     *
-    * @example {{{ if (IndexCatalog.exists("orders")) println("Index found") }}}
+    * @example
+    *   {{{if (IndexCatalog.exists("orders")) println("Index found")}}}
     *
-    * @param name  the index name to check
-    * @param spark implicit SparkSession
-    * @return true if the index exists
-    * @throws IllegalArgumentException if name is null or blank
+    * @param name
+    *   the index name to check
+    * @param spark
+    *   implicit SparkSession
+    * @return
+    *   true if the index exists
+    * @throws IllegalArgumentException
+    *   if name is null or blank
     */
   def exists(name: String)(implicit spark: SparkSession): Boolean = {
-    require(name != null && name.trim.nonEmpty, "Index name must not be null or blank")
+    require(
+      name != null && name.trim.nonEmpty,
+      "Index name must not be null or blank"
+    )
     val sparkSession = spark
     val contextUser = new AriadneContextUser {
       implicit def spark: SparkSession = sparkSession
     }
-    val metadataPath = new Path(new Path(IndexPathUtils.storagePath, name), "metadata.json")
+    val metadataPath =
+      new Path(new Path(IndexPathUtils.storagePath, name), "metadata.json")
     contextUser.fs.exists(metadataPath) || IndexPathUtils.exists(name)
   }
 
@@ -138,19 +165,27 @@ object IndexCatalog {
     * [[IndexSummary]] with all configured index types and tracked file count.
     *
     * @example
-    * {{{
+    *   {{{
     * val summary: IndexSummary = IndexCatalog.describe("myIndex")
     * println(summary.name, summary.fileCount)
-    * }}}
+    *   }}}
     *
-    * @param name  the index name
-    * @param spark implicit SparkSession
-    * @return the index summary
-    * @throws IndexNotFoundException if the index does not exist
-    * @throws IllegalArgumentException if name is null or blank
+    * @param name
+    *   the index name
+    * @param spark
+    *   implicit SparkSession
+    * @return
+    *   the index summary
+    * @throws IndexNotFoundException
+    *   if the index does not exist
+    * @throws IllegalArgumentException
+    *   if name is null or blank
     */
   def describe(name: String)(implicit spark: SparkSession): IndexSummary = {
-    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
+    require(
+      name != null && name.trim.nonEmpty,
+      "name must not be null or blank"
+    )
     if (!exists(name)) {
       throw new IndexNotFoundException(name)
     }
@@ -159,18 +194,20 @@ object IndexCatalog {
 
   /** Returns summaries for all indexes in the storage path.
     *
-    * Equivalent to calling [[describe]] for each name returned by [[list]],
-    * but logs a single message for the batch operation. Indexes whose metadata
+    * Equivalent to calling [[describe]] for each name returned by [[list]], but
+    * logs a single message for the batch operation. Indexes whose metadata
     * cannot be read are skipped with a warning.
     *
     * @example
-    * {{{
+    *   {{{
     * val summaries: Seq[IndexSummary] = IndexCatalog.describeAll()
     * summaries.foreach(s => println(s.name))
-    * }}}
+    *   }}}
     *
-    * @param spark implicit SparkSession
-    * @return sequence of [[IndexSummary]], one per valid index
+    * @param spark
+    *   implicit SparkSession
+    * @return
+    *   sequence of [[IndexSummary]], one per valid index
     */
   def describeAll()(implicit spark: SparkSession): Seq[IndexSummary] = {
     val names = list()
@@ -188,14 +225,14 @@ object IndexCatalog {
 
   /** Returns the names of all indexes that track a given file.
     *
-    * Scans every index's file list to check whether `fileName` is present.
-    * This is useful for determining which indexes need a `deleteFiles` call
-    * when a source file has been removed from storage.
+    * Scans every index's file list to check whether `fileName` is present. This
+    * is useful for determining which indexes need a `deleteFiles` call when a
+    * source file has been removed from storage.
     *
     * @example
-    * {{{
+    *   {{{
     * val indexes: Seq[String] = IndexCatalog.findIndexes("/data/users/part-00000.parquet")
-    * }}}
+    *   }}}
     *
     * {{{
     * val affected: Seq[String] = IndexCatalog.findIndexes("abfss://data@mystorage.dfs.core.windows.net/file1.parquet")
@@ -204,44 +241,66 @@ object IndexCatalog {
     * }
     * }}}
     *
-    * @param fileName the file path to search for across all indexes
-    * @param spark    implicit SparkSession
-    * @return alphabetically sorted names of indexes that track the file,
-    *         or empty if the file is not found in any index
-    * @throws IllegalArgumentException if fileName is null or blank
+    * @param fileName
+    *   the file path to search for across all indexes
+    * @param spark
+    *   implicit SparkSession
+    * @return
+    *   alphabetically sorted names of indexes that track the file, or empty if
+    *   the file is not found in any index
+    * @throws IllegalArgumentException
+    *   if fileName is null or blank
     */
-  def findIndexes(fileName: String)(implicit spark: SparkSession): Seq[String] = {
-    require(fileName != null && fileName.trim.nonEmpty, "fileName must not be null or blank")
+  def findIndexes(
+      fileName: String
+  )(implicit spark: SparkSession): Seq[String] = {
+    require(
+      fileName != null && fileName.trim.nonEmpty,
+      "fileName must not be null or blank"
+    )
     val startTime = System.currentTimeMillis()
     val names = list()
-    logger.warn(s"IndexCatalog: searching ${names.size} index(es) for file '$fileName'")
+    logger.warn(
+      s"IndexCatalog: searching ${names.size} index(es) for file '$fileName'"
+    )
     val result = names.filter { name =>
       val fileListName = IndexPathUtils.fileListName(name)
       FileList.exists(fileListName) && FileList(fileListName).hasFile(fileName)
     }
-    logger.warn(s"IndexCatalog: findIndexes completed for '$fileName' — found ${result.size} match(es) in ${System.currentTimeMillis() - startTime}ms")
+    logger.warn(
+      s"IndexCatalog: findIndexes completed for '$fileName' — found ${result.size} match(es) in ${System
+          .currentTimeMillis() - startTime}ms"
+    )
     result
   }
 
   /** Fetches an [[Index]] instance by reconnecting to an existing index.
     *
-    * This is equivalent to calling `Index(name)` directly; it is provided
-    * here for API completeness so callers can discover and fetch indexes
-    * without importing [[Index]].
+    * This is equivalent to calling `Index(name)` directly; it is provided here
+    * for API completeness so callers can discover and fetch indexes without
+    * importing [[Index]].
     *
     * @example
-    * {{{
+    *   {{{
     * val index: Index = IndexCatalog.get("myIndex")
-    * }}}
+    *   }}}
     *
-    * @param name  the index name
-    * @param spark implicit SparkSession
-    * @return a fully initialized Index instance
-    * @throws IndexNotFoundException if the index does not exist
-    * @throws IllegalArgumentException if name is null or blank
+    * @param name
+    *   the index name
+    * @param spark
+    *   implicit SparkSession
+    * @return
+    *   a fully initialized Index instance
+    * @throws IndexNotFoundException
+    *   if the index does not exist
+    * @throws IllegalArgumentException
+    *   if name is null or blank
     */
   def get(name: String)(implicit spark: SparkSession): Index = {
-    require(name != null && name.trim.nonEmpty, "Index name must not be null or blank")
+    require(
+      name != null && name.trim.nonEmpty,
+      "Index name must not be null or blank"
+    )
     if (!exists(name)) {
       throw new IndexNotFoundException(name)
     }
@@ -266,28 +325,33 @@ object IndexCatalog {
     * }}}
     *
     * @example
-    * {{{
+    *   {{{
     * val df: DataFrame = IndexCatalog.toDF()
     * df.show()
-    * }}}
+    *   }}}
     *
-    * @param spark implicit SparkSession
-    * @return DataFrame with one row per index, or an empty DataFrame if no indexes exist
+    * @param spark
+    *   implicit SparkSession
+    * @return
+    *   DataFrame with one row per index, or an empty DataFrame if no indexes
+    *   exist
     */
   def toDF()(implicit spark: SparkSession): DataFrame = {
     val summaries = describeAll()
-    val schema = StructType(Seq(
-      StructField("name", StringType, nullable = false),
-      StructField("format", StringType, nullable = false),
-      StructField("regular_indexes", StringType, nullable = false),
-      StructField("bloom_indexes", StringType, nullable = false),
-      StructField("computed_indexes", StringType, nullable = false),
-      StructField("temporal_indexes", StringType, nullable = false),
-      StructField("range_indexes", StringType, nullable = false),
-      StructField("exploded_field_indexes", StringType, nullable = false),
-      StructField("file_count", LongType, nullable = false),
-      StructField("total_indexed_file_size", LongType, nullable = false)
-    ))
+    val schema = StructType(
+      Seq(
+        StructField("name", StringType, nullable = false),
+        StructField("format", StringType, nullable = false),
+        StructField("regular_indexes", StringType, nullable = false),
+        StructField("bloom_indexes", StringType, nullable = false),
+        StructField("computed_indexes", StringType, nullable = false),
+        StructField("temporal_indexes", StringType, nullable = false),
+        StructField("range_indexes", StringType, nullable = false),
+        StructField("exploded_field_indexes", StringType, nullable = false),
+        StructField("file_count", LongType, nullable = false),
+        StructField("total_indexed_file_size", LongType, nullable = false)
+      )
+    )
 
     if (summaries.isEmpty) {
       spark.createDataFrame(
@@ -296,47 +360,55 @@ object IndexCatalog {
       )
     } else {
 
-    val rows = summaries.map { s =>
-      Row(
-        s.name,
-        s.format,
-        s.regularIndexes.toSeq.sorted.mkString(", "),
-        s.bloomIndexes.toSeq.sorted.mkString(", "),
-        s.computedIndexes.toSeq.sorted.mkString(", "),
-        s.temporalIndexes.toSeq.sorted.mkString(", "),
-        s.rangeIndexes.toSeq.sorted.mkString(", "),
-        s.explodedFieldIndexes.toSeq.sorted.mkString(", "),
-        s.fileCount,
-        s.totalIndexedFileSize
+      val rows = summaries.map { s =>
+        Row(
+          s.name,
+          s.format,
+          s.regularIndexes.toSeq.sorted.mkString(", "),
+          s.bloomIndexes.toSeq.sorted.mkString(", "),
+          s.computedIndexes.toSeq.sorted.mkString(", "),
+          s.temporalIndexes.toSeq.sorted.mkString(", "),
+          s.rangeIndexes.toSeq.sorted.mkString(", "),
+          s.explodedFieldIndexes.toSeq.sorted.mkString(", "),
+          s.fileCount,
+          s.totalIndexedFileSize
+        )
+      }
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(rows),
+        schema
       )
-    }
-    spark.createDataFrame(
-      spark.sparkContext.parallelize(rows),
-      schema
-    )
     }
   }
 
   /** Removes an index by name.
     *
     * Deletes the index storage directory (containing metadata, index tables,
-    * staging, and large indexes) and the associated file list Delta table.
-    * If the file list has already been removed by another process, it is
-    * treated as a successful no-op for that resource.
+    * staging, and large indexes) and the associated file list Delta table. If
+    * the file list has already been removed by another process, it is treated
+    * as a successful no-op for that resource.
     *
     * @example
-    * {{{
+    *   {{{
     * IndexCatalog.remove("oldIndex")
-    * }}}
+    *   }}}
     *
-    * @param name  the index name
-    * @param spark implicit SparkSession
-    * @return true if any resources were removed
-    * @throws IndexNotFoundException if the index does not exist
-    * @throws IllegalArgumentException if name is null or blank
+    * @param name
+    *   the index name
+    * @param spark
+    *   implicit SparkSession
+    * @return
+    *   true if any resources were removed
+    * @throws IndexNotFoundException
+    *   if the index does not exist
+    * @throws IllegalArgumentException
+    *   if name is null or blank
     */
   def remove(name: String)(implicit spark: SparkSession): Boolean = {
-    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
+    require(
+      name != null && name.trim.nonEmpty,
+      "name must not be null or blank"
+    )
     if (!exists(name)) {
       throw new IndexNotFoundException(name)
     }
@@ -353,15 +425,18 @@ object IndexCatalog {
     } else false
 
     val fileListName = IndexPathUtils.fileListName(name)
-    val fileListDeleted = try {
-      if (FileList.exists(fileListName)) {
-        FileList.remove(fileListName)
-      } else false
-    } catch {
-      case e: FileListNotFoundException =>
-        logger.debug(s"FileList not found during removal of index '$name' — may have been already removed: ${e.getMessage}")
-        false
-    }
+    val fileListDeleted =
+      try {
+        if (FileList.exists(fileListName)) {
+          FileList.remove(fileListName)
+        } else false
+      } catch {
+        case e: FileListNotFoundException =>
+          logger.debug(
+            s"FileList not found during removal of index '$name' — may have been already removed: ${e.getMessage}"
+          )
+          false
+      }
 
     val elapsed = System.currentTimeMillis() - startTime
     logger.warn(
@@ -373,8 +448,8 @@ object IndexCatalog {
 
   // ---- internal helpers ----
 
-  /** Builds an [[IndexSummary]] by reading metadata and file list for the
-    * given index name.
+  /** Builds an [[IndexSummary]] by reading metadata and file list for the given
+    * index name.
     */
   private def buildSummary(
       name: String
@@ -387,7 +462,8 @@ object IndexCatalog {
     val computedIndexes = md.computed_indexes.keySet().asScala.toSet
     val temporalIndexes = md.temporal_indexes.asScala.map(_.column).toSet
     val rangeIndexes = md.range_indexes.asScala.map(_.column).toSet
-    val explodedFieldIndexes = md.exploded_field_indexes.asScala.map(_.as_column).toSet
+    val explodedFieldIndexes =
+      md.exploded_field_indexes.asScala.map(_.as_column).toSet
 
     val allColumns = regularIndexes ++ bloomIndexes ++ computedIndexes ++
       temporalIndexes ++ rangeIndexes ++ explodedFieldIndexes

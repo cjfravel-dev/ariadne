@@ -8,8 +8,8 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
 import dev.cjfravel.ariadne.Index.DataFrameOps
 
-/** Tests for range index support covering index creation, idempotency,
-  * min/max value tracking per file, and range-based file location queries.
+/** Tests for range index support covering index creation, idempotency, min/max
+  * value tracking per file, and range-based file location queries.
   */
 class RangeIndexTests extends SparkTests with Matchers {
 
@@ -26,20 +26,23 @@ class RangeIndexTests extends SparkTests with Matchers {
   )
 
   test("should add range index") {
-    val index = Index("range_add_test", testSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("range_add_test", testSchema, "csv", Map("header" -> "true"))
     index.addRangeIndex("Id")
     index.indexes should contain("Id")
   }
 
   test("should be idempotent") {
-    val index = Index("range_idempotent_test", testSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("range_idempotent_test", testSchema, "csv", Map("header" -> "true"))
     index.addRangeIndex("Id")
     index.addRangeIndex("Id")
     index.indexes.count(_ == "Id") should be(1)
   }
 
   test("should store min/max per file") {
-    val index = Index("range_minmax_test", testSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("range_minmax_test", testSchema, "csv", Map("header" -> "true"))
     val csvPath0 = resourcePath("/data/table1_part0.csv")
     val csvPath1 = resourcePath("/data/table1_part1.csv")
     index.addFile(csvPath0)
@@ -72,7 +75,8 @@ class RangeIndexTests extends SparkTests with Matchers {
   }
 
   test("should prune files by range") {
-    val index = Index("range_prune_test", testSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("range_prune_test", testSchema, "csv", Map("header" -> "true"))
     val csvPath0 = resourcePath("/data/table1_part0.csv")
     val csvPath1 = resourcePath("/data/table1_part1.csv")
     index.addFile(csvPath0)
@@ -87,7 +91,8 @@ class RangeIndexTests extends SparkTests with Matchers {
   }
 
   test("should return all files when value in all ranges") {
-    val index = Index("range_all_files_test", testSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("range_all_files_test", testSchema, "csv", Map("header" -> "true"))
     val csvPath0 = resourcePath("/data/table1_part0.csv")
     val csvPath1 = resourcePath("/data/table1_part1.csv")
     index.addFile(csvPath0)
@@ -101,7 +106,8 @@ class RangeIndexTests extends SparkTests with Matchers {
   }
 
   test("should handle range query with DataFrame join") {
-    val index = Index("range_join_test", testSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("range_join_test", testSchema, "csv", Map("header" -> "true"))
     val csvPath0 = resourcePath("/data/table1_part0.csv")
     val csvPath1 = resourcePath("/data/table1_part1.csv")
     index.addFile(csvPath0)
@@ -122,7 +128,8 @@ class RangeIndexTests extends SparkTests with Matchers {
   }
 
   test("should enforce mutual exclusivity with regular index") {
-    val index = Index("range_excl_regular", testSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("range_excl_regular", testSchema, "csv", Map("header" -> "true"))
     index.addIndex("Id")
     an[IllegalArgumentException] should be thrownBy {
       index.addRangeIndex("Id")
@@ -130,7 +137,8 @@ class RangeIndexTests extends SparkTests with Matchers {
   }
 
   test("should enforce mutual exclusivity with bloom index") {
-    val index = Index("range_excl_bloom", testSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("range_excl_bloom", testSchema, "csv", Map("header" -> "true"))
     index.addBloomIndex("Id")
     an[IllegalArgumentException] should be thrownBy {
       index.addRangeIndex("Id")
@@ -138,7 +146,8 @@ class RangeIndexTests extends SparkTests with Matchers {
   }
 
   test("should enforce mutual exclusivity - range blocks regular") {
-    val index = Index("range_blocks_regular", testSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("range_blocks_regular", testSchema, "csv", Map("header" -> "true"))
     index.addRangeIndex("Id")
     an[IllegalArgumentException] should be thrownBy {
       index.addIndex("Id")
@@ -146,7 +155,8 @@ class RangeIndexTests extends SparkTests with Matchers {
   }
 
   test("should enforce mutual exclusivity - range blocks bloom") {
-    val index = Index("range_blocks_bloom", testSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("range_blocks_bloom", testSchema, "csv", Map("header" -> "true"))
     index.addRangeIndex("Id")
     an[IllegalArgumentException] should be thrownBy {
       index.addBloomIndex("Id")
@@ -154,7 +164,8 @@ class RangeIndexTests extends SparkTests with Matchers {
   }
 
   test("should enforce mutual exclusivity - range blocks temporal") {
-    val index = Index("range_blocks_temporal", testSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("range_blocks_temporal", testSchema, "csv", Map("header" -> "true"))
     index.addRangeIndex("Id")
     an[IllegalArgumentException] should be thrownBy {
       index.addTemporalIndex("Id", "Version")
@@ -162,7 +173,8 @@ class RangeIndexTests extends SparkTests with Matchers {
   }
 
   test("should throw ColumnNotFoundException for nonexistent column") {
-    val index = Index("range_bad_col", testSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("range_bad_col", testSchema, "csv", Map("header" -> "true"))
     a[ColumnNotFoundException] should be thrownBy {
       index.addRangeIndex("NonExistent")
     }
@@ -171,7 +183,8 @@ class RangeIndexTests extends SparkTests with Matchers {
   test("should handle metadata migration from v6") {
     val stream = getClass.getResourceAsStream("/index_metadata/v6.json")
     require(stream != null, "Resource not found: /index_metadata/v6.json")
-    val jsonString = new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+    val jsonString =
+      new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
     val metadata = IndexMetadata(jsonString)
     // v6 -> v7 migration should add empty range_indexes
     metadata.range_indexes should not be null
@@ -181,7 +194,8 @@ class RangeIndexTests extends SparkTests with Matchers {
   test("should parse v7 metadata with range indexes") {
     val stream = getClass.getResourceAsStream("/index_metadata/v7.json")
     require(stream != null, "Resource not found: /index_metadata/v7.json")
-    val jsonString = new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+    val jsonString =
+      new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
     val metadata = IndexMetadata(jsonString)
     metadata.range_indexes.size() should be(2)
 
@@ -191,7 +205,8 @@ class RangeIndexTests extends SparkTests with Matchers {
   }
 
   test("should backfill range index on existing files") {
-    val index = Index("range_backfill_test", testSchema, "csv", Map("header" -> "true"))
+    val index =
+      Index("range_backfill_test", testSchema, "csv", Map("header" -> "true"))
     val csvPath0 = resourcePath("/data/table1_part0.csv")
     val csvPath1 = resourcePath("/data/table1_part1.csv")
     index.addFile(csvPath0)

@@ -7,7 +7,8 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
 
 /** Tests for column backfill functionality, verifying that newly added regular
-  * and computed index columns are correctly populated for previously indexed files.
+  * and computed index columns are correctly populated for previously indexed
+  * files.
   */
 class ColumnBackfillTests extends SparkTests with Matchers {
 
@@ -99,11 +100,13 @@ class ColumnBackfillTests extends SparkTests with Matchers {
   }
 
   test("should backfill new temporal index column on existing files") {
-    val temporalSchema = StructType(Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false),
-      StructField("UpdatedAt", TimestampType, nullable = true)
-    ))
+    val temporalSchema = StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false),
+        StructField("UpdatedAt", TimestampType, nullable = true)
+      )
+    )
 
     val csvOptions = Map("header" -> "true")
     val index = Index("backfill_temporal", temporalSchema, "csv", csvOptions)
