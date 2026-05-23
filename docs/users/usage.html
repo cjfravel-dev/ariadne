@@ -107,7 +107,7 @@ jsonIndex.update</code></pre>
 
 <pre><code class="language-scala">val index = Index("myIndex", newSchema, "parquet", allowSchemaMismatch = true)</code></pre>
 
-    <p>The only hard requirement: <strong>every previously indexed column must still exist in the new schema</strong>. Otherwise you'll get an <code>IndexNotFoundInNewSchemaException</code> and need to remove and rebuild.</p>
+    <p>The hard requirement: <strong>every previously indexed column must still exist in the new schema</strong>. Otherwise you'll get an <code>IndexNotFoundInNewSchemaException</code> and need to remove and rebuild.</p>
 
     <h2 id="catalog">Ariadne index catalog</h2>
     <p>The <code>IndexCatalog</code> object is a stateless directory of every index under your <code>storagePath</code>. Useful for discovery, cleanup, and tooling.</p>
