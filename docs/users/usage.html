@@ -66,8 +66,6 @@ val a = customerDf.join(index, Seq("customer_id"), "inner")
 // Index on the left
 val b = index.join(customerDf, Seq("customer_id"), "inner")</code></pre>
 
-    <p>Supported join types: <code>inner</code>, <code>left_semi</code>, <code>full_outer</code>. The first two are the most pruning-efficient; <code>full_outer</code> reads every indexed file by definition.</p>
-
     <h2 id="select">Column selection</h2>
     <p>Reduce I/O by reading only the columns you need from the source files. <code>select</code> mutates and returns the same <code>Index</code>, so it chains cleanly into a join:</p>
 
