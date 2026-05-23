@@ -92,18 +92,45 @@
     <h2 id="storage">Storage layout</h2>
     <p>Everything Ariadne owns lives under <code>spark.ariadne.storagePath/{indexName}/</code>. The layout is deliberately flat: metadata is one JSON file, hot index data is one Delta table, anything that explodes too large gets its own Delta table.</p>
 
-<div class="storage-tree">
-{storagePath}/{indexName}/
-├── <span class="label">metadata.json</span>         <span class="comment"># config: schema, format, index types, read opts</span>
-├── <span class="label">index/</span>                <span class="comment"># main Delta table — value arrays, range structs, bloom bytes</span>
-├── <span class="label">staging/</span>              <span class="comment"># transient Delta table during batched update</span>
-├── <span class="label">large_indexes/</span>        <span class="comment"># one Delta table per column that exceeded largeIndexLimit</span>
-│   ├── user_id/         <span class="comment">#   exploded (filename, value) rows</span>
-│   ├── category/
-│   └── ...
-├── <span class="label">.filelist.lock</span>        <span class="comment"># held during addFile</span>
-└── <span class="label">.update.lock</span>          <span class="comment"># held during update / deleteFiles / compact / vacuum</span>
-</div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Path</th><th>Kind</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>metadata.json</code></td>
+            <td>JSON file</td>
+            <td>Index config: schema, format, index types, read options</td>
+          </tr>
+          <tr>
+            <td><code>index/</code></td>
+            <td>Delta table</td>
+            <td>Main index — value arrays, range structs, bloom bytes</td>
+          </tr>
+          <tr>
+            <td><code>staging/</code></td>
+            <td>Delta table</td>
+            <td>Transient — holds batches during <code>update</code> before merge</td>
+          </tr>
+          <tr>
+            <td><code>large_indexes/{column}/</code></td>
+            <td>Delta table (per column)</td>
+            <td>One per column that exceeded <code>largeIndexLimit</code> — exploded <code>(filename, value)</code> rows</td>
+          </tr>
+          <tr>
+            <td><code>.filelist.lock</code></td>
+            <td>Lock file</td>
+            <td>Held during <code>addFile</code></td>
+          </tr>
+          <tr>
+            <td><code>.update.lock</code></td>
+            <td>Lock file</td>
+            <td>Held during <code>update</code>, <code>deleteFiles</code>, <code>compact</code>, <code>vacuum</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <p>The list of tracked files is kept separately by <code>FileList</code> (a tiny two-column Delta table: <code>filename</code>, <code>addedAt</code>) so adding files doesn't require touching the main index.</p>
 

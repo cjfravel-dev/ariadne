@@ -651,20 +651,6 @@ dl.kv dd { margin: 0; color: var(--c-text-muted); }
   font-weight: normal;
 }
 
-/* Storage layout boxes */
-.storage-tree {
-  background: var(--c-code-bg);
-  color: var(--c-code-text);
-  padding: 18px 24px;
-  border-radius: var(--radius);
-  font-family: var(--font-mono);
-  font-size: 0.88rem;
-  line-height: 1.7;
-  margin: 1em 0;
-}
-.storage-tree .label { color: var(--c-gold); }
-.storage-tree .comment { color: #6a7a8a; }
-
 /* Flow steps */
 .flow {
   counter-reset: step;
@@ -742,5 +728,5 @@ dl.kv dd { margin: 0; color: var(--c-text-muted); }
 @media (max-width: 520px) {
   h1 { font-size: 1.7rem; }
   h2 { font-size: 1.3rem; }
-  pre, .storage-tree { font-size: 0.78rem; padding: 14px; }
+  pre { font-size: 0.78rem; padding: 14px; }
 }
