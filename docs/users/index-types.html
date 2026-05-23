@@ -62,7 +62,6 @@
           <tr>
             <th>Type</th>
             <th>Best for</th>
-            <th>Storage shape</th>
             <th>False positives?</th>
           </tr>
         </thead>
@@ -70,37 +69,31 @@
           <tr>
             <td><a href="#regular"><strong>Regular</strong></a></td>
             <td>Low-to-medium cardinality columns (regions, statuses, categories)</td>
-            <td>Distinct-value array per file</td>
             <td>No</td>
           </tr>
           <tr>
             <td><a href="#bloom"><strong>Bloom</strong></a></td>
             <td>High-cardinality keys (user IDs, transaction IDs)</td>
-            <td>Binary bloom filter per file</td>
             <td>Yes (configurable)</td>
           </tr>
           <tr>
             <td><a href="#range"><strong>Range</strong></a></td>
             <td>Naturally ordered columns (dates, amounts)</td>
-            <td>min/max struct per file</td>
             <td>No</td>
           </tr>
           <tr>
             <td><a href="#temporal"><strong>Temporal</strong></a></td>
             <td>Slowly-changing entities (latest-version semantics)</td>
-            <td>(value, max_ts) array per file</td>
             <td>No</td>
           </tr>
           <tr>
             <td><a href="#computed"><strong>Computed</strong></a></td>
             <td>Indexing a derived value via SQL expression</td>
-            <td>Same as the underlying index type</td>
             <td>Inherited</td>
           </tr>
           <tr>
             <td><a href="#exploded"><strong>Exploded field</strong></a></td>
             <td>Joining on elements inside nested array columns</td>
-            <td>Distinct-value array per file</td>
             <td>No</td>
           </tr>
         </tbody>
@@ -112,7 +105,7 @@
     </div>
 
     <h2 id="regular">Regular index</h2>
-    <p>The simplest option. Stores the distinct values found in each file as a Spark array. At query time Ariadne checks each file's array against the join keys and skips any file whose array doesn't contain a match.</p>
+    <p>The simplest option. Tracks the distinct values present in each file, then skips files that can't contain any of your join keys — exact pruning, no false positives.</p>
 
 <pre><code class="language-scala">index.addIndex("region")
 index.addIndex("status")</code></pre>
@@ -124,7 +117,7 @@ index.addIndex("status")</code></pre>
     </div>
 
     <h2 id="bloom">Bloom filter index</h2>
-    <p>A space-efficient probabilistic index for high-cardinality columns. Bloom filters use roughly 10 bits per element at a 1% false-positive rate. They may occasionally include a file that doesn't actually match (false positive) but will <strong>never</strong> miss a file that does.</p>
+    <p>A space-efficient probabilistic index for high-cardinality columns. Bloom filters may occasionally include a file that doesn't actually match (false positive) but will <strong>never</strong> miss a file that does.</p>
 
 <pre><code class="language-scala">index.addBloomIndex("user_id", fpr = 0.01)     // 1% FPR (default)
 index.addBloomIndex("session_id", fpr = 0.001) // 0.1% — tighter, larger filter</code></pre>
@@ -136,7 +129,7 @@ index.addBloomIndex("session_id", fpr = 0.001) // 0.1% — tighter, larger filte
     </div>
 
     <h2 id="range">Range index</h2>
-    <p>Stores per-file <code>min</code> and <code>max</code> values for a column. At query time, files whose <code>[min, max]</code> range doesn't overlap any query value are skipped entirely.</p>
+    <p>Tracks the minimum and maximum value of a column per file. Files whose range doesn't overlap any query value are skipped entirely.</p>
 
 <pre><code class="language-scala">index.addRangeIndex("event_date")
 index.addRangeIndex("amount")</code></pre>
@@ -160,10 +153,10 @@ index.addRangeIndex("amount")</code></pre>
 index.addComputedIndex("year",     "year(event_timestamp)")
 index.addComputedIndex("bucket",   "abs(hash(user_id)) % 16")</code></pre>
 
-    <p><strong>Use when:</strong> the natural join key is a transformation of a stored column. The expression is evaluated during <code>update</code> and again on the query DataFrame at join time.</p>
+    <p><strong>Use when:</strong> the natural join key is a transformation of a stored column.</p>
 
     <h2 id="exploded">Exploded field index</h2>
-    <p>Index elements inside array columns. Without this, joining on a nested array field would require reading every file. With it, Ariadne indexes the flattened values and prunes accordingly.</p>
+    <p>Index elements inside array columns. Without this, joining on a nested array field would require reading every file.</p>
 
 <pre><code class="language-scala">// Index users[].id as a virtual column named "user_id"
 index.addExplodedFieldIndex("users", "id", "user_id")
@@ -171,12 +164,12 @@ index.addExplodedFieldIndex("users", "id", "user_id")
 // Index tags[].name as "tag_name"
 index.addExplodedFieldIndex("tags", "name", "tag_name")</code></pre>
 
-    <p>You join on the alias name (<code>user_id</code>, <code>tag_name</code>), not the original nested path. Ariadne maps it back to the underlying array column when reading.</p>
+    <p>You join on the alias name (<code>user_id</code>, <code>tag_name</code>), not the original nested path.</p>
 
     <p><strong>Use when:</strong> you have JSON/Parquet with embedded arrays of structs and want lookups against fields inside those arrays.</p>
 
     <h2 id="combining">Combining types on one index</h2>
-    <p>Different columns within the same index can use different types. On a multi-column join, Ariadne intersects the candidate files from each indexed column — a file must satisfy <strong>all</strong> conditions to be loaded.</p>
+    <p>Different columns within the same index can use different types. On a multi-column join, a file must satisfy <strong>all</strong> indexed conditions to be loaded.</p>
 
 <pre><code class="language-scala">val index = Index("events", eventSchema, "parquet")
 index.addRangeIndex("event_date")     // prune by date overlap
