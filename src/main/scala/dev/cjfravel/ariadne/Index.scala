@@ -89,7 +89,7 @@ case class Index private (
 
   /** Checks if a file is tracked by this index's file list.
     *
-    * @example {{{ val tracked = index.hasFile("s3a://bucket/data/file1.parquet") }}}
+    * @example {{{ val tracked = index.hasFile("abfss://data@mystorage.dfs.core.windows.net/file1.parquet") }}}
     *
     * @param fileName The file path to check
     * @return true if the file is in the file list

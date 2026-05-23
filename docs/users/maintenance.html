@@ -57,15 +57,15 @@
     <p>When source files are archived, replaced, or deleted, remove them from the index so they're not considered during joins:</p>
 
 <pre><code class="language-scala">index.deleteFiles(
-  "s3a://lake/orders/old_data_2023.parquet",
-  "s3a://lake/orders/archived_events.parquet"
+  "abfss://lake@mystorage.dfs.core.windows.net/orders/old_data_2023.parquet",
+  "abfss://lake@mystorage.dfs.core.windows.net/orders/archived_events.parquet"
 )</code></pre>
 
     <p>This removes the corresponding rows from the main index, every large-index table for that column, and the staging table if one exists. It also removes the file from the tracked file list so a future <code>update</code> doesn't try to re-scan it.</p>
 
     <div class="callout tip">
       <p><strong>Pair with <code>IndexCatalog.findIndexes</code></strong> if you don't know which indexes reference a given file:</p>
-<pre><code class="language-scala">val path = "s3a://bucket/data/old_file.parquet"
+<pre><code class="language-scala">val path = "abfss://data@mystorage.dfs.core.windows.net/old_file.parquet"
 IndexCatalog.findIndexes(path).foreach { name =&gt;
   IndexCatalog.get(name).deleteFiles(path)
 }</code></pre>

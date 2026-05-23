@@ -123,8 +123,8 @@ IndexCatalog.get("myIndex")         // reconnect — same as Index("myIndex")
 IndexCatalog.remove("myIndex")      // delete an index and all its data
 
 // Clean up indexes that reference a deleted file
-IndexCatalog.findIndexes("s3a://bucket/data/old.parquet").foreach { name =&gt;
-  IndexCatalog.get(name).deleteFiles("s3a://bucket/data/old.parquet")
+IndexCatalog.findIndexes("abfss://data@mystorage.dfs.core.windows.net/old.parquet").foreach { name =&gt;
+  IndexCatalog.get(name).deleteFiles("abfss://data@mystorage.dfs.core.windows.net/old.parquet")
 }</code></pre>
 
     <h2 id="sql-catalog">Spark SQL catalog</h2>

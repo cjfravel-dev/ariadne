@@ -20,7 +20,7 @@ package dev.cjfravel.ariadne.exceptions
   *
   * {{{
   * try {
-  *   index.update("s3a://bucket/data/")
+  *   index.update("abfss://data@mystorage.dfs.core.windows.net/")
   * } catch {
   *   case e: IndexLockException =>
   *     // Another process holds the lock or lock file is corrupt

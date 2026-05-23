@@ -91,9 +91,9 @@ val index = Index("orders", orderSchema, "parquet")
 // 2. Decide what to index and which files to track
 index.addIndex("customer_id")
 index.addFile(
-  "s3a://lake/orders/2024-q1.parquet",
-  "s3a://lake/orders/2024-q2.parquet",
-  "s3a://lake/orders/2024-q3.parquet"
+  "abfss://lake@mystorage.dfs.core.windows.net/orders/2024-q1.parquet",
+  "abfss://lake@mystorage.dfs.core.windows.net/orders/2024-q2.parquet",
+  "abfss://lake@mystorage.dfs.core.windows.net/orders/2024-q3.parquet"
 )
 
 // 3. Build — scans the files and writes the index to Delta

@@ -72,7 +72,7 @@
 import dev.cjfravel.ariadne.Index._  // brings in the df.join(index, ...) implicit
 
 // Point Ariadne at any Hadoop-accessible storage location
-spark.conf.set("spark.ariadne.storagePath", "s3a://my-bucket/ariadne")
+spark.conf.set("spark.ariadne.storagePath", "abfss://ariadne@mystorage.dfs.core.windows.net/index")
 
 // Build an index over your data files
 val orders = Index("orders", orderSchema, "parquet")

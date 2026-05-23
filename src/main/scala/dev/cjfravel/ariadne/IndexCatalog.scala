@@ -198,9 +198,9 @@ object IndexCatalog {
     * }}}
     *
     * {{{
-    * val affected: Seq[String] = IndexCatalog.findIndexes("s3a://bucket/data/file1.parquet")
+    * val affected: Seq[String] = IndexCatalog.findIndexes("abfss://data@mystorage.dfs.core.windows.net/file1.parquet")
     * affected.foreach { name =>
-    *   IndexCatalog.get(name).deleteFiles("s3a://bucket/data/file1.parquet")
+    *   IndexCatalog.get(name).deleteFiles("abfss://data@mystorage.dfs.core.windows.net/file1.parquet")
     * }
     * }}}
     *
