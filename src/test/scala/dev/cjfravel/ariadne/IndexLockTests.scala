@@ -8,8 +8,8 @@ import java.nio.charset.StandardCharsets
 import java.time.Instant
 import scala.io.Source
 
-/** Tests for [[IndexLock]] covering lock acquisition, release, refresh,
-  * stale lock auto-healing, and contention behavior.
+/** Tests for [[IndexLock]] covering lock acquisition, release, refresh, stale
+  * lock auto-healing, and contention behavior.
   */
 class IndexLockTests extends SparkTests {
 
@@ -47,8 +47,12 @@ class IndexLockTests extends SparkTests {
     }
   }
 
-  private def withConfigOverrides[T](overrides: (String, String)*)(block: => T): T = {
-    val originals = overrides.map { case (key, _) => key -> spark.conf.getOption(key) }
+  private def withConfigOverrides[T](
+      overrides: (String, String)*
+  )(block: => T): T = {
+    val originals = overrides.map { case (key, _) =>
+      key -> spark.conf.getOption(key)
+    }
     overrides.foreach { case (key, value) => spark.conf.set(key, value) }
     try block
     finally {

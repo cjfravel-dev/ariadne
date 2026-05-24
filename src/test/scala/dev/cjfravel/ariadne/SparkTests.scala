@@ -10,10 +10,12 @@ import java.nio.file.{Files, Path}
 
 /** Base test infrastructure trait for all Ariadne Spark tests.
   *
-  * Creates a local-mode `SparkSession` with Delta Lake extensions and a temporary
-  * directory as `spark.ariadne.storagePath`. The session is torn down after each suite.
+  * Creates a local-mode `SparkSession` with Delta Lake extensions and a
+  * temporary directory as `spark.ariadne.storagePath`. The session is torn down
+  * after each suite.
   *
-  * Provides `resourcePath(fileName)` to resolve test data files from `src/test/resources/`.
+  * Provides `resourcePath(fileName)` to resolve test data files from
+  * `src/test/resources/`.
   */
 trait SparkTests extends AnyFunSuite with BeforeAndAfterAll {
   implicit var spark: SparkSession = _

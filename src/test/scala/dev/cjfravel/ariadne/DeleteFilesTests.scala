@@ -5,8 +5,8 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.Row
 import org.apache.hadoop.fs.Path
 
-/** Tests for `deleteFiles` covering single and multi-file deletion from the main index,
-  * large index table cleanup, and file list removal.
+/** Tests for `deleteFiles` covering single and multi-file deletion from the
+  * main index, large index table cleanup, and file list removal.
   */
 class DeleteFilesTests extends SparkTests with Matchers {
 
@@ -73,7 +73,8 @@ class DeleteFilesTests extends SparkTests with Matchers {
       largeSchema
     )
 
-    val tempPath = s"${System.getProperty("java.io.tmpdir")}/delete_large_test_${System.currentTimeMillis()}"
+    val tempPath =
+      s"${System.getProperty("java.io.tmpdir")}/delete_large_test_${System.currentTimeMillis()}"
     df.coalesce(1)
       .write
       .option("header", "true")
@@ -89,7 +90,8 @@ class DeleteFilesTests extends SparkTests with Matchers {
         .get()
         .toString
 
-      val index = Index("delete_large", largeSchema, "csv", Map("header" -> "true"))
+      val index =
+        Index("delete_large", largeSchema, "csv", Map("header" -> "true"))
       index.addFile(fileName)
       index.addIndex("Id")
       index.addIndex("Category")

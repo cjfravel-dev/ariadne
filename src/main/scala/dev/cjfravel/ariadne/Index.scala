@@ -19,8 +19,9 @@ import java.util.{Collections, UUID}
   * in Spark using Delta Lake. It supports schema enforcement, metadata
   * persistence, and file tracking.
   *
-  * @note Index instances are NOT safe for concurrent use from multiple threads.
-  *       Each thread should use its own Index instance.
+  * @note
+  *   Index instances are NOT safe for concurrent use from multiple threads.
+  *   Each thread should use its own Index instance.
   *
   * @constructor
   *   Private: use the factory methods in the companion object.
@@ -34,15 +35,19 @@ import java.util.{Collections, UUID}
 case class Index private (
     name: String,
     schema: Option[StructType]
-)(implicit val spark: SparkSession) extends IndexQueryOperations {
+)(implicit val spark: SparkSession)
+    extends IndexQueryOperations {
 
-  /** Selected columns for optimized reading. When set, only these columns plus join columns will be read. */
+  /** Selected columns for optimized reading. When set, only these columns plus
+    * join columns will be read.
+    */
   private var selectedColumns: Option[Seq[String]] = None
 
   private def fileList: FileList = FileList(IndexPathUtils.fileListName(name))
 
   /** Path to the storage location of the index. */
-  override lazy val storagePath: Path = new Path(IndexPathUtils.storagePath, name)
+  override lazy val storagePath: Path =
+    new Path(IndexPathUtils.storagePath, name)
 
   /** Lock path for file list operations. */
   private def fileListLockPath: Path = new Path(storagePath, ".filelist.lock")
@@ -56,18 +61,28 @@ case class Index private (
     * data files, reducing I/O. Returns this Index for method chaining.
     *
     * @example
-    * {{{
+    *   {{{
     * val result = index.select("name", "email").join(df, Seq("userId"))
-    * }}}
+    *   }}}
     *
-    * @param columns The column names to select
-    * @return This Index instance for method chaining
-    * @throws IllegalArgumentException if columns is null/empty or any column is null/blank
-    * @throws ColumnNotFoundException if any specified column doesn't exist in the schema
+    * @param columns
+    *   The column names to select
+    * @return
+    *   This Index instance for method chaining
+    * @throws IllegalArgumentException
+    *   if columns is null/empty or any column is null/blank
+    * @throws ColumnNotFoundException
+    *   if any specified column doesn't exist in the schema
     */
   def select(columns: String*): Index = {
-    require(columns != null && columns.nonEmpty, "columns must not be null or empty")
-    require(columns.forall(c => c != null && c.trim.nonEmpty), "each column must not be null or blank")
+    require(
+      columns != null && columns.nonEmpty,
+      "columns must not be null or empty"
+    )
+    require(
+      columns.forall(c => c != null && c.trim.nonEmpty),
+      "each column must not be null or blank"
+    )
 
     // Validate that all specified columns exist in the schema
     val invalidColumns = columns.filterNot { colName =>
@@ -75,7 +90,9 @@ case class Index private (
     }
 
     if (invalidColumns.nonEmpty) {
-      throw new ColumnNotFoundException(s"Columns not found in schema: ${invalidColumns.mkString(", ")}")
+      throw new ColumnNotFoundException(
+        s"Columns not found in schema: ${invalidColumns.mkString(", ")}"
+      )
     }
 
     selectedColumns = Some(columns)
@@ -83,34 +100,46 @@ case class Index private (
   }
 
   /** Gets the currently selected columns for reading.
-    * @return the selected columns, or None if no column selection has been applied
+    * @return
+    *   the selected columns, or None if no column selection has been applied
     */
   private[ariadne] def getSelectedColumns: Option[Seq[String]] = selectedColumns
 
   /** Checks if a file is tracked by this index's file list.
     *
-    * @example {{{ val tracked = index.hasFile("s3a://bucket/data/file1.parquet") }}}
+    * @example
+    *   {{{val tracked = index.hasFile("s3a://bucket/data/file1.parquet")}}}
     *
-    * @param fileName The file path to check
-    * @return true if the file is in the file list
+    * @param fileName
+    *   The file path to check
+    * @return
+    *   true if the file is in the file list
     */
   def hasFile(fileName: String): Boolean = fileList.hasFile(fileName)
 
-  /** Adds files to the index's file list for future indexing.
-    * Acquires a file list lock to prevent concurrent modifications.
+  /** Adds files to the index's file list for future indexing. Acquires a file
+    * list lock to prevent concurrent modifications.
     *
     * @example
-    * {{{
+    *   {{{
     * index.addFile("/data/events/2024-01-01.parquet")
     * index.addFile("/data/events/2024-01-02.parquet", "/data/events/2024-01-03.parquet")
-    * }}}
+    *   }}}
     *
-    * @param fileNames One or more file paths to register
-    * @throws IllegalArgumentException if fileNames is null/empty or any fileName is null/blank
+    * @param fileNames
+    *   One or more file paths to register
+    * @throws IllegalArgumentException
+    *   if fileNames is null/empty or any fileName is null/blank
     */
   def addFile(fileNames: String*): Unit = {
-    require(fileNames != null && fileNames.nonEmpty, "fileNames must not be null or empty")
-    require(fileNames.forall(f => f != null && f.trim.nonEmpty), "each fileName must not be null or blank")
+    require(
+      fileNames != null && fileNames.nonEmpty,
+      "fileNames must not be null or empty"
+    )
+    require(
+      fileNames.forall(f => f != null && f.trim.nonEmpty),
+      "each fileName must not be null or blank"
+    )
     val startTime = System.currentTimeMillis()
     logger.warn(s"Adding ${fileNames.size} file(s) to index '$name'")
     val lock = IndexLock(fileListLockPath, name)
@@ -121,29 +150,38 @@ case class Index private (
     } finally {
       lock.release(correlationId)
     }
-    logger.warn(s"Added ${fileNames.size} file(s) to index '$name' in ${System.currentTimeMillis() - startTime}ms")
+    logger.warn(
+      s"Added ${fileNames.size} file(s) to index '$name' in ${System.currentTimeMillis() - startTime}ms"
+    )
   }
 
-  /** Returns file paths registered via [[addFile]] that have not yet been indexed.
+  /** Returns file paths registered via [[addFile]] that have not yet been
+    * indexed.
     *
-    * Delegates to [[unindexedFiles(spark:org\.apache\.spark\.sql\.SparkSession)* unindexedFiles(SparkSession)]].
+    * Delegates to
+    * [[unindexedFiles(spark:org\.apache\.spark\.sql\.SparkSession)* unindexedFiles(SparkSession)]].
     *
-    * @note This method calls `collect()` on the driver, which can cause OOM
-    *       if the number of unindexed files is very large.
-    * @return Set[String] of file paths not yet present in the index
+    * @note
+    *   This method calls `collect()` on the driver, which can cause OOM if the
+    *   number of unindexed files is very large.
+    * @return
+    *   Set[String] of file paths not yet present in the index
     */
   private[ariadne] def unindexedFiles: Set[String] = unindexedFiles(spark)
 
-  /** Returns file paths registered via [[addFile]] that have not yet been indexed,
-    * using the provided SparkSession for implicit conversions.
+  /** Returns file paths registered via [[addFile]] that have not yet been
+    * indexed, using the provided SparkSession for implicit conversions.
     *
-    * Performs a `left_anti` join between the file list and the existing index table
-    * to identify files that still need to be processed.
+    * Performs a `left_anti` join between the file list and the existing index
+    * table to identify files that still need to be processed.
     *
-    * @note This method calls `collect()` on the driver, which can cause OOM
-    *       if the number of unindexed files is very large.
-    * @param spark The SparkSession to use for implicit conversions
-    * @return Set[String] of file paths not yet present in the index
+    * @note
+    *   This method calls `collect()` on the driver, which can cause OOM if the
+    *   number of unindexed files is very large.
+    * @param spark
+    *   The SparkSession to use for implicit conversions
+    * @return
+    *   Set[String] of file paths not yet present in the index
     */
   private[ariadne] def unindexedFiles(spark: SparkSession): Set[String] = {
     val files = fileList.files
@@ -164,13 +202,16 @@ case class Index private (
     }
   }
 
-  /** Identifies files already in the index that are missing data for newly added columns.
+  /** Identifies files already in the index that are missing data for newly
+    * added columns.
     *
-    * Compares the columns declared in metadata against the columns present in the
-    * Delta index table schema. If any metadata columns are missing from the table,
-    * all indexed files need to be re-processed for the new columns.
+    * Compares the columns declared in metadata against the columns present in
+    * the Delta index table schema. If any metadata columns are missing from the
+    * table, all indexed files need to be re-processed for the new columns.
     *
-    * @return Set[String] of filenames needing column backfill, empty if no backfill needed
+    * @return
+    *   Set[String] of filenames needing column backfill, empty if no backfill
+    *   needed
     */
   private[ariadne] def filesNeedingColumnUpdate: Set[String] = {
     import spark.implicits._
@@ -184,7 +225,9 @@ case class Index private (
         if (missingCols.isEmpty) {
           Set.empty[String]
         } else {
-          logger.warn(s"Detected new index columns not yet in index table: ${missingCols.mkString(", ")}")
+          logger.warn(
+            s"Detected new index columns not yet in index table: ${missingCols.mkString(", ")}"
+          )
           df.select("filename").as[String].collect().toSet
         }
       case None => Set.empty
@@ -196,19 +239,24 @@ case class Index private (
     * Idempotent: calling again with the same column is a no-op.
     *
     * @example
-    * {{{
+    *   {{{
     * val index = Index("myIndex", schema, "parquet")
     * index.addIndex("userId")
-    * }}}
+    *   }}}
     *
     * @param index
     *   The column name to index.
-    * @throws IllegalArgumentException if the column name is null/blank or already indexed by another type
+    * @throws IllegalArgumentException
+    *   if the column name is null/blank or already indexed by another type
     *   (bloom, temporal, or range)
-    * @throws ColumnNotFoundException if the column doesn't exist in the schema
+    * @throws ColumnNotFoundException
+    *   if the column doesn't exist in the schema
     */
   def addIndex(index: String): Unit = {
-    require(index != null && index.trim.nonEmpty, "index column name must not be null or blank")
+    require(
+      index != null && index.trim.nonEmpty,
+      "index column name must not be null or blank"
+    )
     logger.warn(s"Adding regular index on column '$index' for index '$name'")
 
     if (!metadata.indexes.contains(index)) {
@@ -216,7 +264,7 @@ case class Index private (
       if (metadata.bloom_indexes.asScala.exists(_.column == index)) {
         throw new IllegalArgumentException(
           s"Column '$index' is already a bloom index. " +
-          "A column cannot be both a regular index and a bloom index."
+            "A column cannot be both a regular index and a bloom index."
         )
       }
 
@@ -224,7 +272,7 @@ case class Index private (
       if (metadata.temporal_indexes.asScala.exists(_.column == index)) {
         throw new IllegalArgumentException(
           s"Column '$index' is already a temporal index. " +
-          "A column cannot be both a regular index and a temporal index."
+            "A column cannot be both a regular index and a temporal index."
         )
       }
 
@@ -232,13 +280,20 @@ case class Index private (
       if (metadata.range_indexes.asScala.exists(_.column == index)) {
         throw new IllegalArgumentException(
           s"Column '$index' is already a range index. " +
-          "A column cannot be both a regular index and a range index."
+            "A column cannot be both a regular index and a range index."
         )
       }
 
       // Validate column exists in schema (only if schema is available)
-      if (metadata.schema != null && !SchemaHelper.fieldExists(storedSchema, index)) {
-        throw new ColumnNotFoundException(s"Column '$index' not found in schema")
+      if (
+        metadata.schema != null && !SchemaHelper.fieldExists(
+          storedSchema,
+          index
+        )
+      ) {
+        throw new ColumnNotFoundException(
+          s"Column '$index' not found in schema"
+        )
       }
 
       metadata.indexes.add(index)
@@ -251,23 +306,33 @@ case class Index private (
   /** Adds a bloom filter index for the specified column.
     *
     * Bloom filters are probabilistic data structures that provide:
-    * - Guaranteed NO false negatives (if filter says "no", value definitely absent)
-    * - Configurable false positive rate (if filter says "yes", value MIGHT be present)
-    * - Space-efficient storage (approximately 10 bits per element at 1% FPR)
+    *   - Guaranteed NO false negatives (if filter says "no", value definitely
+    *     absent)
+    *   - Configurable false positive rate (if filter says "yes", value MIGHT be
+    *     present)
+    *   - Space-efficient storage (approximately 10 bits per element at 1% FPR)
     *
     * @example
-    * {{{
+    *   {{{
     * index.addBloomIndex("sessionId")
     * index.addBloomIndex("ipAddress", 0.001)
-    * }}}
+    *   }}}
     *
-    * @param column The column name to index with a bloom filter
-    * @param fpr False positive rate between 0.0 and 1.0 (default 0.01 = 1%)
-    * @throws IllegalArgumentException if column is null/blank, FPR out of range, or column is already a regular or computed index
-    * @throws ColumnNotFoundException if column doesn't exist in schema
+    * @param column
+    *   The column name to index with a bloom filter
+    * @param fpr
+    *   False positive rate between 0.0 and 1.0 (default 0.01 = 1%)
+    * @throws IllegalArgumentException
+    *   if column is null/blank, FPR out of range, or column is already a
+    *   regular or computed index
+    * @throws ColumnNotFoundException
+    *   if column doesn't exist in schema
     */
   def addBloomIndex(column: String, fpr: Double = 0.01): Unit = {
-    require(column != null && column.trim.nonEmpty, "bloom index column name must not be null or blank")
+    require(
+      column != null && column.trim.nonEmpty,
+      "bloom index column name must not be null or blank"
+    )
     // Validate FPR range
     require(fpr > 0 && fpr < 1, s"FPR must be between 0 and 1, got: $fpr")
     logger.warn(s"Adding bloom index on column '$column' for index '$name'")
@@ -277,109 +342,143 @@ case class Index private (
       if (metadata.indexes.contains(column)) {
         throw new IllegalArgumentException(
           s"Column '$column' is already a regular index. " +
-          "A column cannot be both a bloom index and a regular index."
+            "A column cannot be both a bloom index and a regular index."
         )
       }
       if (metadata.computed_indexes.containsKey(column)) {
         throw new IllegalArgumentException(
           s"Column '$column' is already a computed index. " +
-          "A column cannot be both a bloom index and a computed index."
+            "A column cannot be both a bloom index and a computed index."
         )
       }
       if (metadata.temporal_indexes.asScala.exists(_.column == column)) {
         throw new IllegalArgumentException(
           s"Column '$column' is already a temporal index. " +
-          "A column cannot be both a bloom index and a temporal index."
+            "A column cannot be both a bloom index and a temporal index."
         )
       }
       if (metadata.range_indexes.asScala.exists(_.column == column)) {
         throw new IllegalArgumentException(
           s"Column '$column' is already a range index. " +
-          "A column cannot be both a bloom index and a range index."
+            "A column cannot be both a bloom index and a range index."
         )
       }
 
       // Validate column exists in schema (only if schema is available)
-      if (metadata.schema != null && !SchemaHelper.fieldExists(storedSchema, column)) {
-        throw new ColumnNotFoundException(s"Column '$column' not found in schema")
+      if (
+        metadata.schema != null && !SchemaHelper.fieldExists(
+          storedSchema,
+          column
+        )
+      ) {
+        throw new ColumnNotFoundException(
+          s"Column '$column' not found in schema"
+        )
       }
 
       val config = BloomIndexConfig(column, fpr)
       metadata.bloom_indexes.add(config)
       writeMetadata(metadata)
-      logger.warn(s"Added bloom index for column '$column' with FPR=$fpr to index '$name'")
+      logger.warn(
+        s"Added bloom index for column '$column' with FPR=$fpr to index '$name'"
+      )
     }
-    logger.debug(s"addBloomIndex completed for column '$column' on index '$name'")
+    logger.debug(
+      s"addBloomIndex completed for column '$column' on index '$name'"
+    )
   }
 
   /** Adds an exploded field index for a nested field inside an array column.
     *
-    * During [[update]], each element of `arrayColumn` is exploded, the `fieldPath`
-    * is extracted, and the distinct values are stored under `asColumn` in the index.
-    * Joins on `asColumn` will locate files containing any matching array element.
-    * Idempotent: calling again with the same `asColumn` is a no-op.
+    * During [[update]], each element of `arrayColumn` is exploded, the
+    * `fieldPath` is extracted, and the distinct values are stored under
+    * `asColumn` in the index. Joins on `asColumn` will locate files containing
+    * any matching array element. Idempotent: calling again with the same
+    * `asColumn` is a no-op.
     *
     * @example
-    * {{{
+    *   {{{
     * // Index the "id" field from each element of the "items" array column
     * index.addExplodedFieldIndex("items", "id", "item_id")
-    * }}}
+    *   }}}
     *
     * @param arrayColumn
     *   The array column to explode.
     * @param fieldPath
-    *   The dot-separated field path to extract from each array element
-    *   (e.g., "id" or "profile.user_id").
+    *   The dot-separated field path to extract from each array element (e.g.,
+    *   "id" or "profile.user_id").
     * @param asColumn
     *   The virtual column name exposed for joins.
-    * @throws IllegalArgumentException if any parameter is null/blank, or `asColumn` conflicts with another index type
+    * @throws IllegalArgumentException
+    *   if any parameter is null/blank, or `asColumn` conflicts with another
+    *   index type
     */
   def addExplodedFieldIndex(
       arrayColumn: String,
       fieldPath: String,
       asColumn: String
   ): Unit = {
-    require(arrayColumn != null && arrayColumn.trim.nonEmpty, "arrayColumn must not be null or blank")
-    require(fieldPath != null && fieldPath.trim.nonEmpty, "fieldPath must not be null or blank")
-    require(asColumn != null && asColumn.trim.nonEmpty, "asColumn must not be null or blank")
-    logger.warn(s"Adding exploded field index '$asColumn' on column '$arrayColumn' for index '$name'")
+    require(
+      arrayColumn != null && arrayColumn.trim.nonEmpty,
+      "arrayColumn must not be null or blank"
+    )
+    require(
+      fieldPath != null && fieldPath.trim.nonEmpty,
+      "fieldPath must not be null or blank"
+    )
+    require(
+      asColumn != null && asColumn.trim.nonEmpty,
+      "asColumn must not be null or blank"
+    )
+    logger.warn(
+      s"Adding exploded field index '$asColumn' on column '$arrayColumn' for index '$name'"
+    )
 
-    if (!metadata.exploded_field_indexes.asScala.exists(_.as_column == asColumn)) {
+    if (
+      !metadata.exploded_field_indexes.asScala.exists(_.as_column == asColumn)
+    ) {
       // Mutual exclusivity checks
       if (metadata.indexes.contains(asColumn)) {
         throw new IllegalArgumentException(
           s"Column '$asColumn' is already a regular index. " +
-          "A column cannot be both an exploded field index and a regular index."
+            "A column cannot be both an exploded field index and a regular index."
         )
       }
       if (metadata.computed_indexes.containsKey(asColumn)) {
         throw new IllegalArgumentException(
           s"Column '$asColumn' is already a computed index. " +
-          "A column cannot be both an exploded field index and a computed index."
+            "A column cannot be both an exploded field index and a computed index."
         )
       }
       if (metadata.bloom_indexes.asScala.exists(_.column == asColumn)) {
         throw new IllegalArgumentException(
           s"Column '$asColumn' is already a bloom index. " +
-          "A column cannot be both an exploded field index and a bloom index."
+            "A column cannot be both an exploded field index and a bloom index."
         )
       }
       if (metadata.temporal_indexes.asScala.exists(_.column == asColumn)) {
         throw new IllegalArgumentException(
           s"Column '$asColumn' is already a temporal index. " +
-          "A column cannot be both an exploded field index and a temporal index."
+            "A column cannot be both an exploded field index and a temporal index."
         )
       }
       if (metadata.range_indexes.asScala.exists(_.column == asColumn)) {
         throw new IllegalArgumentException(
           s"Column '$asColumn' is already a range index. " +
-          "A column cannot be both an exploded field index and a range index."
+            "A column cannot be both an exploded field index and a range index."
         )
       }
 
       // Validate array column exists in schema (only if schema is available)
-      if (metadata.schema != null && !SchemaHelper.fieldExists(storedSchema, arrayColumn)) {
-        throw new ColumnNotFoundException(s"Array column '$arrayColumn' not found in schema")
+      if (
+        metadata.schema != null && !SchemaHelper.fieldExists(
+          storedSchema,
+          arrayColumn
+        )
+      ) {
+        throw new ColumnNotFoundException(
+          s"Array column '$arrayColumn' not found in schema"
+        )
       }
 
       // Validate that the column is actually an ArrayType (only if schema is available)
@@ -388,7 +487,7 @@ case class Index private (
           if (!dt.isInstanceOf[ArrayType]) {
             throw new IllegalArgumentException(
               s"Column '$arrayColumn' is ${dt.typeName}, not ArrayType. " +
-              "addExplodedFieldIndex requires an array column."
+                "addExplodedFieldIndex requires an array column."
             )
           }
         }
@@ -398,9 +497,13 @@ case class Index private (
         ExplodedFieldMapping(arrayColumn, fieldPath, asColumn)
       metadata.exploded_field_indexes.add(explodedFieldMapping)
       writeMetadata(metadata)
-      logger.warn(s"Added exploded field index '$asColumn' (array='$arrayColumn', path='$fieldPath') to index '$name'")
+      logger.warn(
+        s"Added exploded field index '$asColumn' (array='$arrayColumn', path='$fieldPath') to index '$name'"
+      )
     }
-    logger.debug(s"addExplodedFieldIndex completed for column '$asColumn' on index '$name'")
+    logger.debug(
+      s"addExplodedFieldIndex completed for column '$asColumn' on index '$name'"
+    )
   }
 
   /** Returns all column names that can be used in joins across all index types.
@@ -408,9 +511,11 @@ case class Index private (
     * Includes regular, computed, exploded field, bloom, temporal, and range
     * index columns.
     *
-    * @example {{{ val allIndexedColumns: Set[String] = index.indexes }}}
+    * @example
+    *   {{{val allIndexedColumns: Set[String] = index.indexes}}}
     *
-    * @return the union of all indexed column names across every index type
+    * @return
+    *   the union of all indexed column names across every index type
     */
   def indexes: Set[String] =
     metadata.indexes.asScala.toSet ++
@@ -427,17 +532,27 @@ case class Index private (
     * with the same name is a no-op.
     *
     * @example
-    * {{{
+    *   {{{
     * index.addComputedIndex("yearMonth", "date_format(event_date, 'yyyy-MM')")
-    * }}}
+    *   }}}
     *
-    * @param name The alias name for the computed column
-    * @param sql_expression A Spark SQL expression evaluated against each data file
-    * @throws IllegalArgumentException if name or sql_expression is null/blank, or name conflicts with another index type
+    * @param name
+    *   The alias name for the computed column
+    * @param sql_expression
+    *   A Spark SQL expression evaluated against each data file
+    * @throws IllegalArgumentException
+    *   if name or sql_expression is null/blank, or name conflicts with another
+    *   index type
     */
   def addComputedIndex(name: String, sql_expression: String): Unit = {
-    require(name != null && name.trim.nonEmpty, "computed index name must not be null or blank")
-    require(sql_expression != null && sql_expression.trim.nonEmpty, "sql_expression must not be null or blank")
+    require(
+      name != null && name.trim.nonEmpty,
+      "computed index name must not be null or blank"
+    )
+    require(
+      sql_expression != null && sql_expression.trim.nonEmpty,
+      "sql_expression must not be null or blank"
+    )
     logger.warn(s"Adding computed index '$name' for index '${this.name}'")
 
     if (!metadata.computed_indexes.containsKey(name)) {
@@ -445,60 +560,76 @@ case class Index private (
       if (metadata.indexes.contains(name)) {
         throw new IllegalArgumentException(
           s"Column '$name' is already a regular index. " +
-          "A column cannot be both a computed index and a regular index."
+            "A column cannot be both a computed index and a regular index."
         )
       }
       if (metadata.bloom_indexes.asScala.exists(_.column == name)) {
         throw new IllegalArgumentException(
           s"Column '$name' is already a bloom index. " +
-          "A column cannot be both a computed index and a bloom index."
+            "A column cannot be both a computed index and a bloom index."
         )
       }
       if (metadata.temporal_indexes.asScala.exists(_.column == name)) {
         throw new IllegalArgumentException(
           s"Column '$name' is already a temporal index. " +
-          "A column cannot be both a computed index and a temporal index."
+            "A column cannot be both a computed index and a temporal index."
         )
       }
       if (metadata.range_indexes.asScala.exists(_.column == name)) {
         throw new IllegalArgumentException(
           s"Column '$name' is already a range index. " +
-          "A column cannot be both a computed index and a range index."
+            "A column cannot be both a computed index and a range index."
         )
       }
       if (metadata.exploded_field_indexes.asScala.exists(_.as_column == name)) {
         throw new IllegalArgumentException(
           s"Column '$name' is already an exploded field index. " +
-          "A column cannot be both a computed index and an exploded field index."
+            "A column cannot be both a computed index and an exploded field index."
         )
       }
 
       metadata.computed_indexes.put(name, sql_expression)
       writeMetadata(metadata)
-      logger.warn(s"Added computed index '$name' with expression to index '${this.name}'")
+      logger.warn(
+        s"Added computed index '$name' with expression to index '${this.name}'"
+      )
     }
-    logger.debug(s"addComputedIndex completed for column '$name' on index '${this.name}'")
+    logger.debug(
+      s"addComputedIndex completed for column '$name' on index '${this.name}'"
+    )
   }
 
-  /** Adds a temporal index for the specified column using a timestamp for versioning.
+  /** Adds a temporal index for the specified column using a timestamp for
+    * versioning.
     *
-    * When joining on a temporal index column, only the latest version (by timestamp)
-    * of each value is returned. This is useful when multiple files contain the same
-    * entity at different points in time.
+    * When joining on a temporal index column, only the latest version (by
+    * timestamp) of each value is returned. This is useful when multiple files
+    * contain the same entity at different points in time.
     *
     * @example
-    * {{{
+    *   {{{
     * index.addTemporalIndex("userId", "updated_at")
-    * }}}
+    *   }}}
     *
-    * @param column The value column to index on (e.g., "user_id")
-    * @param timestampColumn The timestamp column for ordering versions (e.g., "updated_at")
-    * @throws IllegalArgumentException if column or timestampColumn is null/blank, or column is already indexed by another type
-    * @throws ColumnNotFoundException if either column doesn't exist in schema
+    * @param column
+    *   The value column to index on (e.g., "user_id")
+    * @param timestampColumn
+    *   The timestamp column for ordering versions (e.g., "updated_at")
+    * @throws IllegalArgumentException
+    *   if column or timestampColumn is null/blank, or column is already indexed
+    *   by another type
+    * @throws ColumnNotFoundException
+    *   if either column doesn't exist in schema
     */
   def addTemporalIndex(column: String, timestampColumn: String): Unit = {
-    require(column != null && column.trim.nonEmpty, "temporal index column must not be null or blank")
-    require(timestampColumn != null && timestampColumn.trim.nonEmpty, "timestampColumn must not be null or blank")
+    require(
+      column != null && column.trim.nonEmpty,
+      "temporal index column must not be null or blank"
+    )
+    require(
+      timestampColumn != null && timestampColumn.trim.nonEmpty,
+      "timestampColumn must not be null or blank"
+    )
     logger.warn(s"Adding temporal index on column '$column' for index '$name'")
 
     if (!metadata.temporal_indexes.asScala.exists(_.column == column)) {
@@ -506,32 +637,34 @@ case class Index private (
       if (metadata.indexes.contains(column)) {
         throw new IllegalArgumentException(
           s"Column '$column' is already a regular index. " +
-          "A column cannot be both a temporal index and a regular index."
+            "A column cannot be both a temporal index and a regular index."
         )
       }
       if (metadata.computed_indexes.containsKey(column)) {
         throw new IllegalArgumentException(
           s"Column '$column' is already a computed index. " +
-          "A column cannot be both a temporal index and a computed index."
+            "A column cannot be both a temporal index and a computed index."
         )
       }
       if (metadata.bloom_indexes.asScala.exists(_.column == column)) {
         throw new IllegalArgumentException(
           s"Column '$column' is already a bloom index. " +
-          "A column cannot be both a temporal index and a bloom index."
+            "A column cannot be both a temporal index and a bloom index."
         )
       }
       if (metadata.range_indexes.asScala.exists(_.column == column)) {
         throw new IllegalArgumentException(
           s"Column '$column' is already a range index. " +
-          "A column cannot be both a temporal index and a range index."
+            "A column cannot be both a temporal index and a range index."
         )
       }
 
       // Validate both columns exist in schema (only if schema is available)
       if (metadata.schema != null) {
         if (!SchemaHelper.fieldExists(storedSchema, column)) {
-          throw new ColumnNotFoundException(s"Column '$column' not found in schema")
+          throw new ColumnNotFoundException(
+            s"Column '$column' not found in schema"
+          )
         }
         if (!SchemaHelper.fieldExists(storedSchema, timestampColumn)) {
           throw new ColumnNotFoundException(
@@ -543,28 +676,38 @@ case class Index private (
       val config = TemporalIndexConfig(column, timestampColumn)
       metadata.temporal_indexes.add(config)
       writeMetadata(metadata)
-      logger.warn(s"Added temporal index for column '$column' (timestamp='$timestampColumn') to index '$name'")
+      logger.warn(
+        s"Added temporal index for column '$column' (timestamp='$timestampColumn') to index '$name'"
+      )
     }
-    logger.debug(s"addTemporalIndex completed for column '$column' on index '$name'")
+    logger.debug(
+      s"addTemporalIndex completed for column '$column' on index '$name'"
+    )
   }
 
   /** Adds a range index for the specified column.
     *
     * Range indexes store min/max values per file, enabling file pruning at
-    * query time. Files whose [min, max] range does not overlap with the
-    * queried values are skipped.
+    * query time. Files whose [min, max] range does not overlap with the queried
+    * values are skipped.
     *
     * @example
-    * {{{
+    *   {{{
     * index.addRangeIndex("timestamp")
-    * }}}
+    *   }}}
     *
-    * @param column The column to index with min/max range
-    * @throws IllegalArgumentException if column is null/blank or already indexed by another type
-    * @throws ColumnNotFoundException if column doesn't exist in schema
+    * @param column
+    *   The column to index with min/max range
+    * @throws IllegalArgumentException
+    *   if column is null/blank or already indexed by another type
+    * @throws ColumnNotFoundException
+    *   if column doesn't exist in schema
     */
   def addRangeIndex(column: String): Unit = {
-    require(column != null && column.trim.nonEmpty, "range index column must not be null or blank")
+    require(
+      column != null && column.trim.nonEmpty,
+      "range index column must not be null or blank"
+    )
     logger.warn(s"Adding range index on column '$column' for index '$name'")
 
     if (!metadata.range_indexes.asScala.exists(_.column == column)) {
@@ -572,31 +715,38 @@ case class Index private (
       if (metadata.indexes.contains(column)) {
         throw new IllegalArgumentException(
           s"Column '$column' is already a regular index. " +
-          "A column cannot be both a range index and a regular index."
+            "A column cannot be both a range index and a regular index."
         )
       }
       if (metadata.computed_indexes.containsKey(column)) {
         throw new IllegalArgumentException(
           s"Column '$column' is already a computed index. " +
-          "A column cannot be both a range index and a computed index."
+            "A column cannot be both a range index and a computed index."
         )
       }
       if (metadata.bloom_indexes.asScala.exists(_.column == column)) {
         throw new IllegalArgumentException(
           s"Column '$column' is already a bloom index. " +
-          "A column cannot be both a range index and a bloom index."
+            "A column cannot be both a range index and a bloom index."
         )
       }
       if (metadata.temporal_indexes.asScala.exists(_.column == column)) {
         throw new IllegalArgumentException(
           s"Column '$column' is already a temporal index. " +
-          "A column cannot be both a range index and a temporal index."
+            "A column cannot be both a range index and a temporal index."
         )
       }
 
       // Validate column exists in schema (only if schema is available)
-      if (metadata.schema != null && !SchemaHelper.fieldExists(storedSchema, column)) {
-        throw new ColumnNotFoundException(s"Column '$column' not found in schema")
+      if (
+        metadata.schema != null && !SchemaHelper.fieldExists(
+          storedSchema,
+          column
+        )
+      ) {
+        throw new ColumnNotFoundException(
+          s"Column '$column' not found in schema"
+        )
       }
 
       val config = RangeIndexConfig(column)
@@ -604,49 +754,62 @@ case class Index private (
       writeMetadata(metadata)
       logger.warn(s"Added range index for column '$column' to index '$name'")
     }
-    logger.debug(s"addRangeIndex completed for column '$column' on index '$name'")
+    logger.debug(
+      s"addRangeIndex completed for column '$column' on index '$name'"
+    )
   }
 
-  /** Deletes the specified files from the index, large index tables, and file list.
+  /** Deletes the specified files from the index, large index tables, and file
+    * list.
     *
-    * Acquires the update lock, removes matching rows from the main index Delta table,
-    * all large index Delta tables, and the FileList. If a filename doesn't exist
-    * in the index, it is silently ignored.
+    * Acquires the update lock, removes matching rows from the main index Delta
+    * table, all large index Delta tables, and the FileList. If a filename
+    * doesn't exist in the index, it is silently ignored.
     *
     * @example
-    * {{{
+    *   {{{
     * index.deleteFiles("/data/events/2024-01-01.parquet")
     * index.deleteFiles("/data/old1.parquet", "/data/old2.parquet")
-    * }}}
+    *   }}}
     *
     * @param filenames
     *   One or more filenames to remove from the index.
-    * @throws IllegalArgumentException if filenames is null/empty or contains null/blank entries
-    * @throws IndexLockException if the update lock cannot be acquired within the configured timeout
+    * @throws IllegalArgumentException
+    *   if filenames is null/empty or contains null/blank entries
+    * @throws IndexLockException
+    *   if the update lock cannot be acquired within the configured timeout
     */
   def deleteFiles(filenames: String*): Unit = {
-    require(filenames != null && filenames.nonEmpty, "filenames must not be null or empty")
-    require(filenames.forall(f => f != null && f.trim.nonEmpty), "filenames must not contain null or blank entries")
-      val startTime = System.currentTimeMillis()
-      logger.warn(s"Deleting ${filenames.size} file(s) from index '$name'")
-      val lock = IndexLock(updateLockPath, name)
-      val correlationId = UUID.randomUUID().toString
-      lock.acquire(correlationId)
-      try {
+    require(
+      filenames != null && filenames.nonEmpty,
+      "filenames must not be null or empty"
+    )
+    require(
+      filenames.forall(f => f != null && f.trim.nonEmpty),
+      "filenames must not contain null or blank entries"
+    )
+    val startTime = System.currentTimeMillis()
+    logger.warn(s"Deleting ${filenames.size} file(s) from index '$name'")
+    val lock = IndexLock(updateLockPath, name)
+    val correlationId = UUID.randomUUID().toString
+    lock.acquire(correlationId)
+    try {
       import spark.implicits._
       val toDelete = filenames.toDF("filename")
 
       // Read file sizes before deleting (to update total)
-      val deletedFileSize = delta(indexFilePath).map { dt =>
-        val indexDf = dt.toDF
-        if (indexDf.columns.contains("file_size")) {
-          val result = indexDf
-            .join(toDelete, Seq("filename"), "inner")
-            .agg(sum("file_size"))
-            .head()
-          if (result.isNullAt(0)) 0L else result.getLong(0)
-        } else 0L
-      }.getOrElse(0L)
+      val deletedFileSize = delta(indexFilePath)
+        .map { dt =>
+          val indexDf = dt.toDF
+          if (indexDf.columns.contains("file_size")) {
+            val result = indexDf
+              .join(toDelete, Seq("filename"), "inner")
+              .agg(sum("file_size"))
+              .head()
+            if (result.isNullAt(0)) 0L else result.getLong(0)
+          } else 0L
+        }
+        .getOrElse(0L)
 
       // Remove from main index
       delta(indexFilePath).foreach { dt =>
@@ -655,7 +818,9 @@ case class Index private (
           .whenMatched()
           .delete()
           .execute()
-        logger.warn(s"Deleted ${filenames.size} file(s) from main index in ${System.currentTimeMillis() - startTime}ms")
+        logger.warn(
+          s"Deleted ${filenames.size} file(s) from main index in ${System.currentTimeMillis() - startTime}ms"
+        )
       }
 
       // Remove from all large index tables
@@ -687,13 +852,17 @@ case class Index private (
 
       // Update total indexed file size
       if (metadata.total_indexed_file_size > 0) {
-        metadata.total_indexed_file_size = math.max(0L, metadata.total_indexed_file_size - deletedFileSize)
+        metadata.total_indexed_file_size =
+          math.max(0L, metadata.total_indexed_file_size - deletedFileSize)
         writeMetadata(metadata)
       }
 
       // Remove from file list
       fileList.removeFile(filenames: _*)
-      logger.warn(s"Successfully deleted ${filenames.size} file(s) from index '$name' in ${System.currentTimeMillis() - startTime}ms")
+      logger.warn(
+        s"Successfully deleted ${filenames.size} file(s) from index '$name' in ${System
+            .currentTimeMillis() - startTime}ms"
+      )
     } catch {
       case e: Throwable =>
         logger.warn(s"deleteFiles failed for index '$name': ${e.getMessage}", e)
@@ -705,30 +874,32 @@ case class Index private (
 
   /** Updates the index with new files and backfills newly added columns.
     *
-    * Processes all unindexed files registered via [[addFile]], using intelligent
-    * batching based on pre-flight analysis. Also backfills existing files when
-    * new index columns have been added since the last update.
+    * Processes all unindexed files registered via [[addFile]], using
+    * intelligent batching based on pre-flight analysis. Also backfills existing
+    * files when new index columns have been added since the last update.
     *
     * @example
-    * {{{
+    *   {{{
     * val index = Index("myIndex", schema, "parquet")
     * index.addIndex("userId")
     * index.addFile("/data/events/2024-01-01.parquet")
     * index.update
-    * }}}
+    *   }}}
     *
-    * @note '''Thread-safety:''' `update` mutates the shared
-    *       [[org.apache.spark.sql.SparkSession]] configuration
-    *       `spark.databricks.delta.schema.autoMerge.enabled` while merging
-    *       staging data into the main index. The per-index update lock
-    *       prevents two writers from corrupting the same Delta table, but it
-    *       does '''not''' prevent the session-level config race when
-    *       `update` runs concurrently against ''different'' indexes that
-    *       share a `SparkSession`. Run `update` serially across indexes in
-    *       the same JVM, or give each `Index` its own `SparkSession`.
-    *       See `AriadneContextUser.withSchemaAutoMerge` for full details.
+    * @note
+    *   '''Thread-safety:''' `update` mutates the shared
+    *   [[org.apache.spark.sql.SparkSession]] configuration
+    *   `spark.databricks.delta.schema.autoMerge.enabled` while merging staging
+    *   data into the main index. The per-index update lock prevents two writers
+    *   from corrupting the same Delta table, but it does '''not''' prevent the
+    *   session-level config race when `update` runs concurrently against
+    *   ''different'' indexes that share a `SparkSession`. Run `update` serially
+    *   across indexes in the same JVM, or give each `Index` its own
+    *   `SparkSession`. See `AriadneContextUser.withSchemaAutoMerge` for full
+    *   details.
     *
-    * @throws IndexLockException if the update lock cannot be acquired within the configured timeout
+    * @throws IndexLockException
+    *   if the update lock cannot be acquired within the configured timeout
     */
   def update: Unit = {
     logger.warn(s"Starting index update for '$name'")
@@ -741,28 +912,46 @@ case class Index private (
       // Backfill file_size for existing index rows that don't have it
       delta(indexFilePath).foreach { dt =>
         val indexDf = dt.toDF
-        if (!indexDf.columns.contains("file_size") || indexDf.where(col("file_size").isNull).limit(1).count() > 0) {
+        if (
+          !indexDf.columns.contains("file_size") || indexDf
+            .where(col("file_size").isNull)
+            .limit(1)
+            .count() > 0
+        ) {
           val nullSizeFiles = if (indexDf.columns.contains("file_size")) {
-            indexDf.where(col("file_size").isNull).select("filename").collect().map(_.getString(0)).toSet
+            indexDf
+              .where(col("file_size").isNull)
+              .select("filename")
+              .collect()
+              .map(_.getString(0))
+              .toSet
           } else {
             indexDf.select("filename").collect().map(_.getString(0)).toSet
           }
           if (nullSizeFiles.nonEmpty) {
-            logger.warn(s"Backfilling file sizes for ${nullSizeFiles.size} files")
+            logger.warn(
+              s"Backfilling file sizes for ${nullSizeFiles.size} files"
+            )
             val sizes = getFileSizes(nullSizeFiles)
             val sizesBroadcast = spark.sparkContext.broadcast(sizes)
             try {
-              val sizeUdf = udf((filename: String) => sizesBroadcast.value.getOrElse(filename, 0L))
+              val sizeUdf = udf((filename: String) =>
+                sizesBroadcast.value.getOrElse(filename, 0L)
+              )
 
               import spark.implicits._
-              val updateDf = nullSizeFiles.toSeq.toDF("filename")
+              val updateDf = nullSizeFiles.toSeq
+                .toDF("filename")
                 .withColumn("file_size", sizeUdf(col("filename")))
 
               // Mutates a shared SparkSession config; see withSchemaAutoMerge
               // for thread-safety caveats.
               withSchemaAutoMerge {
                 dt.as("target")
-                  .merge(updateDf.as("source"), "target.filename = source.filename")
+                  .merge(
+                    updateDf.as("source"),
+                    "target.filename = source.filename"
+                  )
                   .whenMatched()
                   .update(Map("file_size" -> col("source.file_size")))
                   .execute()
@@ -770,12 +959,15 @@ case class Index private (
 
               // Update total from the full index table
               val totalResult = dt.toDF.agg(sum("file_size")).head()
-              metadata.total_indexed_file_size = if (totalResult.isNullAt(0)) 0L else totalResult.getLong(0)
+              metadata.total_indexed_file_size =
+                if (totalResult.isNullAt(0)) 0L else totalResult.getLong(0)
               writeMetadata(metadata)
             } finally {
               safeDestroyBroadcast(sizesBroadcast)
             }
-            logger.warn(s"Backfilled file sizes for ${nullSizeFiles.size} files")
+            logger.warn(
+              s"Backfilled file sizes for ${nullSizeFiles.size} files"
+            )
           }
         }
       }
@@ -784,11 +976,15 @@ case class Index private (
       // is complete before processing new files
       val needsColumnUpdate = filesNeedingColumnUpdate
       if (needsColumnUpdate.nonEmpty) {
-        logger.warn(s"Backfilling ${needsColumnUpdate.size} files for new index columns")
+        logger.warn(
+          s"Backfilling ${needsColumnUpdate.size} files for new index columns"
+        )
         updateBatched(needsColumnUpdate, lock, correlationId, isBackfill = true)
       }
       val unindexed = unindexedFiles
-      logger.warn(s"Found ${unindexed.size} unindexed file(s) for index '$name'")
+      logger.warn(
+        s"Found ${unindexed.size} unindexed file(s) for index '$name'"
+      )
       if (unindexed.nonEmpty) {
         updateBatched(unindexed, lock, correlationId, isBackfill = false)
       }
@@ -804,7 +1000,9 @@ case class Index private (
           }
           metadata.total_indexed_file_size = totalSize
           writeMetadata(metadata)
-          logger.warn(f"Recalculated total indexed file size: ${totalSize / (1024.0 * 1024.0 * 1024.0)}%.2f GB")
+          logger.warn(
+            f"Recalculated total indexed file size: ${totalSize / (1024.0 * 1024.0 * 1024.0)}%.2f GB"
+          )
         }
       }
       // Persist batch counter for cross-job auto-compaction
@@ -815,11 +1013,13 @@ case class Index private (
       if (autoCompactThreshold.isEmpty && batchesSinceCompact >= 50) {
         logger.warn(
           s"Index '$name' has accumulated $batchesSinceCompact update batches without compaction. " +
-          "Consider running index.compact() or setting spark.ariadne.autoCompactThreshold to enable auto-compaction."
+            "Consider running index.compact() or setting spark.ariadne.autoCompactThreshold to enable auto-compaction."
         )
       }
 
-      logger.warn(s"Update complete for index '$name' in ${System.currentTimeMillis() - startTime}ms")
+      logger.warn(
+        s"Update complete for index '$name' in ${System.currentTimeMillis() - startTime}ms"
+      )
     } catch {
       case e: Throwable =>
         logger.warn(s"update failed for index '$name': ${e.getMessage}", e)
@@ -829,15 +1029,16 @@ case class Index private (
     }
   }
 
-  /** Compacts all Delta tables belonging to this index using OPTIMIZE.
-    * Acquires the update lock to prevent concurrent modifications.
+  /** Compacts all Delta tables belonging to this index using OPTIMIZE. Acquires
+    * the update lock to prevent concurrent modifications.
     *
     * @example
-    * {{{
+    *   {{{
     * index.compact()
-    * }}}
+    *   }}}
     *
-    * @throws IndexLockException if the update lock cannot be acquired within the configured timeout
+    * @throws IndexLockException
+    *   if the update lock cannot be acquired within the configured timeout
     */
   def compact(): Unit = {
     val startTime = System.currentTimeMillis()
@@ -850,7 +1051,9 @@ case class Index private (
       batchesSinceCompact = 0
       metadata.batches_since_compact = 0
       writeMetadata(metadata)
-      logger.warn(s"Compaction complete in ${System.currentTimeMillis() - startTime}ms")
+      logger.warn(
+        s"Compaction complete in ${System.currentTimeMillis() - startTime}ms"
+      )
     } catch {
       case e: Throwable =>
         logger.warn(s"compact failed for index '$name': ${e.getMessage}", e)
@@ -864,13 +1067,15 @@ case class Index private (
     * Acquires the update lock to prevent concurrent modifications.
     *
     * @example
-    * {{{
+    *   {{{
     * index.vacuum()          // default 7 days retention
     * index.vacuum(24)        // 1 day retention
-    * }}}
+    *   }}}
     *
-    * @param retentionHours number of hours of history to retain (default 168 = 7 days)
-    * @throws IndexLockException if the update lock cannot be acquired within the configured timeout
+    * @param retentionHours
+    *   number of hours of history to retain (default 168 = 7 days)
+    * @throws IndexLockException
+    *   if the update lock cannot be acquired within the configured timeout
     */
   def vacuum(retentionHours: Int = 168): Unit = {
     val startTime = System.currentTimeMillis()
@@ -880,7 +1085,9 @@ case class Index private (
     lock.acquire(correlationId)
     try {
       vacuumDeltaTables(retentionHours)
-      logger.warn(s"Vacuum complete for index '$name' in ${System.currentTimeMillis() - startTime}ms")
+      logger.warn(
+        s"Vacuum complete for index '$name' in ${System.currentTimeMillis() - startTime}ms"
+      )
     } catch {
       case e: Throwable =>
         logger.warn(s"vacuum failed for index '$name': ${e.getMessage}", e)
@@ -892,13 +1099,22 @@ case class Index private (
 
   /** Updates the index using intelligent batching based on pre-flight analysis.
     *
-    * @param files Set of files to process
-    * @param lock The update lock to refresh during processing
-    * @param correlationId The correlation ID for lock refresh
-    * @param isBackfill When true, indicates this is a column backfill rather than new file indexing;
-    *                   file sizes will not be re-counted toward the total
+    * @param files
+    *   Set of files to process
+    * @param lock
+    *   The update lock to refresh during processing
+    * @param correlationId
+    *   The correlation ID for lock refresh
+    * @param isBackfill
+    *   When true, indicates this is a column backfill rather than new file
+    *   indexing; file sizes will not be re-counted toward the total
     */
-  private def updateBatched(files: Set[String], lock: IndexLock, correlationId: String, isBackfill: Boolean = false): Unit = {
+  private def updateBatched(
+      files: Set[String],
+      lock: IndexLock,
+      correlationId: String,
+      isBackfill: Boolean = false
+  ): Unit = {
     val updateBatchedStart = System.currentTimeMillis()
     logger.warn(s"Using intelligent batched update for ${files.size} files")
 
@@ -906,16 +1122,22 @@ case class Index private (
     val fileAnalyses = analyzeFiles(files)
     val batches = createOptimalBatches(fileAnalyses)
 
-    logger.warn(s"Processing ${batches.size} batches with consolidation threshold of $stagingConsolidationThreshold")
+    logger.warn(
+      s"Processing ${batches.size} batches with consolidation threshold of $stagingConsolidationThreshold"
+    )
 
     var batchesSinceConsolidation = 0
     var batchesSinceRefresh = 0
 
     batches.zipWithIndex.foreach { case (batch, idx) =>
       val batchStart = System.currentTimeMillis()
-      logger.warn(s"Processing batch ${idx + 1}/${batches.size} with ${batch.size} files")
+      logger.warn(
+        s"Processing batch ${idx + 1}/${batches.size} with ${batch.size} files"
+      )
       updateSingleBatch(batch, isBackfill)
-      logger.warn(s"Batch ${idx + 1}/${batches.size} completed in ${System.currentTimeMillis() - batchStart}ms")
+      logger.warn(
+        s"Batch ${idx + 1}/${batches.size} completed in ${System.currentTimeMillis() - batchStart}ms"
+      )
       batchesSinceConsolidation += 1
       batchesSinceRefresh += 1
       batchesSinceCompact += 1
@@ -928,7 +1150,9 @@ case class Index private (
 
       // Periodic consolidation for fault tolerance
       if (batchesSinceConsolidation >= stagingConsolidationThreshold) {
-        logger.warn(s"Reached consolidation threshold ($stagingConsolidationThreshold batches), consolidating...")
+        logger.warn(
+          s"Reached consolidation threshold ($stagingConsolidationThreshold batches), consolidating..."
+        )
         consolidateStaging()
         maybeAutoCompact()
         batchesSinceConsolidation = 0
@@ -942,16 +1166,24 @@ case class Index private (
       maybeAutoCompact()
     }
 
-    logger.warn(s"Completed batched update of ${files.size} files in ${batches.size} batches in ${System.currentTimeMillis() - updateBatchedStart}ms")
+    logger.warn(
+      s"Completed batched update of ${files.size} files in ${batches.size} batches in ${System
+          .currentTimeMillis() - updateBatchedStart}ms"
+    )
   }
 
   /** Updates the index with a single batch of files.
     *
-    * @param files Set of files to process in this batch
-    * @param isBackfill When true, indicates this is a column backfill rather than new file indexing;
-    *                   file sizes will not be re-counted toward the total
+    * @param files
+    *   Set of files to process in this batch
+    * @param isBackfill
+    *   When true, indicates this is a column backfill rather than new file
+    *   indexing; file sizes will not be re-counted toward the total
     */
-  private def updateSingleBatch(files: Set[String], isBackfill: Boolean = false): Unit = {
+  private def updateSingleBatch(
+      files: Set[String],
+      isBackfill: Boolean = false
+  ): Unit = {
     val singleBatchStart = System.currentTimeMillis()
     logger.warn(s"Processing single batch of ${files.size} files")
     val baseDf = createBaseDataFrame(files)
@@ -962,11 +1194,14 @@ case class Index private (
     val fileSizes = getFileSizes(files)
     val fileSizesBroadcast = spark.sparkContext.broadcast(fileSizes)
     try {
-      val fileSizeUdf = udf((filename: String) => fileSizesBroadcast.value.getOrElse(filename, 0L))
+      val fileSizeUdf = udf((filename: String) =>
+        fileSizesBroadcast.value.getOrElse(filename, 0L)
+      )
 
       // Build regular indexes
       val regularIndexesDf = buildRegularIndexes(withFilename)
-      val withExploded = buildExplodedFieldIndexes(withFilename, regularIndexesDf)
+      val withExploded =
+        buildExplodedFieldIndexes(withFilename, regularIndexesDf)
 
       // Build bloom filter indexes
       val bloomDf = buildBloomFilterIndexes(withFilename)
@@ -1003,7 +1238,8 @@ case class Index private (
       // Build auto-bloom filters for columns that exceed largeIndexLimit
       combinedDf = buildAutoBloomIndexes(combinedDf)
 
-      combinedDf = combinedDf.withColumn("file_size", fileSizeUdf(col("filename")))
+      combinedDf =
+        combinedDf.withColumn("file_size", fileSizeUdf(col("filename")))
 
       handleLargeIndexes(combinedDf)
       appendToStaging(combinedDf)
@@ -1014,13 +1250,16 @@ case class Index private (
         if (metadata.total_indexed_file_size < 0) {
           metadata.total_indexed_file_size = batchFileSize
         } else {
-          metadata.total_indexed_file_size = metadata.total_indexed_file_size + batchFileSize
+          metadata.total_indexed_file_size =
+            metadata.total_indexed_file_size + batchFileSize
         }
       }
 
       // Persist any metadata changes (e.g., auto-bloom column detection) after data is safely staged
       writeMetadata(metadata)
-      logger.warn(s"Single batch of ${files.size} files completed in ${System.currentTimeMillis() - singleBatchStart}ms")
+      logger.warn(
+        s"Single batch of ${files.size} files completed in ${System.currentTimeMillis() - singleBatchStart}ms"
+      )
     } finally {
       // Clean up cached DataFrame from auto-bloom processing
       lastAutoBloomCache.foreach(_.unpersist())
@@ -1032,20 +1271,26 @@ case class Index private (
   /** Joins the indexed data with the provided DataFrame.
     *
     * Locates relevant data files via the index, reads them, applies temporal
-    * deduplication if configured, and joins the result with the provided DataFrame.
+    * deduplication if configured, and joins the result with the provided
+    * DataFrame.
     *
     * @example
-    * {{{
+    *   {{{
     * val lookupDf = spark.read.parquet("/data/lookups")
     * val result = index.join(lookupDf, Seq("userId"))
     * val leftResult = index.join(lookupDf, Seq("userId"), "left_outer")
-    * }}}
+    *   }}}
     *
-    * @param df The DataFrame to join against indexed data
-    * @param usingColumns The column names to join on (must be indexed columns)
-    * @param joinType The Spark join type (default: "inner")
-    * @return The joined DataFrame
-    * @throws IllegalArgumentException if df is null or usingColumns is null/empty
+    * @param df
+    *   The DataFrame to join against indexed data
+    * @param usingColumns
+    *   The column names to join on (must be indexed columns)
+    * @param joinType
+    *   The Spark join type (default: "inner")
+    * @return
+    *   The joined DataFrame
+    * @throws IllegalArgumentException
+    *   if df is null or usingColumns is null/empty
     */
   override def join(
       df: DataFrame,
@@ -1053,7 +1298,10 @@ case class Index private (
       joinType: String = "inner"
   ): DataFrame = {
     require(df != null, "DataFrame must not be null")
-    require(usingColumns != null && usingColumns.nonEmpty, "usingColumns must not be null or empty")
+    require(
+      usingColumns != null && usingColumns.nonEmpty,
+      "usingColumns must not be null or empty"
+    )
     super.join(df, usingColumns, joinType)
   }
 }
@@ -1068,92 +1316,134 @@ object Index {
 
   /** Returns the file list name for an index.
     *
-    * @example {{{ val listName = Index.fileListName("orders") // "[ariadne_index] orders" }}}
+    * @example
+    *   {{{val listName = Index.fileListName("orders") // "[ariadne_index] orders"}}}
     *
-    * @param name The index name
-    * @return The file list identifier
+    * @param name
+    *   The index name
+    * @return
+    *   The file list identifier
     */
   def fileListName(name: String): String = IndexPathUtils.fileListName(name)
 
   /** Checks if an index exists.
     *
-    * @example {{{ if (Index.exists("orders")) println("Index found") }}}
+    * @example
+    *   {{{if (Index.exists("orders")) println("Index found")}}}
     *
-    * @param name The index name
-    * @return true if the index exists
+    * @param name
+    *   The index name
+    * @return
+    *   true if the index exists
     */
-  def exists(name: String)(implicit spark: SparkSession): Boolean = IndexPathUtils.exists(name)
+  def exists(name: String)(implicit spark: SparkSession): Boolean =
+    IndexPathUtils.exists(name)
 
   /** Removes an index and its associated data.
     *
-    * @example {{{ Index.remove("orders") }}}
+    * @example
+    *   {{{Index.remove("orders")}}}
     *
-    * @param name The index name
-    * @return true if removal was successful
-    * @throws IndexNotFoundException if the index does not exist
+    * @param name
+    *   The index name
+    * @return
+    *   true if removal was successful
+    * @throws IndexNotFoundException
+    *   if the index does not exist
     */
-  def remove(name: String)(implicit spark: SparkSession): Boolean = IndexPathUtils.remove(name)
+  def remove(name: String)(implicit spark: SparkSession): Boolean =
+    IndexPathUtils.remove(name)
 
-  /** Convenience factory: creates or reconnects with schema, format, and no schema mismatch.
+  /** Convenience factory: creates or reconnects with schema, format, and no
+    * schema mismatch.
     *
     * @example
-    * {{{
+    *   {{{
     * val index = Index("orders", ordersSchema, "parquet")
-    * }}}
+    *   }}}
     *
-    * @param name   Unique index name
-    * @param schema Spark schema of the data files
-    * @param format Data file format (e.g., "parquet")
-    * @return A fully initialized Index instance
-    * @see [[apply(name:String,schema:Option[StructType],format:Option[String],allowSchemaMismatch:Boolean,readOptions:Option[Map[String,String]])*]]
+    * @param name
+    *   Unique index name
+    * @param schema
+    *   Spark schema of the data files
+    * @param format
+    *   Data file format (e.g., "parquet")
+    * @return
+    *   A fully initialized Index instance
+    * @see
+    *   [[apply(name:String,schema:Option[StructType],format:Option[String],allowSchemaMismatch:Boolean,readOptions:Option[Map[String,String]])*]]
     */
   def apply(
       name: String,
       schema: StructType,
       format: String
-  )(implicit spark: SparkSession): Index = apply(name, Some(schema), Some(format), false)
+  )(implicit spark: SparkSession): Index =
+    apply(name, Some(schema), Some(format), false)
 
-  /** Convenience factory: creates or reconnects with optional schema mismatch tolerance.
+  /** Convenience factory: creates or reconnects with optional schema mismatch
+    * tolerance.
     *
-    * @param name               Unique index name
-    * @param schema             Spark schema of the data files
-    * @param format             Data file format (e.g., "parquet")
-    * @param allowSchemaMismatch When true, allows updating the stored schema
-    * @return A fully initialized Index instance
-    * @see [[apply(name:String,schema:Option[StructType],format:Option[String],allowSchemaMismatch:Boolean,readOptions:Option[Map[String,String]])*]]
+    * @param name
+    *   Unique index name
+    * @param schema
+    *   Spark schema of the data files
+    * @param format
+    *   Data file format (e.g., "parquet")
+    * @param allowSchemaMismatch
+    *   When true, allows updating the stored schema
+    * @return
+    *   A fully initialized Index instance
+    * @see
+    *   [[apply(name:String,schema:Option[StructType],format:Option[String],allowSchemaMismatch:Boolean,readOptions:Option[Map[String,String]])*]]
     */
   def apply(
       name: String,
       schema: StructType,
       format: String,
       allowSchemaMismatch: Boolean
-  )(implicit spark: SparkSession): Index = apply(name, Some(schema), Some(format), allowSchemaMismatch)
+  )(implicit spark: SparkSession): Index =
+    apply(name, Some(schema), Some(format), allowSchemaMismatch)
 
   /** Convenience factory: creates or reconnects with read options.
     *
-    * @param name        Unique index name
-    * @param schema      Spark schema of the data files
-    * @param format      Data file format (e.g., "parquet")
-    * @param readOptions Format-specific read options (e.g., CSV delimiter)
-    * @return A fully initialized Index instance
-    * @see [[apply(name:String,schema:Option[StructType],format:Option[String],allowSchemaMismatch:Boolean,readOptions:Option[Map[String,String]])*]]
+    * @param name
+    *   Unique index name
+    * @param schema
+    *   Spark schema of the data files
+    * @param format
+    *   Data file format (e.g., "parquet")
+    * @param readOptions
+    *   Format-specific read options (e.g., CSV delimiter)
+    * @return
+    *   A fully initialized Index instance
+    * @see
+    *   [[apply(name:String,schema:Option[StructType],format:Option[String],allowSchemaMismatch:Boolean,readOptions:Option[Map[String,String]])*]]
     */
   def apply(
       name: String,
       schema: StructType,
       format: String,
       readOptions: Map[String, String]
-  )(implicit spark: SparkSession): Index = apply(name, Some(schema), Some(format), false, Some(readOptions))
+  )(implicit spark: SparkSession): Index =
+    apply(name, Some(schema), Some(format), false, Some(readOptions))
 
-  /** Convenience factory: creates or reconnects with schema mismatch tolerance and read options.
+  /** Convenience factory: creates or reconnects with schema mismatch tolerance
+    * and read options.
     *
-    * @param name               Unique index name
-    * @param schema             Spark schema of the data files
-    * @param format             Data file format (e.g., "parquet")
-    * @param allowSchemaMismatch When true, allows updating the stored schema
-    * @param readOptions        Format-specific read options (e.g., CSV delimiter)
-    * @return A fully initialized Index instance
-    * @see [[apply(name:String,schema:Option[StructType],format:Option[String],allowSchemaMismatch:Boolean,readOptions:Option[Map[String,String]])*]]
+    * @param name
+    *   Unique index name
+    * @param schema
+    *   Spark schema of the data files
+    * @param format
+    *   Data file format (e.g., "parquet")
+    * @param allowSchemaMismatch
+    *   When true, allows updating the stored schema
+    * @param readOptions
+    *   Format-specific read options (e.g., CSV delimiter)
+    * @return
+    *   A fully initialized Index instance
+    * @see
+    *   [[apply(name:String,schema:Option[StructType],format:Option[String],allowSchemaMismatch:Boolean,readOptions:Option[Map[String,String]])*]]
     */
   def apply(
       name: String,
@@ -1171,12 +1461,12 @@ object Index {
 
   /** Primary factory method to create or reconnect to an Index instance.
     *
-    * If metadata exists at the storage path, reconnects to the existing index and validates
-    * schema/format compatibility. If metadata does not exist, creates a new index with the
-    * provided schema and format.
+    * If metadata exists at the storage path, reconnects to the existing index
+    * and validates schema/format compatibility. If metadata does not exist,
+    * creates a new index with the provided schema and format.
     *
     * @example
-    * {{{
+    *   {{{
     * // Reconnect to an existing index (no schema/format needed)
     * val index = Index("orders")
     *
@@ -1185,26 +1475,34 @@ object Index {
     *
     * // Reconnect with schema evolution
     * val evolved = Index("orders", Some(newSchema), allowSchemaMismatch = true)
-    * }}}
+    *   }}}
     *
     * @param name
     *   Unique index name (must be a valid Hadoop path component).
     * @param schema
     *   Optional Spark schema of the data files. Required for new indexes.
     * @param format
-    *   Optional data file format (e.g., "parquet", "csv"). Required for new indexes.
+    *   Optional data file format (e.g., "parquet", "csv"). Required for new
+    *   indexes.
     * @param allowSchemaMismatch
-    *   When true and metadata exists, allows updating the stored schema. Validates that all
-    *   existing index columns still exist in the new schema before applying the change.
+    *   When true and metadata exists, allows updating the stored schema.
+    *   Validates that all existing index columns still exist in the new schema
+    *   before applying the change.
     * @param readOptions
-    *   Optional map of read options for format-specific configuration (e.g., CSV delimiter).
+    *   Optional map of read options for format-specific configuration (e.g.,
+    *   CSV delimiter).
     * @return
     *   A fully initialized Index instance.
-    * @throws SchemaMismatchException if schema differs and allowSchemaMismatch is false
-    * @throws FormatMismatchException if format differs from stored format
-    * @throws SchemaNotProvidedException if creating a new index without a schema
-    * @throws MissingFormatException if creating a new index without a format
-    * @throws IndexNotFoundInNewSchemaException if allowSchemaMismatch is true but an indexed column is missing
+    * @throws SchemaMismatchException
+    *   if schema differs and allowSchemaMismatch is false
+    * @throws FormatMismatchException
+    *   if format differs from stored format
+    * @throws SchemaNotProvidedException
+    *   if creating a new index without a schema
+    * @throws MissingFormatException
+    *   if creating a new index without a format
+    * @throws IndexNotFoundInNewSchemaException
+    *   if allowSchemaMismatch is true but an indexed column is missing
     */
   def apply(
       name: String,
@@ -1217,7 +1515,9 @@ object Index {
     val index = Index(name, schema)(spark)
 
     val metadataExists = index.metadataExists
-    logger.warn(s"Index '$name': ${if (metadataExists) "reconnecting" else "creating new"}")
+    logger.warn(
+      s"Index '$name': ${if (metadataExists) "reconnecting" else "creating new"}"
+    )
     val metadata = if (metadataExists) {
       index.metadata
     } else {
@@ -1260,7 +1560,9 @@ object Index {
                   throw new IndexNotFoundInNewSchemaException(ti.column)
                 }
                 if (!SchemaHelper.fieldExists(s, ti.timestamp_column)) {
-                  throw new IndexNotFoundInNewSchemaException(ti.timestamp_column)
+                  throw new IndexNotFoundInNewSchemaException(
+                    ti.timestamp_column
+                  )
                 }
               }
               // Validate range indexes
@@ -1275,7 +1577,9 @@ object Index {
                 // We validate the output column name exists conceptually but
                 // cannot validate the expression references without executing it
               }
-              logger.warn(s"Index '$name': schema evolved (allowSchemaMismatch=true)")
+              logger.warn(
+                s"Index '$name': schema evolved (allowSchemaMismatch=true)"
+              )
             }
             metadata.schema = s.json
           } else if (metadata.schema != s.json) {
@@ -1327,8 +1631,9 @@ object Index {
 
   /** Implicit enrichment enabling `df.join(index, columns, joinType)` syntax.
     *
-    * This provides the reverse join direction compared to [[Index.join]]:
-    * the driving DataFrame is on the left and the index-located data is on the right.
+    * This provides the reverse join direction compared to [[Index.join]]: the
+    * driving DataFrame is on the left and the index-located data is on the
+    * right.
     *
     * Usage:
     * {{{
@@ -1336,7 +1641,8 @@ object Index {
     * val result = myDataFrame.join(index, Seq("user_id"), "inner")
     * }}}
     *
-    * @param df The DataFrame to enrich with implicit join capability
+    * @param df
+    *   The DataFrame to enrich with implicit join capability
     */
   implicit class DataFrameOps(df: DataFrame) {
 
@@ -1345,11 +1651,16 @@ object Index {
       * Locates relevant data files via the index, reads them, applies temporal
       * deduplication if configured, and joins the result with this DataFrame.
       *
-      * @param index       The Index instance to join against
-      * @param usingColumns Column names to join on (must be indexed columns)
-      * @param joinType    Spark join type: "inner", "left_outer", etc. (default "inner")
-      * @return The joined DataFrame
-      * @throws ColumnNotFoundException if join columns are not in the schema or indexes
+      * @param index
+      *   The Index instance to join against
+      * @param usingColumns
+      *   Column names to join on (must be indexed columns)
+      * @param joinType
+      *   Spark join type: "inner", "left_outer", etc. (default "inner")
+      * @return
+      *   The joined DataFrame
+      * @throws ColumnNotFoundException
+      *   if join columns are not in the schema or indexes
       */
     def join(
         index: Index,
@@ -1357,8 +1668,12 @@ object Index {
         joinType: String = "inner"
     ): DataFrame = {
       require(index != null, "index must not be null")
-      require(usingColumns != null && usingColumns.nonEmpty, "usingColumns must not be null or empty")
-      logger.warn(s"DataFrameOps.join: $joinType join on columns ${usingColumns.mkString(", ")} against index '${index.name}'")
+      require(
+        usingColumns != null && usingColumns.nonEmpty,
+        "usingColumns must not be null or empty"
+      )
+      logger.warn(s"DataFrameOps.join: $joinType join on columns ${usingColumns
+          .mkString(", ")} against index '${index.name}'")
       val indexDf = index.joinDf(df, usingColumns)
       df.join(indexDf, usingColumns, joinType)
     }

@@ -22,6 +22,8 @@ package dev.cjfravel.ariadne.exceptions
   * index.addIndex("nonexistent_col")
   * }}}
   *
-  * @param column The name of the column that was not found
+  * @param column
+  *   The name of the column that was not found
   */
-class ColumnNotFoundException(column: String) extends AriadneException(s"Column $column was not found in the dataframe")
+class ColumnNotFoundException(column: String)
+    extends AriadneException(s"Column $column was not found in the dataframe")

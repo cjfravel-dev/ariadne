@@ -2,55 +2,68 @@ package dev.cjfravel.ariadne.catalog
 
 import dev.cjfravel.ariadne.Index
 import org.apache.logging.log4j.LogManager
-import org.apache.spark.sql.{AriadneInternalHelper, Row, SparkSession, functions}
-import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, EqualTo, Expression}
+import org.apache.spark.sql.{
+  AriadneInternalHelper,
+  Row,
+  SparkSession,
+  functions
+}
+import org.apache.spark.sql.catalyst.expressions.{
+  Alias,
+  And,
+  Attribute,
+  EqualTo,
+  Expression
+}
 import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical.{Join, LogicalPlan, Project}
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Relation, DataSourceV2ScanRelation}
+import org.apache.spark.sql.execution.datasources.v2.{
+  DataSourceV2Relation,
+  DataSourceV2ScanRelation
+}
 import org.apache.spark.sql.types.{StructField, StructType}
 
 import scala.collection.JavaConverters._
 
 /** Catalyst optimizer rule that rewrites JOINs involving Ariadne tables.
   *
-  * When a SQL query joins against an Ariadne catalog table, this rule intercepts
-  * the logical plan and replaces the Ariadne scan with a pre-pruned read that
-  * only includes files matching the join values. The original `Join` node,
-  * condition, hints, and ExprIds are all preserved.
+  * When a SQL query joins against an Ariadne catalog table, this rule
+  * intercepts the logical plan and replaces the Ariadne scan with a pre-pruned
+  * read that only includes files matching the join values. The original `Join`
+  * node, condition, hints, and ExprIds are all preserved.
   *
   * '''Safety constraints (the rule only fires when ALL hold):'''
-  *  1. The join type is `INNER`
-  *  2. The entire condition is composed of equi-join predicates (`a.col = b.col`)
-  *  3. Every Ariadne-side join column is indexed in the Ariadne index
-  *  4. The Ariadne table is the direct child of the `Join` node (no
-  *     intervening Filter, Project, or other operators)
+  *   1. The join type is `INNER` 2. The entire condition is composed of
+  *      equi-join predicates (`a.col = b.col`) 3. Every Ariadne-side join
+  *      column is indexed in the Ariadne index 4. The Ariadne table is the
+  *      direct child of the `Join` node (no intervening Filter, Project, or
+  *      other operators)
   *
-  * Column names may differ between sides (e.g., `c.id = q.customer_id`);
-  * the rule identifies which attribute belongs to the Ariadne side by ExprId
-  * and maps values accordingly for `locateFiles()`.
+  * Column names may differ between sides (e.g., `c.id = q.customer_id`); the
+  * rule identifies which attribute belongs to the Ariadne side by ExprId and
+  * maps values accordingly for `locateFiles()`.
   *
   * When any constraint is not met, the rule does not fire and Spark falls back
   * to the standard V1Scan path (full table scan + standard join).
   *
   * '''How the rewrite works:'''
-  *  1. Converts the non-Ariadne side into a DataFrame of join-key values
-  *  2. Calls `locateFilesFromDataFrame()` which performs a distributed join
-  *     against the Ariadne index table — value matching stays in Spark
-  *     executors and only the final filename set (bounded by file count)
-  *     is collected to the driver
-  *  3. Replaces the Ariadne `DataSourceV2Relation` with a plan that reads only
-  *     those files, aliased to preserve the original output ExprIds
-  *  4. Applies temporal deduplication if the index has temporal columns
-  *  5. Returns a new `Join` node with the pruned Ariadne side, preserving the
-  *     original condition, join type, and hints
+  *   1. Converts the non-Ariadne side into a DataFrame of join-key values 2.
+  *      Calls `locateFilesFromDataFrame()` which performs a distributed join
+  *      against the Ariadne index table — value matching stays in Spark
+  *      executors and only the final filename set (bounded by file count) is
+  *      collected to the driver 3. Replaces the Ariadne `DataSourceV2Relation`
+  *      with a plan that reads only those files, aliased to preserve the
+  *      original output ExprIds 4. Applies temporal deduplication if the index
+  *      has temporal columns 5. Returns a new `Join` node with the pruned
+  *      Ariadne side, preserving the original condition, join type, and hints
   *
   * '''Limitations:'''
-  *  - Non-equi conditions, outer/semi/anti joins, and partially-indexed
-  *    conditions all fall back to the V1Scan path
-  *  - The other side of the join is executed during optimization to perform
-  *    the distributed file lookup. This is consistent with the behavior
-  *    of the programmatic `Index.join()` API.
+  *   - Non-equi conditions, outer/semi/anti joins, and partially-indexed
+  *     conditions all fall back to the V1Scan path
+  *   - The other side of the join is executed during optimization to perform
+  *     the distributed file lookup. This is consistent with the behavior of the
+  *     programmatic `Index.join()` API.
   *
   * '''Registration:''' This rule is registered via [[AriadneSparkExtension]]:
   * {{{
@@ -62,25 +75,31 @@ import scala.collection.JavaConverters._
   * '''Thread safety:''' This rule holds no mutable state. Catalyst may invoke
   * it concurrently for different query plans; each invocation is independent.
   *
-  * @param sparkSession the active SparkSession
+  * @param sparkSession
+  *   the active SparkSession
   *
-  * @see [[AriadneSparkExtension]] for registration
-  * @see [[AriadneCatalog]] for the catalog integration
+  * @see
+  *   [[AriadneSparkExtension]] for registration
+  * @see
+  *   [[AriadneCatalog]] for the catalog integration
   */
 class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
 
   private val logger = LogManager.getLogger("ariadne")
 
-  /** Transforms a logical plan by rewriting eligible JOINs involving Ariadne tables.
+  /** Transforms a logical plan by rewriting eligible JOINs involving Ariadne
+    * tables.
     *
     * Uses `transformUp` to visit each Join node bottom-up. Only rewrites INNER
     * equi-joins where every Ariadne-side column is indexed. If the rewrite
     * fails for any reason, the original Join node is returned unchanged and
     * Spark falls back to the standard V1Scan path.
     *
-    * @param plan the logical plan to transform
-    * @return the transformed plan with Ariadne JOINs rewritten, or the
-    *         original plan if no rewrites were applicable
+    * @param plan
+    *   the logical plan to transform
+    * @return
+    *   the transformed plan with Ariadne JOINs rewritten, or the original plan
+    *   if no rewrites were applicable
     */
   override def apply(plan: LogicalPlan): LogicalPlan = plan.transformUp {
     case j @ Join(left, right, joinType, Some(condition), hint) =>
@@ -89,12 +108,26 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
 
       (leftAriadne, rightAriadne) match {
         case (Some((tableName, _)), None) =>
-          rewriteJoin(tableName, left, right, condition, joinType, hint,
-            isAriadneLeft = true).getOrElse(j)
+          rewriteJoin(
+            tableName,
+            left,
+            right,
+            condition,
+            joinType,
+            hint,
+            isAriadneLeft = true
+          ).getOrElse(j)
 
         case (None, Some((tableName, _))) =>
-          rewriteJoin(tableName, right, left, condition, joinType, hint,
-            isAriadneLeft = false).getOrElse(j)
+          rewriteJoin(
+            tableName,
+            right,
+            left,
+            condition,
+            joinType,
+            hint,
+            isAriadneLeft = false
+          ).getOrElse(j)
 
         case _ => j
       }
@@ -102,9 +135,9 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
 
   /** Attempts to optimize a join by pre-pruning the Ariadne side's file list.
     *
-    * Instead of replacing the entire Join, this method replaces only the Ariadne
-    * scan with a pre-pruned read. The original Join node, condition, hints, and
-    * ExprIds are preserved, avoiding ExprId mismatch errors.
+    * Instead of replacing the entire Join, this method replaces only the
+    * Ariadne scan with a pre-pruned read. The original Join node, condition,
+    * hints, and ExprIds are preserved, avoiding ExprId mismatch errors.
     *
     * '''Driver OOM risk:''' `locateFilesFromDataFrame` collects the matching
     * filename set to the driver. This is bounded by file count (not join key
@@ -114,14 +147,22 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
     * index read failure), the exception is logged and `None` is returned,
     * causing Spark to fall back to the standard un-optimized join.
     *
-    * @param ariadneIndexName the Ariadne index name
-    * @param ariadnePlan the logical plan of the Ariadne side
-    * @param otherPlan the logical plan of the non-Ariadne side
-    * @param condition the join condition expression
-    * @param joinType the join type (must be Inner)
-    * @param hint the join hint from the original plan
-    * @param isAriadneLeft true if the Ariadne table is on the left side
-    * @return Some(rewritten plan) if successful, None to fall back
+    * @param ariadneIndexName
+    *   the Ariadne index name
+    * @param ariadnePlan
+    *   the logical plan of the Ariadne side
+    * @param otherPlan
+    *   the logical plan of the non-Ariadne side
+    * @param condition
+    *   the join condition expression
+    * @param joinType
+    *   the join type (must be Inner)
+    * @param hint
+    *   the join hint from the original plan
+    * @param isAriadneLeft
+    *   true if the Ariadne table is on the left side
+    * @return
+    *   Some(rewritten plan) if successful, None to fall back
     */
   private def rewriteJoin(
       ariadneIndexName: String,
@@ -210,26 +251,29 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
         }.toSeq: _*
       )
       val colMappings = ariadneJoinCols.map(c => c -> c).toMap
-      val files = index.locateFilesFromDataFrame(valuesDf, colMappings, ariadneJoinCols)
+      val files =
+        index.locateFilesFromDataFrame(valuesDf, colMappings, ariadneJoinCols)
       val originalOutput = ariadnePlan.output
 
       val prunedDf = if (files.nonEmpty) {
         val rawDf = index.readFiles(files)
-        val temporalCols = index.metadata.temporal_indexes.asScala.map(_.column).toSeq
+        val temporalCols =
+          index.metadata.temporal_indexes.asScala.map(_.column).toSeq
         val dedupedDf = index.applyTemporalDeduplication(rawDf, temporalCols)
         dedupedDf.select(originalOutput.map(a => functions.col(a.name)): _*)
       } else {
-        val schema = StructType(originalOutput.map(a =>
-          StructField(a.name, a.dataType, a.nullable)))
+        val schema = StructType(
+          originalOutput.map(a => StructField(a.name, a.dataType, a.nullable))
+        )
         spark.createDataFrame(spark.sparkContext.emptyRDD[Row], schema)
       }
 
       // Alias output to preserve original ExprIds so parent operators resolve
       val prunedPlan = prunedDf.queryExecution.analyzed
-      val aliasedExprs = originalOutput.zip(prunedPlan.output).map {
-        case (orig, newAttr) =>
+      val aliasedExprs =
+        originalOutput.zip(prunedPlan.output).map { case (orig, newAttr) =>
           Alias(newAttr, orig.name)(exprId = orig.exprId)
-      }
+        }
       val aliasedPlan = Project(aliasedExprs, prunedPlan)
 
       val (newLeft, newRight) = if (isAriadneLeft) {
@@ -254,9 +298,10 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
     }
   }
 
-  /** Returns true if the condition consists entirely of equi-join predicates. */
+  /** Returns true if the condition consists entirely of equi-join predicates.
+    */
   private def isAllEquiJoin(condition: Expression): Boolean = condition match {
-    case And(left, right)                    => isAllEquiJoin(left) && isAllEquiJoin(right)
+    case And(left, right) => isAllEquiJoin(left) && isAllEquiJoin(right)
     case EqualTo(_: Attribute, _: Attribute) => true
     case _                                   => false
   }
@@ -273,12 +318,12 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
   }
 
   /** Checks if the plan IS a direct AriadneTable reference (not nested).
-    * Matches DataSourceV2Relation or DataSourceV2ScanRelation at the
-    * top level. Also looks through column-pruning Projects (Projects whose
-    * expressions are all simple Attributes) which Spark's ColumnPruning
-    * rule inserts above the scan when not all columns are selected.
-    * Does NOT look through Filters, Aggregates, or expression Projects
-    * to avoid silently discarding operators that transform data.
+    * Matches DataSourceV2Relation or DataSourceV2ScanRelation at the top level.
+    * Also looks through column-pruning Projects (Projects whose expressions are
+    * all simple Attributes) which Spark's ColumnPruning rule inserts above the
+    * scan when not all columns are selected. Does NOT look through Filters,
+    * Aggregates, or expression Projects to avoid silently discarding operators
+    * that transform data.
     */
   private def extractDirectAriadneTable(
       plan: LogicalPlan
@@ -287,10 +332,14 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
       Some((table.indexName, table))
     case DataSourceV2ScanRelation(
           DataSourceV2Relation(table: AriadneTable, _, _, _, _),
-          _, _, _, _
+          _,
+          _,
+          _,
+          _
         ) =>
       Some((table.indexName, table))
-    case Project(projectList, child) if projectList.forall(_.isInstanceOf[Attribute]) =>
+    case Project(projectList, child)
+        if projectList.forall(_.isInstanceOf[Attribute]) =>
       extractDirectAriadneTable(child)
     case _ => None
   }

@@ -8,7 +8,8 @@ import org.apache.spark.sql.Row
 import dev.cjfravel.ariadne.Index.DataFrameOps
 
 /** Tests for [[IndexJoinOperations]] verifying index-accelerated joins between
-  * a DataFrame and indexed data, including both `index.join(df)` and `df.join(index)` directions.
+  * a DataFrame and indexed data, including both `index.join(df)` and
+  * `df.join(index)` directions.
   */
 class IndexJoinOperationsTests extends SparkTests with Matchers {
 

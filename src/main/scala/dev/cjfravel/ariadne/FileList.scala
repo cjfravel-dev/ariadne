@@ -96,8 +96,10 @@ case class FileList private (
 
   /** Internal implementation for adding files to the file list.
     *
-    * @param spark the SparkSession to use
-    * @param fileNames the file paths to add
+    * @param spark
+    *   the SparkSession to use
+    * @param fileNames
+    *   the file paths to add
     */
   private def addFile(spark: SparkSession, fileNames: String*): Unit = {
     require(fileNames != null, "fileNames must not be null")
@@ -154,7 +156,8 @@ case class FileList private (
     *   one or more file paths to add
     * @throws IllegalArgumentException
     *   if fileNames is null or any individual file name is null or blank
-    * @note Collects all existing filenames to the driver for duplicate detection.
+    * @note
+    *   Collects all existing filenames to the driver for duplicate detection.
     *   May cause driver OOM for indexes tracking millions of files.
     */
   def addFile(fileNames: String*): Unit = addFile(spark, fileNames: _*)
@@ -167,11 +170,18 @@ case class FileList private (
     * @param fileNames
     *   one or more file paths to remove
     * @throws IllegalArgumentException
-    *   if fileNames is null or empty, or any individual file name is null or blank
+    *   if fileNames is null or empty, or any individual file name is null or
+    *   blank
     */
   def removeFile(fileNames: String*): Unit = {
-    require(fileNames != null && fileNames.nonEmpty, "fileNames must not be null or empty")
-    require(fileNames.forall(f => f != null && f.trim.nonEmpty), "fileNames must not contain null or blank entries")
+    require(
+      fileNames != null && fileNames.nonEmpty,
+      "fileNames must not be null or empty"
+    )
+    require(
+      fileNames.forall(f => f != null && f.trim.nonEmpty),
+      "fileNames must not contain null or blank entries"
+    )
     logger.warn(
       s"removeFile called on FileList '$name' with ${fileNames.size} file(s)"
     )
@@ -201,7 +211,10 @@ case class FileList private (
     *   if fileName is null or blank
     */
   def hasFile(fileName: String): Boolean = {
-    require(fileName != null && fileName.trim.nonEmpty, "fileName must not be null or blank")
+    require(
+      fileName != null && fileName.trim.nonEmpty,
+      "fileName must not be null or blank"
+    )
     !files.filter(col("filename") === fileName).isEmpty
   }
 
@@ -266,7 +279,10 @@ object FileList {
     *   if name is null or blank
     */
   def exists(name: String)(implicit sparkSession: SparkSession): Boolean = {
-    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
+    require(
+      name != null && name.trim.nonEmpty,
+      "name must not be null or blank"
+    )
     val contextUser = new AriadneContextUser {
       implicit def spark: SparkSession = sparkSession
     }
@@ -287,7 +303,10 @@ object FileList {
     *   if name is null or blank
     */
   def remove(name: String)(implicit sparkSession: SparkSession): Boolean = {
-    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
+    require(
+      name != null && name.trim.nonEmpty,
+      "name must not be null or blank"
+    )
     if (!exists(name)(sparkSession)) {
       throw new FileListNotFoundException(name)
     }
@@ -309,7 +328,10 @@ object FileList {
     *   if name is null or blank
     */
   def apply(name: String)(implicit spark: SparkSession): FileList = {
-    require(name != null && name.trim.nonEmpty, "name must not be null or blank")
+    require(
+      name != null && name.trim.nonEmpty,
+      "name must not be null or blank"
+    )
     new FileList(name)(spark)
   }
 }

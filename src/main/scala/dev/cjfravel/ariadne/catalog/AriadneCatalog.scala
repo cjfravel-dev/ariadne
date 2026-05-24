@@ -36,12 +36,14 @@ import java.util
   * performed through the [[Index]] API.
   *
   * '''Thread safety:''' Spark creates one catalog instance per `SparkSession`.
-  * The mutable `catalogName` field is set once during `initialize` and
-  * read thereafter. Concurrent use across threads within a single session
-  * is safe after initialization.
+  * The mutable `catalogName` field is set once during `initialize` and read
+  * thereafter. Concurrent use across threads within a single session is safe
+  * after initialization.
   *
-  * @see [[AriadneTable]] for the table implementation
-  * @see [[AriadneSparkExtension]] for registering the JOIN optimization rule
+  * @see
+  *   [[AriadneTable]] for the table implementation
+  * @see
+  *   [[AriadneSparkExtension]] for registering the JOIN optimization rule
   */
 class AriadneCatalog extends TableCatalog with SupportsNamespaces {
 
@@ -53,27 +55,34 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     *
     * Called once by Spark when the catalog is first accessed.
     *
-    * @param name    the catalog name from `spark.sql.catalog.{name}`
-    * @param options configuration options (currently unused)
+    * @param name
+    *   the catalog name from `spark.sql.catalog.{name}`
+    * @param options
+    *   configuration options (currently unused)
     */
-  override def initialize(name: String, options: CaseInsensitiveStringMap): Unit = {
+  override def initialize(
+      name: String,
+      options: CaseInsensitiveStringMap
+  ): Unit = {
     this.catalogName = name
     logger.warn(s"AriadneCatalog initialized with name '$name'")
   }
 
   /** Returns the catalog name assigned during initialization.
     *
-    * @return the catalog name
+    * @return
+    *   the catalog name
     */
   override def name(): String = catalogName
 
   /** Returns `Array("default")` as the default namespace.
     *
     * This follows Spark conventions (Delta, Iceberg) so that
-    * `ariadne.customers` resolves to `ariadne.default.customers` and
-    * `SHOW TABLES IN ariadne` displays `default` in the namespace column.
+    * `ariadne.customers` resolves to `ariadne.default.customers` and `SHOW
+    * TABLES IN ariadne` displays `default` in the namespace column.
     *
-    * @return single-element array containing `"default"`
+    * @return
+    *   single-element array containing `"default"`
     */
   override def defaultNamespace(): Array[String] = defaultNs
 
@@ -82,11 +91,13 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
   /** Lists all Ariadne indexes as table identifiers.
     *
     * Delegates to [[IndexCatalog.list()]] which scans `storagePath/indexes/`
-    * for directories containing `metadata.json`. All indexes are placed in
-    * the `default` namespace.
+    * for directories containing `metadata.json`. All indexes are placed in the
+    * `default` namespace.
     *
-    * @param namespace must be `Array("default")` or empty
-    * @return array of identifiers, one per index
+    * @param namespace
+    *   must be `Array("default")` or empty
+    * @return
+    *   array of identifiers, one per index
     * @throws org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException
     *   if an unrecognized namespace is provided
     */
@@ -100,11 +111,14 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
 
   /** Loads an Ariadne index as a Spark V2 [[AriadneTable]].
     *
-    * Reads the index's metadata to obtain the source data schema, format,
-    * and index configuration.
+    * Reads the index's metadata to obtain the source data schema, format, and
+    * index configuration.
     *
-    * @param ident table identifier (namespace must be `default` or empty, name is the index name)
-    * @return the AriadneTable wrapping this index
+    * @param ident
+    *   table identifier (namespace must be `default` or empty, name is the
+    *   index name)
+    * @return
+    *   the AriadneTable wrapping this index
     * @throws org.apache.spark.sql.catalyst.analysis.NoSuchTableException
     *   if no index with the given name exists
     */
@@ -113,14 +127,16 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     val ns = ident.namespace()
     if (ns.nonEmpty && !ns.sameElements(defaultNs)) {
       throw new org.apache.spark.sql.catalyst.analysis.NoSuchTableException(
-        catalogName, ident.toString
+        catalogName,
+        ident.toString
       )
     }
     val indexName = ident.name()
     logger.warn(s"AriadneCatalog.loadTable: loading index '$indexName'")
     if (!IndexPathUtils.exists(indexName)) {
       throw new org.apache.spark.sql.catalyst.analysis.NoSuchTableException(
-        catalogName, indexName
+        catalogName,
+        indexName
       )
     }
     val index = Index(indexName)
@@ -129,8 +145,10 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
 
   /** Checks whether an Ariadne index with the given name exists.
     *
-    * @param ident table identifier (name is the index name)
-    * @return true if the index exists on storage, false otherwise
+    * @param ident
+    *   table identifier (name is the index name)
+    * @return
+    *   true if the index exists on storage, false otherwise
     */
   override def tableExists(ident: Identifier): Boolean = {
     val ns = ident.namespace()
@@ -143,7 +161,8 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     *
     * Use [[dev.cjfravel.ariadne.Index.apply]] to create indexes.
     *
-    * @throws UnsupportedOperationException always
+    * @throws UnsupportedOperationException
+    *   always
     */
   override def createTable(
       ident: Identifier,
@@ -160,7 +179,8 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     *
     * Use [[dev.cjfravel.ariadne.Index.remove]] to delete indexes.
     *
-    * @throws UnsupportedOperationException always
+    * @throws UnsupportedOperationException
+    *   always
     */
   override def dropTable(ident: Identifier): Boolean = {
     throw new UnsupportedOperationException(
@@ -170,7 +190,8 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
 
   /** Not supported — always throws.
     *
-    * @throws UnsupportedOperationException always
+    * @throws UnsupportedOperationException
+    *   always
     */
   override def renameTable(oldIdent: Identifier, newIdent: Identifier): Unit = {
     throw new UnsupportedOperationException(
@@ -182,7 +203,8 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     *
     * Use the [[dev.cjfravel.ariadne.Index]] API to modify indexes.
     *
-    * @throws UnsupportedOperationException always
+    * @throws UnsupportedOperationException
+    *   always
     */
   override def alterTable(ident: Identifier, changes: TableChange*): Table = {
     throw new UnsupportedOperationException(
@@ -194,7 +216,8 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
 
   /** Lists available namespaces. Returns a single `"default"` namespace.
     *
-    * @return array containing one element: `Array("default")`
+    * @return
+    *   array containing one element: `Array("default")`
     */
   override def listNamespaces(): Array[Array[String]] = {
     Array(defaultNs)
@@ -204,23 +227,29 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     *
     * Since Ariadne has a flat namespace structure, this always returns empty.
     *
-    * @param namespace the parent namespace (must be `default` or empty)
-    * @return empty array (no child namespaces)
+    * @param namespace
+    *   the parent namespace (must be `default` or empty)
+    * @return
+    *   empty array (no child namespaces)
     * @throws org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException
     *   if the namespace is not `default`
     */
-  override def listNamespaces(namespace: Array[String]): Array[Array[String]] = {
+  override def listNamespaces(
+      namespace: Array[String]
+  ): Array[Array[String]] = {
     validateNamespace(namespace)
     Array.empty
   }
 
   /** Loads metadata for the given namespace.
     *
-    * Returns an empty map for the `default` namespace. Ariadne does not
-    * store namespace-level metadata.
+    * Returns an empty map for the `default` namespace. Ariadne does not store
+    * namespace-level metadata.
     *
-    * @param namespace the namespace to load (must be `default` or empty)
-    * @return empty metadata map
+    * @param namespace
+    *   the namespace to load (must be `default` or empty)
+    * @return
+    *   empty metadata map
     * @throws org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException
     *   if the namespace is not `default`
     */
@@ -235,7 +264,8 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     *
     * Ariadne has a single `default` namespace.
     *
-    * @throws UnsupportedOperationException always
+    * @throws UnsupportedOperationException
+    *   always
     */
   override def createNamespace(
       namespace: Array[String],
@@ -250,7 +280,8 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     *
     * Ariadne has a single `default` namespace.
     *
-    * @throws UnsupportedOperationException always
+    * @throws UnsupportedOperationException
+    *   always
     */
   override def alterNamespace(
       namespace: Array[String],
@@ -265,7 +296,8 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
     *
     * Ariadne has a single `default` namespace.
     *
-    * @throws UnsupportedOperationException always
+    * @throws UnsupportedOperationException
+    *   always
     */
   override def dropNamespace(
       namespace: Array[String],
@@ -278,7 +310,9 @@ class AriadneCatalog extends TableCatalog with SupportsNamespaces {
 
   private def validateNamespace(namespace: Array[String]): Unit = {
     if (namespace.nonEmpty && !namespace.sameElements(defaultNs)) {
-      throw new org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException(namespace)
+      throw new org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException(
+        namespace
+      )
     }
   }
 }

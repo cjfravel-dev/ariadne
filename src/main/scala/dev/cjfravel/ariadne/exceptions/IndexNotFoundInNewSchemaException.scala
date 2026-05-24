@@ -1,7 +1,7 @@
 package dev.cjfravel.ariadne.exceptions
 
-/** Thrown when a previously indexed column is not found in the new schema during
-  * a schema evolution check.
+/** Thrown when a previously indexed column is not found in the new schema
+  * during a schema evolution check.
   *
   * Raised by `Index.apply` when `allowSchemaMismatch = true` and the provided
   * schema is missing a column that the existing index tracks. When schema
@@ -22,7 +22,8 @@ package dev.cjfravel.ariadne.exceptions
   * Index("myIndex", newSchema, "parquet", allowSchemaMismatch = true)
   * }}}
   *
-  * @param col The name of the indexed column missing from the new schema
+  * @param col
+  *   The name of the indexed column missing from the new schema
   */
 class IndexNotFoundInNewSchemaException(col: String)
     extends AriadneException(s"Index $col was not found in new schema")

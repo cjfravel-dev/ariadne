@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ariadne — File-level indexes for Spark data lakes</title>
+  <meta name="description" content="Ariadne builds lightweight Delta Lake indexes over your data files so Spark joins read only what they need to.">
+  <link rel="stylesheet" href="assets/style.css">
+  <link rel="icon" type="image/png" href="assets/icon.png">
+</head>
+<body data-section="home">
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="index.html">
+      <img class="brand-icon" src="assets/icon.png" alt="" aria-hidden="true">
+      <img class="brand-name-img" src="assets/name-white.png" alt="Ariadne">
+    </a>
+    <nav class="primary-nav">
+      <a href="index.html" data-section="home">Home</a>
+      <a href="users/getting-started.html" data-section="users">User Guide</a>
+      <a href="contributors/index.html" data-section="contributors">Contributors</a>
+      <a href="api/dev/cjfravel/ariadne/Index.html" data-section="api">API</a>
+      <a class="gh" href="https://github.com/cjfravel-dev/ariadne">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero-inner">
+    <img class="hero-mark" src="assets/icon.png" alt="Ariadne logo">
+    <h1>Find the thread through your data lake.</h1>
+    <p class="tagline">
+      Ariadne builds lightweight file-level indexes over Parquet, CSV, and JSON
+      files so Spark joins read only the files they actually need to.
+    </p>
+    <div class="badges">
+      <a href="https://github.com/cjfravel-dev/ariadne/actions/workflows/ci.yml"><img src="https://github.com/cjfravel-dev/ariadne/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+      <a href="https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12"><img src="https://img.shields.io/maven-central/v/dev.cjfravel/ariadne-spark35_2.12?label=Maven%20Central" alt="Maven Central"></a>
+      <img src="https://img.shields.io/badge/license-MIT%20%2B%20SaaS-blue" alt="License">
+      <img src="https://img.shields.io/badge/Apache%20Spark-3.5-E25A1C?logo=apachespark&amp;logoColor=white" alt="Spark">
+      <img src="https://img.shields.io/badge/Scala-2.12-DC322F?logo=scala&amp;logoColor=white" alt="Scala">
+    </div>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="users/getting-started.html">Get Started</a>
+      <a class="btn btn-ghost" href="https://github.com/cjfravel-dev/ariadne">View on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<div class="page no-sidebar">
+  <main class="content">
+
+    <h2 id="why">Why Ariadne?</h2>
+    <p>
+      If you're joining a DataFrame against a large collection of files, Spark
+      normally has to read <em>all</em> of them. Ariadne builds lightweight
+      indexes over those files so that only the relevant ones are loaded —
+      skipping files that can't contain matching rows.
+    </p>
+    <p>
+      Like <a href="https://en.wikipedia.org/wiki/Ariadne">Ariadne</a> from
+      Greek mythology, this library helps you navigate your data labyrinth. And
+      just like Ariadne, I hope you'll one day betray it — like Theseus — and
+      move on to something better, such as
+      <a href="https://iceberg.apache.org/">Apache Iceberg</a> or
+      <a href="https://delta.io">Delta Lake</a> proper. But in the meantime, if
+      your data lake is more of a data swamp, Ariadne can help.
+    </p>
+
+    <h2 id="quick-look">A quick look</h2>
+<pre><code class="language-scala">import dev.cjfravel.ariadne.Index
+import dev.cjfravel.ariadne.Index._  // brings in the df.join(index, ...) implicit
+
+// Point Ariadne at any Hadoop-accessible storage location
+spark.conf.set("spark.ariadne.storagePath", "abfss://ariadne@mystorage.dfs.core.windows.net/index")
+
+// Build an index over your data files
+val orders = Index("orders", orderSchema, "parquet")
+orders.addIndex("customer_id")
+orders.addFile(orderFiles: _*)
+orders.update
+
+// Use it in a normal Spark join — only matching files are loaded
+val result = customerDf.join(orders, Seq("customer_id"), "inner")</code></pre>
+
+    <h2 id="split">Where to next?</h2>
+    <div class="split">
+      <div class="split-card">
+        <h2>For users</h2>
+        <p>You want to add Ariadne to your project and start indexing files.</p>
+        <ul>
+          <li><a href="users/getting-started.html">Getting Started</a> — install &amp; basic usage</li>
+          <li><a href="users/index-types.html">Index Types</a> — pick the right one for your data</li>
+          <li><a href="users/usage.html">Usage Guide</a> — joins, catalog, SQL, inspection</li>
+          <li><a href="users/configuration.html">Configuration</a> — every Spark conf knob</li>
+          <li><a href="users/maintenance.html">Maintenance</a> — compact, vacuum, delete files</li>
+          <li><a href="users/troubleshooting.html">Troubleshooting</a> — errors &amp; fixes</li>
+        </ul>
+      </div>
+      <div class="split-card contributors">
+        <h2>For contributors</h2>
+        <p>You want to hack on Ariadne itself, or understand how it works inside.</p>
+        <ul>
+          <li><a href="contributors/index.html">Contributing</a> — dev setup, code style, PR process</li>
+          <li><a href="contributors/architecture.html">Architecture</a> — traits, data flows, internals</li>
+          <li><a href="contributors/security.html">Security Policy</a> — reporting vulnerabilities</li>
+          <li><a href="contributors/cla.html">CLA</a> — Contributor License Agreement</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout note" style="margin-top: 1.5rem;">
+      <p><strong>📚 <a href="api/dev/cjfravel/ariadne/Index.html">API Reference</a></strong> — full Scaladoc for every public class, trait, and method. Generated from the source.</p>
+    </div>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div>© 2024–2026 CJ Fravel · <a href="https://github.com/cjfravel-dev/ariadne/blob/main/LICENSE.md">MIT + SaaS License</a></div>
+    <div>
+      <a href="https://github.com/cjfravel-dev/ariadne">GitHub</a> ·
+      <a href="https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12">Maven Central</a> ·
+      <a href="https://github.com/cjfravel-dev/ariadne/discussions">Discussions</a>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

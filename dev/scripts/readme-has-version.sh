@@ -8,10 +8,25 @@ if [[ -z "$VERSION" ]]; then
     exit 1
 fi
 
-# Check if version is in README.md
-if grep -q "$VERSION" README.md; then
-    echo "Version $VERSION is present in README.md."
-else
-    echo "Version $VERSION is NOT present in README.md."
-    exit 1
-fi
+# Files that must reference the current version
+FILES=(
+    "README.md"
+    "docs/users/getting-started.html"
+)
+
+STATUS=0
+for f in "${FILES[@]}"; do
+    if [[ ! -f "$f" ]]; then
+        echo "Version-check file missing: $f"
+        STATUS=1
+        continue
+    fi
+    if grep -q "$VERSION" "$f"; then
+        echo "Version $VERSION is present in $f."
+    else
+        echo "Version $VERSION is NOT present in $f."
+        STATUS=1
+    fi
+done
+
+exit $STATUS

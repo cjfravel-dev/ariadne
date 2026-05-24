@@ -696,7 +696,9 @@ class IndexTests extends SparkTests {
 
     // With select("Id", "Version") — result only has selected columns
     val selectedResult =
-      index.select("Id", "Version").join(table2, Seq("Id", "Version"), "left_semi")
+      index
+        .select("Id", "Version")
+        .join(table2, Seq("Id", "Version"), "left_semi")
     assert(selectedResult.columns.toSet === Set("Id", "Version"))
     assert(selectedResult.count() === fullResult.count())
   }

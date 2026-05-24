@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configuration — Ariadne</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" type="image/png" href="../assets/icon.png">
+</head>
+<body data-section="users" data-page="configuration">
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="../index.html">
+      <img class="brand-icon" src="../assets/icon.png" alt="" aria-hidden="true">
+      <img class="brand-name-img" src="../assets/name-white.png" alt="Ariadne">
+    </a>
+    <nav class="primary-nav">
+      <a href="../index.html" data-section="home">Home</a>
+      <a href="getting-started.html" data-section="users">User Guide</a>
+      <a href="../contributors/index.html" data-section="contributors">Contributors</a>
+      <a href="../api/dev/cjfravel/ariadne/Index.html" data-section="api">API</a>
+      <a class="gh" href="https://github.com/cjfravel-dev/ariadne">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="sidebar">
+    <h5>User Guide</h5>
+    <ul>
+      <li><a href="getting-started.html" data-page="getting-started">Getting Started</a></li>
+      <li><a href="index-types.html" data-page="index-types">Index Types</a></li>
+      <li><a href="usage.html" data-page="usage">Usage Guide</a></li>
+      <li><a href="configuration.html" data-page="configuration">Configuration</a></li>
+      <li><a href="maintenance.html" data-page="maintenance">Maintenance</a></li>
+      <li><a href="troubleshooting.html" data-page="troubleshooting">Troubleshooting</a></li>
+    </ul>
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#required">Required</a></li>
+      <li><a href="#sizing">Sizing &amp; performance</a></li>
+      <li><a href="#concurrency-conf">Concurrency &amp; locks</a></li>
+      <li><a href="#observability">Observability</a></li>
+      <li><a href="#sql-conf">Spark SQL catalog</a></li>
+      <li><a href="#concurrency">Concurrency model</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <div class="page-header">
+      <span class="eyebrow">User Guide</span>
+      <h1>Configuration</h1>
+      <p class="lede">Every Ariadne setting is a standard Spark configuration property. Only <code>storagePath</code> is required — the rest have sensible defaults.</p>
+    </div>
+
+    <h2 id="required">Required</h2>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>spark.ariadne.storagePath</code></td>
+            <td><em>(required)</em></td>
+            <td>Where Ariadne stores index data. Must be Hadoop-accessible (S3, ADLS, HDFS, or a local path for testing).</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="sizing">Sizing &amp; performance</h2>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>spark.ariadne.largeIndexLimit</code></td>
+            <td><code>500000</code></td>
+            <td>Distinct values per column before switching to a separate "large index" Delta table (with row-per-value layout instead of an array column).</td>
+          </tr>
+          <tr>
+            <td><code>spark.ariadne.stagingConsolidationThreshold</code></td>
+            <td><code>50</code></td>
+            <td>Number of update batches between staging consolidations during <code>update</code>. Lower = more frequent merges, less risk of large staging table; higher = fewer merges, faster overall but more to redo on failure.</td>
+          </tr>
+          <tr>
+            <td><code>spark.ariadne.indexRepartitionCount</code></td>
+            <td><em>(not set)</em></td>
+            <td>Repartition index metadata to <em>N</em> partitions before <code>explode</code> operations in joins. Set this to avoid <code>FetchFailedException</code> on very large indexes. Typical values: 100–500.</td>
+          </tr>
+          <tr>
+            <td><code>spark.ariadne.repartitionDataFiles</code></td>
+            <td><code>false</code></td>
+            <td>Also repartition the loaded data files during joins (not just index metadata). Enable when source files themselves are large enough to shuffle-fail.</td>
+          </tr>
+          <tr>
+            <td><code>spark.ariadne.autoCompactThreshold</code></td>
+            <td><em>(not set)</em></td>
+            <td>Auto-compact (Delta <code>OPTIMIZE</code>) after this many update batches. The counter is persisted across Spark jobs.</td>
+          </tr>
+          <tr>
+            <td><code>spark.ariadne.autoBloomFpr</code></td>
+            <td><code>0.01</code></td>
+            <td>False-positive rate for the automatic bloom filters built on columns that exceed <code>largeIndexLimit</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="concurrency-conf">Concurrency &amp; locks</h2>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>spark.ariadne.lockTimeout</code></td>
+            <td><code>1800</code></td>
+            <td>Seconds before a lock is considered stale and auto-heals (default: 30 min).</td>
+          </tr>
+          <tr>
+            <td><code>spark.ariadne.lockRetryInterval</code></td>
+            <td><code>60</code></td>
+            <td>Base retry interval (seconds) for lock acquisition, using exponential backoff.</td>
+          </tr>
+          <tr>
+            <td><code>spark.ariadne.lockMaxWait</code></td>
+            <td><code>3600</code></td>
+            <td>Maximum seconds to wait for a lock before throwing <code>IndexLockException</code> (default: 1 hr).</td>
+          </tr>
+          <tr>
+            <td><code>spark.ariadne.lockRefreshInterval</code></td>
+            <td><code>1</code></td>
+            <td>Refresh the lock's <code>lastRefreshedAt</code> timestamp every <em>N</em> batches during long <code>update</code> runs.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="observability">Observability</h2>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>spark.ariadne.debug</code></td>
+            <td><code>false</code></td>
+            <td>Log detailed join diagnostics — timing breakdown, file sizes, physical plans. Useful when tuning, noisy in production.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="sql-conf">Spark SQL catalog</h2>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>spark.sql.catalog.ariadne</code></td>
+            <td><em>(not set)</em></td>
+            <td>Set to <code>dev.cjfravel.ariadne.catalog.AriadneCatalog</code> to expose indexes as Spark SQL tables.</td>
+          </tr>
+          <tr>
+            <td><code>spark.sql.extensions</code></td>
+            <td><em>(not set)</em></td>
+            <td>Add <code>dev.cjfravel.ariadne.catalog.AriadneSparkExtension</code> to enable JOIN optimization. <strong>Must be set on the SparkConf before the SparkContext is created.</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="concurrency">Concurrency model</h2>
+    <p>Ariadne uses file-based locks under each index directory to coordinate writes between Spark jobs. Locks are acquired and released automatically by the API methods that need them.</p>
+
+    <p>Two locks exist per index:</p>
+    <dl class="kv">
+      <dt><code>.filelist.lock</code></dt><dd>Held during <code>addFile</code> while the tracked-file list is updated.</dd>
+      <dt><code>.update.lock</code></dt><dd>Held during <code>update</code>, <code>deleteFiles</code>, <code>compact</code>, and <code>vacuum</code> — anything that mutates Delta tables.</dd>
+    </dl>
+
+    <p>If a job crashes mid-operation and leaves a stale lock behind, the next job to attempt acquisition will auto-heal it after <code>lockTimeout</code> seconds (default 30 min). During long-running updates, the held lock is periodically refreshed so honest activity isn't mistaken for a crash.</p>
+
+    <div class="callout warn">
+      <p><strong>Single-instance, single-thread for mutation.</strong> An <code>Index</code> object is not safe to mutate from multiple threads. For concurrent mutation across jobs, use separate <code>Index</code> instances — they'll coordinate via the file locks. Read-only operations on the same instance from multiple threads are safe so long as nothing is mutating concurrently.</p>
+    </div>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div>© 2024–2026 CJ Fravel · <a href="https://github.com/cjfravel-dev/ariadne/blob/main/LICENSE.md">MIT + SaaS License</a></div>
+    <div>
+      <a href="https://github.com/cjfravel-dev/ariadne">GitHub</a> ·
+      <a href="https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12">Maven Central</a> ·
+      <a href="https://github.com/cjfravel-dev/ariadne/discussions">Discussions</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>

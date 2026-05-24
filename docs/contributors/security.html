@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Security Policy — Ariadne</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" type="image/png" href="../assets/icon.png">
+</head>
+<body data-section="contributors" data-page="security">
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="../index.html">
+      <img class="brand-icon" src="../assets/icon.png" alt="" aria-hidden="true">
+      <img class="brand-name-img" src="../assets/name-white.png" alt="Ariadne">
+    </a>
+    <nav class="primary-nav">
+      <a href="../index.html" data-section="home">Home</a>
+      <a href="../users/getting-started.html" data-section="users">User Guide</a>
+      <a href="index.html" data-section="contributors">Contributors</a>
+      <a href="../api/dev/cjfravel/ariadne/Index.html" data-section="api">API</a>
+      <a class="gh" href="https://github.com/cjfravel-dev/ariadne">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="sidebar">
+    <h5>Contributors</h5>
+    <ul>
+      <li><a href="index.html" data-page="index">Contributing</a></li>
+      <li><a href="architecture.html" data-page="architecture">Architecture</a></li>
+      <li><a href="security.html" data-page="security">Security Policy</a></li>
+      <li><a href="cla.html" data-page="cla">CLA</a></li>
+    </ul>
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#report">Reporting</a></li>
+      <li><a href="#timeline">Response timeline</a></li>
+      <li><a href="#supported">Supported versions</a></li>
+      <li><a href="#scope">Scope</a></li>
+      <li><a href="#disclosure">Disclosure policy</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <div class="page-header">
+      <span class="eyebrow">Contributors</span>
+      <h1>Security Policy</h1>
+      <p class="lede">How to report security issues in Ariadne and what to expect from the maintainer in response.</p>
+    </div>
+
+    <h2 id="report">Reporting a vulnerability</h2>
+
+    <div class="callout danger">
+      <p><strong>Please do not open a public GitHub issue for security reports.</strong> Use one of the private channels below.</p>
+    </div>
+
+    <ul>
+      <li><strong>GitHub:</strong> <a href="https://github.com/cjfravel-dev/ariadne/security/advisories/new">Report a security advisory</a> (preferred).</li>
+      <li><strong>Email:</strong> <a href="mailto:ariadne-support@cjfravel.dev">ariadne-support@cjfravel.dev</a> with subject <code>[SECURITY] &lt;brief description&gt;</code>.</li>
+    </ul>
+
+    <p>Please include:</p>
+    <ul>
+      <li>A description of the vulnerability</li>
+      <li>Steps to reproduce, if applicable</li>
+      <li>The potential impact</li>
+      <li>Any suggested fixes</li>
+    </ul>
+
+    <h2 id="timeline">Response timeline</h2>
+    <p>This is a volunteer-maintained open-source project. We do our best to respond promptly, but timelines may vary:</p>
+    <dl class="kv">
+      <dt>Acknowledgment</dt><dd>As soon as possible.</dd>
+      <dt>Fix or mitigation</dt><dd>Depends on severity and complexity.</dd>
+    </dl>
+
+    <h2 id="supported">Supported versions</h2>
+    <p>Ariadne is in beta. Until we reach GA, only the latest published release receives security fixes — older versions will not be patched. Upgrade to the most recent <code>0.x</code> release on <a href="https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12">Maven Central</a> to stay covered.</p>
+
+    <h2 id="scope">Scope</h2>
+    <p>Ariadne is a client-side Spark library that reads and writes index data to a Hadoop-accessible filesystem. Security concerns most likely to be relevant include:</p>
+    <ul>
+      <li>Path traversal or injection via index names or file paths</li>
+      <li>Deserialization vulnerabilities in metadata parsing (Gson)</li>
+      <li>Lock-file manipulation leading to data corruption</li>
+    </ul>
+
+    <h2 id="disclosure">Disclosure policy</h2>
+    <p>We follow coordinated disclosure. Once a fix is available, we will:</p>
+    <ol>
+      <li>Release a patched version.</li>
+      <li>Publish a security advisory on GitHub.</li>
+      <li>Credit the reporter (unless they prefer to remain anonymous).</li>
+    </ol>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div>© 2024–2026 CJ Fravel · <a href="https://github.com/cjfravel-dev/ariadne/blob/main/LICENSE.md">MIT + SaaS License</a></div>
+    <div>
+      <a href="https://github.com/cjfravel-dev/ariadne">GitHub</a> ·
+      <a href="https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12">Maven Central</a> ·
+      <a href="https://github.com/cjfravel-dev/ariadne/discussions">Discussions</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>
