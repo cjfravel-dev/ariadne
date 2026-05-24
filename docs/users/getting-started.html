@@ -104,6 +104,10 @@ index.update</code></pre>
       <p><strong>Adding files later is fine.</strong> Call <code>addFile</code> any time and re-run <code>update</code> — Ariadne only scans files it hasn't seen before.</p>
     </div>
 
+    <div class="callout">
+      <p><strong>Index name rules.</strong> The index name becomes a directory under <code>storagePath</code>, so Ariadne validates it and throws <code>IllegalArgumentException</code> if it is null/blank, contains a path separator (<code>/</code> or <code>\</code>) or null byte, starts with a <code>.</code>, or includes a <code>..</code> segment. Stick to plain identifiers (letters, digits, <code>-</code>, <code>_</code>) and you're fine.</p>
+    </div>
+
     <h2 id="join">Joining with the index</h2>
     <p>Once built, the index acts as a stand-in for your data files in a Spark join. There are two equivalent directions:</p>
 
