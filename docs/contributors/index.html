@@ -19,6 +19,7 @@
       <a href="../index.html" data-section="home">Home</a>
       <a href="../users/getting-started.html" data-section="users">User Guide</a>
       <a href="index.html" data-section="contributors">Contributors</a>
+      <a href="../api/dev/cjfravel/ariadne/Index.html" data-section="api">API</a>
       <a class="gh" href="https://github.com/cjfravel-dev/ariadne">GitHub</a>
     </nav>
   </div>
@@ -134,6 +135,7 @@ mvn package</code></pre>
       <li>Fork the repository and branch from <code>main</code>.</li>
       <li>Make your changes, ensuring <code>mvn test</code> passes.</li>
       <li>Update documentation if your changes affect the public API.</li>
+      <li>If you changed any public class, trait, method, or scaladoc, regenerate the API reference: <code>dev/scripts/build-api-docs.sh</code> (commits the regenerated <code>docs/api/</code> alongside your code change).</li>
       <li><strong>Don't change the version</strong> in <code>pom.xml</code> or the docs — versioning is managed by the maintainer.</li>
       <li>Open a pull request with a clear description.</li>
     </ol>
