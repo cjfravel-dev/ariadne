@@ -56,7 +56,7 @@
     </div>
 
     <h2 id="exception-ref">Exception reference</h2>
-    <p>Every exception extends <code>AriadneException</code>, so you can catch the whole family with a single handler:</p>
+    <p>Every Ariadne-specific exception extends <code>AriadneException</code>, so you can catch the whole family with a single handler. (Argument-validation errors still surface as the standard JDK <code>IllegalArgumentException</code> — those indicate programmer mistakes, not runtime failures.)</p>
 
 <pre><code class="language-scala">import dev.cjfravel.ariadne.exceptions._
 

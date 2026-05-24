@@ -108,7 +108,7 @@ case class Index private (
   /** Checks if a file is tracked by this index's file list.
     *
     * @example
-    *   {{{val tracked = index.hasFile("abfss://data@mystorage.dfs.core.windows.net/file1.parquet")}}}
+    *   {{{val tracked = index.hasFile("s3a://bucket/data/file1.parquet")}}}
     *
     * @param fileName
     *   The file path to check
@@ -932,37 +932,16 @@ case class Index private (
                 .toDF("filename")
                 .withColumn("file_size", sizeUdf(col("filename")))
 
-              val previousAutoMerge = spark.conf.getOption(
-                "spark.databricks.delta.schema.autoMerge.enabled"
-              )
-              // NOTE: SparkConf mutation is not thread-safe — concurrent Index instances
-              // sharing the same SparkSession could clobber each other's config values.
-              spark.conf.set(
-                "spark.databricks.delta.schema.autoMerge.enabled",
-                "true"
-              )
-              try {
-                dt.as("target")
-                  .merge(
-                    updateDf.as("source"),
-                    "target.filename = source.filename"
-                  )
-                  .whenMatched()
-                  .update(Map("file_size" -> col("source.file_size")))
-                  .execute()
-              } finally {
-                previousAutoMerge match {
-                  case Some(v) =>
-                    spark.conf.set(
-                      "spark.databricks.delta.schema.autoMerge.enabled",
-                      v
-                    )
-                  case None =>
-                    spark.conf.unset(
-                      "spark.databricks.delta.schema.autoMerge.enabled"
-                    )
-                }
-              }
+              // Delta 3.2+: per-merge schema evolution; no shared session config.
+              dt.as("target")
+                .merge(
+                  updateDf.as("source"),
+                  "target.filename = source.filename"
+                )
+                .withSchemaEvolution()
+                .whenMatched()
+                .update(Map("file_size" -> col("source.file_size")))
+                .execute()
 
               // Update total from the full index table
               val totalResult = dt.toDF.agg(sum("file_size")).head()
@@ -970,7 +949,7 @@ case class Index private (
                 if (totalResult.isNullAt(0)) 0L else totalResult.getLong(0)
               writeMetadata(metadata)
             } finally {
-              sizesBroadcast.destroy()
+              safeDestroyBroadcast(sizesBroadcast)
             }
             logger.warn(
               s"Backfilled file sizes for ${nullSizeFiles.size} files"
@@ -1271,7 +1250,7 @@ case class Index private (
       // Clean up cached DataFrame from auto-bloom processing
       lastAutoBloomCache.foreach(_.unpersist())
       lastAutoBloomCache = None
-      fileSizesBroadcast.destroy()
+      safeDestroyBroadcast(fileSizesBroadcast)
     }
   }
 
@@ -1518,10 +1497,7 @@ object Index {
       allowSchemaMismatch: Boolean = false,
       readOptions: Option[Map[String, String]] = None
   )(implicit spark: SparkSession): Index = {
-    require(
-      name != null && name.trim.nonEmpty,
-      "index name must not be null or blank"
-    )
+    IndexPathUtils.validateIndexName(name)
     val index = Index(name, schema)(spark)
 
     val metadataExists = index.metadataExists

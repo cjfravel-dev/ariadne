@@ -1948,6 +1948,28 @@ partitioning. Disable when column selection significantly reduces data
 volume, making the repartition shuffle more expensive than useful. Reads
 from spark.ariadne.repartitionDataFiles configuration (default: false).
 </p></div><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="AriadneContextUser.html" class="extype" name="dev.cjfravel.ariadne.AriadneContextUser">AriadneContextUser</a></dd></dl></div>
+    </li><li name="dev.cjfravel.ariadne.AriadneContextUser#safeDestroyBroadcast" visbl="prt" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
+      <a id="safeDestroyBroadcast(broadcast:org.apache.spark.broadcast.Broadcast[_]):Unit"></a><a id="safeDestroyBroadcast(Broadcast[_]):Unit"></a>
+      <span class="permalink">
+      <a href="../../../dev/cjfravel/ariadne/IndexJoinOperations.html#safeDestroyBroadcast(broadcast:org.apache.spark.broadcast.Broadcast[_]):Unit" title="Permalink">
+        <i class="material-icons"></i>
+      </a>
+    </span>
+      <span class="modifier_kind">
+        <span class="modifier"></span>
+        <span class="kind">def</span>
+      </span>
+      <span class="symbol">
+        <span class="name">safeDestroyBroadcast</span><span class="params">(<span name="broadcast">broadcast: <span class="extype" name="org.apache.spark.broadcast.Broadcast">Broadcast</span>[_]</span>)</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
+      </span>
+      
+      <p class="shortcomment cmt">Safely destroys a broadcast variable, logging but swallowing any
+exception.</p><div class="fullcomment"><div class="comment cmt"><p>Safely destroys a broadcast variable, logging but swallowing any
+exception.</p><p>Intended for use inside <code>finally</code> blocks where a cleanup failure must not
+mask the original exception propagating out of the <code>try</code> block. Tolerates
+a null broadcast.
+</p></div><dl class="paramcmts block"><dt class="param">broadcast</dt><dd class="cmt"><p>
+  the broadcast to destroy; may be null</p></dd></dl><dl class="attributes block"> <dt>Attributes</dt><dd>protected </dd><dt>Definition Classes</dt><dd><a href="AriadneContextUser.html" class="extype" name="dev.cjfravel.ariadne.AriadneContextUser">AriadneContextUser</a></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.AriadneContextUser#stagingConsolidationThreshold" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="stagingConsolidationThreshold:Int"></a>
       <span class="permalink">

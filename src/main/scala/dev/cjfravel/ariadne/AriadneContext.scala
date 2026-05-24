@@ -1,6 +1,7 @@
 package dev.cjfravel.ariadne
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.broadcast.Broadcast
 import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.logging.log4j.{Logger, LogManager}
 import io.delta.tables.DeltaTable
@@ -401,6 +402,26 @@ trait AriadneContextUser {
       }
     value.foreach(v => logger.warn(s"autoCompactThreshold initialized: $v"))
     value
+  }
+
+  /** Safely destroys a broadcast variable, logging but swallowing any
+    * exception.
+    *
+    * Intended for use inside `finally` blocks where a cleanup failure must not
+    * mask the original exception propagating out of the `try` block. Tolerates
+    * a null broadcast.
+    *
+    * @param broadcast
+    *   the broadcast to destroy; may be null
+    */
+  protected def safeDestroyBroadcast(broadcast: Broadcast[_]): Unit = {
+    if (broadcast != null) {
+      try broadcast.destroy()
+      catch {
+        case e: Exception =>
+          logger.warn(s"Failed to destroy broadcast variable: ${e.getMessage}")
+      }
+    }
   }
 
   /** False positive rate for auto-bloom filters on large index columns. When a

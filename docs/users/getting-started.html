@@ -61,11 +61,11 @@
 <pre><code class="language-xml">&lt;dependency&gt;
     &lt;groupId&gt;dev.cjfravel&lt;/groupId&gt;
     &lt;artifactId&gt;ariadne-spark35_2.12&lt;/artifactId&gt;
-    &lt;version&gt;0.1.1-beta&lt;/version&gt;
+    &lt;version&gt;0.1.2-beta&lt;/version&gt;
 &lt;/dependency&gt;</code></pre>
 
     <h3>SBT</h3>
-<pre><code class="language-scala">libraryDependencies += "dev.cjfravel" %% "ariadne-spark35" % "0.1.1-beta"</code></pre>
+<pre><code class="language-scala">libraryDependencies += "dev.cjfravel" %% "ariadne-spark35" % "0.1.2-beta"</code></pre>
 
     <div class="callout note">
       <p><strong>Scala 2.12 only.</strong> The artifact is built against Scala 2.12 to match Spark. Scala 2.13 is not supported.</p>
@@ -102,6 +102,10 @@ index.update</code></pre>
 
     <div class="callout tip">
       <p><strong>Adding files later is fine.</strong> Call <code>addFile</code> any time and re-run <code>update</code> — Ariadne only scans files it hasn't seen before.</p>
+    </div>
+
+    <div class="callout">
+      <p><strong>Index name rules.</strong> The name becomes a directory under <code>storagePath</code> — it must be a valid Hadoop file name.</p>
     </div>
 
     <h2 id="join">Joining with the index</h2>

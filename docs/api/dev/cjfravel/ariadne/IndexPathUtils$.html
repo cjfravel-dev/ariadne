@@ -481,15 +481,17 @@ trimming leading/trailing underscores.
       </span>
       
       <p class="shortcomment cmt">Checks whether an index with the given name exists.</p><div class="fullcomment"><div class="comment cmt"><p>Checks whether an index with the given name exists.</p><p>An index is considered to exist if either its file list entry or its
-storage directory is present.</p><p><b>Note:</b> This check is subject to a TOCTOU (time-of-check/time-of-use)
-race condition — the index may be created or removed between this call and
-a subsequent operation. Callers should not rely on this result for
-correctness in concurrent environments.
+storage directory is present.
 </p></div><dl class="paramcmts block"><dt class="param">name</dt><dd class="cmt"><p>
   The index name to check</p></dd><dt class="param">sparkSession</dt><dd class="cmt"><p>
   The implicit SparkSession</p></dd><dt>returns</dt><dd class="cmt"><p>
   true if the index exists</p></dd></dl><dl class="attributes block"> <dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="IllegalArgumentException"><code>IllegalArgumentException</code></span> 
-  if name is null or blank</p></span></dd></dl></div>
+  if name is null, blank, or contains unsafe path characters</p></span></dd><dt>Note</dt><dd><span class="cmt"><p>
+  This check is subject to a TOCTOU (time-of-check/time-of-use) race
+  condition — the index may be created or removed between this call and a
+  subsequent operation. Callers must not rely on this result for
+  correctness in concurrent environments; use an external lock or perform
+  the dependent operation defensively.</p></span></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.IndexPathUtils#fileListName" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="fileListName(name:String):String"></a><a id="fileListName(String):String"></a>
       <span class="permalink">
@@ -509,7 +511,7 @@ correctness in concurrent environments.
 </p></div><dl class="paramcmts block"><dt class="param">name</dt><dd class="cmt"><p>
   The index name</p></dd><dt>returns</dt><dd class="cmt"><p>
   The prefixed file list identifier</p></dd></dl><dl class="attributes block"> <dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="IllegalArgumentException"><code>IllegalArgumentException</code></span> 
-  if name is null or blank</p></span></dd></dl></div>
+  if name is null, blank, or contains unsafe path characters</p></span></dd></dl></div>
     </li><li name="scala.AnyRef#getClass" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="getClass():Class[_]"></a>
       <span class="permalink">
@@ -643,17 +645,18 @@ correctness in concurrent environments.
       
       <p class="shortcomment cmt">Removes an index by deleting its file list entry and storage directory.</p><div class="fullcomment"><div class="comment cmt"><p>Removes an index by deleting its file list entry and storage directory.</p><p>Both the file list Delta table and the index storage directory are
 removed. The method returns <code>true</code> if at least one resource was
-successfully deleted.</p><p><b>Note:</b> The <a href="#exists(name:String)(implicitsparkSession:org.apache.spark.sql.SparkSession):Boolean" class="extmbr" name="dev.cjfravel.ariadne.IndexPathUtils#exists">exists</a> guard is subject to a TOCTOU
-(time-of-check/time-of-use) race — another process may remove the index
-between the existence check and the actual deletion, or create a new index
-with the same name concurrently. External locking is required to prevent
-this in multi-process environments.
+successfully deleted.
 </p></div><dl class="paramcmts block"><dt class="param">name</dt><dd class="cmt"><p>
   the index name to remove</p></dd><dt class="param">sparkSession</dt><dd class="cmt"><p>
   the implicit SparkSession</p></dd><dt>returns</dt><dd class="cmt"><p>
   true if any resources were successfully removed</p></dd></dl><dl class="attributes block"> <dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="IllegalArgumentException"><code>IllegalArgumentException</code></span> 
-  if name is null or blank</p></span><span class="cmt"><p><span class="extype" name="IndexNotFoundException"><code>IndexNotFoundException</code></span> 
-  if the index does not exist</p></span></dd></dl></div>
+  if name is null, blank, or contains unsafe path characters</p></span><span class="cmt"><p><span class="extype" name="IndexNotFoundException"><code>IndexNotFoundException</code></span> 
+  if the index does not exist</p></span></dd><dt>Note</dt><dd><span class="cmt"><p>
+  The <a href="#exists(name:String)(implicitsparkSession:org.apache.spark.sql.SparkSession):Boolean" class="extmbr" name="dev.cjfravel.ariadne.IndexPathUtils#exists">exists</a> guard is subject to a TOCTOU (time-of-check/time-of-use)
+  race — another process may remove the index between the existence check
+  and the actual deletion, or create a new index with the same name
+  concurrently. External locking is required to prevent this in
+  multi-process environments.</p></span></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.IndexPathUtils#storagePath" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="storagePath(implicitsparkSession:org.apache.spark.sql.SparkSession):org.apache.hadoop.fs.Path"></a><a id="storagePath(SparkSession):Path"></a>
       <span class="permalink">
@@ -727,6 +730,30 @@ used for transient data during query execution.
       </span>
       
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd></dl></div>
+    </li><li name="dev.cjfravel.ariadne.IndexPathUtils#validateIndexName" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
+      <a id="validateIndexName(name:String):Unit"></a><a id="validateIndexName(String):Unit"></a>
+      <span class="permalink">
+      <a href="../../../dev/cjfravel/ariadne/IndexPathUtils$.html#validateIndexName(name:String):Unit" title="Permalink">
+        <i class="material-icons"></i>
+      </a>
+    </span>
+      <span class="modifier_kind">
+        <span class="modifier"></span>
+        <span class="kind">def</span>
+      </span>
+      <span class="symbol">
+        <span class="name">validateIndexName</span><span class="params">(<span name="name">name: <span class="extype" name="scala.Predef.String">String</span></span>)</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
+      </span>
+      
+      <p class="shortcomment cmt">Validates that an index name is safe to use as a path component.</p><div class="fullcomment"><div class="comment cmt"><p>Validates that an index name is safe to use as a path component.</p><p>Rejects names that are null, blank, contain path separators (<code>/</code>, <code>\</code>),
+contain the parent-directory segment <code>..</code>, contain null bytes, or begin
+with <code>.</code> (to avoid colliding with hidden files). Valid index names are
+used directly as subdirectory names under the Ariadne storage root, so
+unchecked input would permit path traversal (e.g., <code>../foo</code>) or collisions
+with internal control files.
+</p></div><dl class="paramcmts block"><dt class="param">name</dt><dd class="cmt"><p>
+  the index name to validate</p></dd></dl><dl class="attributes block"> <dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="IllegalArgumentException"><code>IllegalArgumentException</code></span> 
+  if the name is null, blank, or contains unsafe characters</p></span></dd></dl></div>
     </li><li name="scala.AnyRef#wait" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="wait(x$1:Long,x$2:Int):Unit"></a><a id="wait(Long,Int):Unit"></a>
       <span class="permalink">

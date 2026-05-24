@@ -5,7 +5,7 @@
 
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne-spark${spark.suffix}_2.12</artifactId>
-    <version>0.1.1-beta</version>
+    <version>0.1.2-beta</version>
     <packaging>jar</packaging>
 
     <name>${project.groupId}:${project.artifactId}</name>
@@ -38,41 +38,22 @@
         <scoverage.plugin.version>2.0.6</scoverage.plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <spark.suffix>35</spark.suffix>
+        <spark.version>3.5.5</spark.version>
+        <delta.artifactId>delta-spark_2.12</delta.artifactId>
+        <delta.version>3.2.1</delta.version>
     </properties>
 
-    <profiles>
-        <profile>
-            <id>spark34</id>
-            <properties>
-                <spark.suffix>34</spark.suffix>
-                <spark.version>3.4.1</spark.version>
-                <delta.artifactId>delta-core_2.12</delta.artifactId>
-                <delta.version>2.4.0</delta.version>
-            </properties>
-        </profile>
-        <profile>
-            <id>spark35</id>
-            <activation>
-                <activeByDefault>true</activeByDefault>
-            </activation>
-            <properties>
-                <spark.suffix>35</spark.suffix>
-                <spark.version>3.5.5</spark.version>
-                <delta.artifactId>delta-spark_2.12</delta.artifactId>
-                <delta.version>3.2.1</delta.version>
-            </properties>
-            <dependencyManagement>
-                <dependencies>
-                    <!-- Force jackson-core 2.15.2 to match jackson-databind from Spark 3.5 -->
-                    <dependency>
-                        <groupId>com.fasterxml.jackson.core</groupId>
-                        <artifactId>jackson-core</artifactId>
-                        <version>2.15.2</version>
-                    </dependency>
-                </dependencies>
-            </dependencyManagement>
-        </profile>
-    </profiles>
+    <dependencyManagement>
+        <dependencies>
+            <!-- Force jackson-core 2.15.2 to match jackson-databind from Spark 3.5 -->
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-core</artifactId>
+                <version>2.15.2</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- Spark Core and SQL for DataFrame API -->

@@ -13,16 +13,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - profile: spark34
-            name: Spark 3.4
-          - profile: spark35
-            name: Spark 3.5
-
-    name: Build & Test (${{ matrix.name }})
+    name: Build & Test (Spark 3.5)
 
     steps:
       - name: Checkout
@@ -36,13 +27,13 @@ jobs:
           cache: maven
 
       - name: Build and test with coverage
-        run: mvn verify scoverage:report -P ${{ matrix.profile }} -Dgpg.skip=true -B -q
+        run: mvn verify scoverage:report -Dgpg.skip=true -B -q
 
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-${{ matrix.profile }}
+          name: coverage-spark35
           path: target/cobertura.xml
 
       - name: Post coverage to PR
@@ -60,11 +51,11 @@ jobs:
       - name: Prepend header to coverage report
         if: github.event_name == 'pull_request'
         run: |
-          sed -i '1s/^/## Code Coverage — ${{ matrix.name }}\n\n/' code-coverage-results.md
+          sed -i '1s/^/## Code Coverage — Spark 3.5\n\n/' code-coverage-results.md
 
       - name: Add coverage comment to PR
         if: github.event_name == 'pull_request'
         uses: marocchino/sticky-pull-request-comment@v2
         with:
-          header: coverage-${{ matrix.profile }}
+          header: coverage-spark35
           path: code-coverage-results.md

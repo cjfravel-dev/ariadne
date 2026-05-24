@@ -977,42 +977,19 @@ trait IndexBuildOperations extends BloomFilterOperations {
             logger.warn(
               s"Merging staging data into main index at ${indexFilePath}"
             )
-            // Enable schema auto-merge so new index columns evolve the target table.
-            // NOTE: THREAD-SAFETY: SparkConf mutation is not thread-safe — concurrent
-            // Index instances sharing the same SparkSession may race on this setting.
-            // Delta MERGE requires the global config (per-writer .option does not apply).
-            val previousAutoMerge = spark.conf.getOption(
-              "spark.databricks.delta.schema.autoMerge.enabled"
-            )
-            spark.conf.set(
-              "spark.databricks.delta.schema.autoMerge.enabled",
-              "true"
-            )
-            try {
-              deltaTable
-                .as("target")
-                .merge(
-                  stagingDf.as("source"),
-                  "target.filename = source.filename"
-                )
-                .whenMatched()
-                .updateAll()
-                .whenNotMatched()
-                .insertAll()
-                .execute()
-            } finally {
-              previousAutoMerge match {
-                case Some(v) =>
-                  spark.conf.set(
-                    "spark.databricks.delta.schema.autoMerge.enabled",
-                    v
-                  )
-                case None =>
-                  spark.conf.unset(
-                    "spark.databricks.delta.schema.autoMerge.enabled"
-                  )
-              }
-            }
+            // Delta 3.2+: per-merge schema evolution; no shared session config.
+            deltaTable
+              .as("target")
+              .merge(
+                stagingDf.as("source"),
+                "target.filename = source.filename"
+              )
+              .withSchemaEvolution()
+              .whenMatched()
+              .updateAll()
+              .whenNotMatched()
+              .insertAll()
+              .execute()
           case None =>
             logger.warn(
               s"Creating new main index from staging at ${indexFilePath}"
