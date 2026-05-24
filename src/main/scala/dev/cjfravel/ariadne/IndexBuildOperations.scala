@@ -25,13 +25,13 @@ import scala.collection.JavaConverters._
   *      - Build exploded field, bloom filter, temporal, and range indexes
   *      - Build auto-bloom filters for columns exceeding `largeIndexLimit`
   *      - [[appendToStaging]] (small columns to staging Delta table)
-  *      - [[appendToLargeIndex]] (large columns to per-column Delta tables)
-  *      4. Periodic consolidation — Every `stagingConsolidationThreshold`
-  *      batches, [[consolidateStaging]] merges staging into the main index via
-  *      Delta MERGE (upsert on filename). Auto-compaction may follow via
-  *      [[maybeAutoCompact]]. 5. Final consolidation — After all batches
-  *      complete, any remaining staged data is consolidated and the staging
-  *      table is deleted.
+  *      - [[appendToLargeIndex]] (large columns to per-column Delta tables) 4.
+  *        Periodic consolidation — Every `stagingConsolidationThreshold`
+  *        batches, [[consolidateStaging]] merges staging into the main index
+  *        via Delta MERGE (upsert on filename). Auto-compaction may follow via
+  *        [[maybeAutoCompact]]. 5. Final consolidation — After all batches
+  *        complete, any remaining staged data is consolidated and the staging
+  *        table is deleted.
   *
   * Batching strategy: Files are sorted by `maxDistinctCount` (largest first)
   * and packed sequentially into batches. This greedy approach keeps each batch
@@ -977,21 +977,19 @@ trait IndexBuildOperations extends BloomFilterOperations {
             logger.warn(
               s"Merging staging data into main index at ${indexFilePath}"
             )
-            // Mutates a shared SparkSession config; see withSchemaAutoMerge
-            // for thread-safety caveats.
-            withSchemaAutoMerge {
-              deltaTable
-                .as("target")
-                .merge(
-                  stagingDf.as("source"),
-                  "target.filename = source.filename"
-                )
-                .whenMatched()
-                .updateAll()
-                .whenNotMatched()
-                .insertAll()
-                .execute()
-            }
+            // Delta 3.2+: per-merge schema evolution; no shared session config.
+            deltaTable
+              .as("target")
+              .merge(
+                stagingDf.as("source"),
+                "target.filename = source.filename"
+              )
+              .withSchemaEvolution()
+              .whenMatched()
+              .updateAll()
+              .whenNotMatched()
+              .insertAll()
+              .execute()
           case None =>
             logger.warn(
               s"Creating new main index from staging at ${indexFilePath}"

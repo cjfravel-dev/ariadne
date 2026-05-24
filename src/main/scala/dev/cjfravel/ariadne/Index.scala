@@ -886,18 +886,6 @@ case class Index private (
     * index.update
     *   }}}
     *
-    * @note
-    *   '''Thread-safety:''' `update` mutates the shared
-    *   [[org.apache.spark.sql.SparkSession]] configuration
-    *   `spark.databricks.delta.schema.autoMerge.enabled` while merging staging
-    *   data into the main index. The per-index update lock prevents two writers
-    *   from corrupting the same Delta table, but it does '''not''' prevent the
-    *   session-level config race when `update` runs concurrently against
-    *   ''different'' indexes that share a `SparkSession`. Run `update` serially
-    *   across indexes in the same JVM, or give each `Index` its own
-    *   `SparkSession`. See `AriadneContextUser.withSchemaAutoMerge` for full
-    *   details.
-    *
     * @throws IndexLockException
     *   if the update lock cannot be acquired within the configured timeout
     */
@@ -944,18 +932,16 @@ case class Index private (
                 .toDF("filename")
                 .withColumn("file_size", sizeUdf(col("filename")))
 
-              // Mutates a shared SparkSession config; see withSchemaAutoMerge
-              // for thread-safety caveats.
-              withSchemaAutoMerge {
-                dt.as("target")
-                  .merge(
-                    updateDf.as("source"),
-                    "target.filename = source.filename"
-                  )
-                  .whenMatched()
-                  .update(Map("file_size" -> col("source.file_size")))
-                  .execute()
-              }
+              // Delta 3.2+: per-merge schema evolution; no shared session config.
+              dt.as("target")
+                .merge(
+                  updateDf.as("source"),
+                  "target.filename = source.filename"
+                )
+                .withSchemaEvolution()
+                .whenMatched()
+                .update(Map("file_size" -> col("source.file_size")))
+                .execute()
 
               // Update total from the full index table
               val totalResult = dt.toDF.agg(sum("file_size")).head()

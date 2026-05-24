@@ -2,16 +2,13 @@
 
 ## Overview
 
-Ariadne is a Scala 2.12 / Apache Spark library that builds file-level indexes for data lake joins. Index metadata and data are stored as Delta Lake tables on a Hadoop-accessible filesystem. The library is published for two Spark versions (3.4 and 3.5) via Maven profiles.
+Ariadne is a Scala 2.12 / Apache Spark library that builds file-level indexes for data lake joins. Index metadata and data are stored as Delta Lake tables on a Hadoop-accessible filesystem. The library targets Spark 3.5 / Delta Lake 3.2.
 
 ## Build & Test
 
 ```bash
-# Build and test (default: Spark 3.4 profile)
+# Build and test
 mvn test
-
-# Build and test with Spark 3.5
-mvn test -P spark35
 
 # Run a single test suite
 mvn test -Dsuites="dev.cjfravel.ariadne.IndexTests"
@@ -102,9 +99,9 @@ A column can have exactly one index type: regular, bloom, computed, temporal, ex
 
 Guava and Gson are shaded under `dev.cjfravel.ariadne.shaded.*` to avoid version conflicts with the host Spark environment. Source code uses standard `com.google.common.*` (Guava) and `com.google.gson.*` (Gson) imports — the Maven Shade Plugin automatically relocates these to `dev.cjfravel.ariadne.shaded.*` in the packaged JAR. Do not add additional unshaded `com.google.*` runtime dependencies to `pom.xml` as they would conflict with the shading configuration.
 
-### Spark Profiles
+### Spark Version
 
-Default Maven profile is `spark34`. Use `-P spark35` for Spark 3.5 / Delta 3.2. The artifact ID encodes the Spark version: `ariadne-spark34_2.12` or `ariadne-spark35_2.12`.
+Ariadne targets Spark 3.5 / Delta Lake 3.2. The artifact ID is `ariadne-spark35_2.12`.
 
 ### Tests
 
@@ -112,7 +109,7 @@ All Spark tests mix in `SparkTests`, which creates a local `SparkSession` with a
 
 ### Java Version
 
-Java 11 is required (`JAVA_HOME=/usr/lib/jvm/java-11-openjdk`). Do not use Java features beyond Java 11. The Scala version (2.12.17) and Spark versions (3.4/3.5) are tied to Azure Synapse dependencies and must not be changed.
+Java 11 is required (`JAVA_HOME=/usr/lib/jvm/java-11-openjdk`). Do not use Java features beyond Java 11. The Scala version (2.12.17) and Spark version (3.5) are tied to Azure Synapse dependencies and must not be changed.
 
 ### Scaladoc Requirements
 
