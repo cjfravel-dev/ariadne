@@ -1611,7 +1611,7 @@ delegates to <a href="IndexBuildOperations.html#appendToLargeIndex(df:org.apache
 </p></div><dl class="paramcmts block"><dt class="param">fileName</dt><dd class="cmt"><p>
   The file path to check</p></dd><dt>returns</dt><dd class="cmt"><p>
   true if the file is in the file list</p></dd></dl><dl class="attributes block"> <div class="block">Example:
-               <ol><li class="cmt"><p></p><pre><span class="kw">val</span> tracked = index.hasFile(<span class="lit">"abfss://data@mystorage.dfs.core.windows.net/file1.parquet"</span>)</pre></li></ol>
+               <ol><li class="cmt"><p></p><pre><span class="kw">val</span> tracked = index.hasFile(<span class="lit">"s3a://bucket/data/file1.parquet"</span>)</pre></li></ol>
             </div></dl></div>
     </li><li name="dev.cjfravel.ariadne.IndexQueryOperations#index" visbl="prt" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="index:Option[org.apache.spark.sql.DataFrame]"></a><a id="index:Option[DataFrame]"></a>
@@ -2412,6 +2412,28 @@ partitioning. Disable when column selection significantly reduces data
 volume, making the repartition shuffle more expensive than useful. Reads
 from spark.ariadne.repartitionDataFiles configuration (default: false).
 </p></div><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="AriadneContextUser.html" class="extype" name="dev.cjfravel.ariadne.AriadneContextUser">AriadneContextUser</a></dd></dl></div>
+    </li><li name="dev.cjfravel.ariadne.AriadneContextUser#safeDestroyBroadcast" visbl="prt" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
+      <a id="safeDestroyBroadcast(broadcast:org.apache.spark.broadcast.Broadcast[_]):Unit"></a><a id="safeDestroyBroadcast(Broadcast[_]):Unit"></a>
+      <span class="permalink">
+      <a href="../../../dev/cjfravel/ariadne/Index.html#safeDestroyBroadcast(broadcast:org.apache.spark.broadcast.Broadcast[_]):Unit" title="Permalink">
+        <i class="material-icons"></i>
+      </a>
+    </span>
+      <span class="modifier_kind">
+        <span class="modifier"></span>
+        <span class="kind">def</span>
+      </span>
+      <span class="symbol">
+        <span class="name">safeDestroyBroadcast</span><span class="params">(<span name="broadcast">broadcast: <span class="extype" name="org.apache.spark.broadcast.Broadcast">Broadcast</span>[_]</span>)</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
+      </span>
+      
+      <p class="shortcomment cmt">Safely destroys a broadcast variable, logging but swallowing any
+exception.</p><div class="fullcomment"><div class="comment cmt"><p>Safely destroys a broadcast variable, logging but swallowing any
+exception.</p><p>Intended for use inside <code>finally</code> blocks where a cleanup failure must not
+mask the original exception propagating out of the <code>try</code> block. Tolerates
+a null broadcast.
+</p></div><dl class="paramcmts block"><dt class="param">broadcast</dt><dd class="cmt"><p>
+  the broadcast to destroy; may be null</p></dd></dl><dl class="attributes block"> <dt>Attributes</dt><dd>protected </dd><dt>Definition Classes</dt><dd><a href="AriadneContextUser.html" class="extype" name="dev.cjfravel.ariadne.AriadneContextUser">AriadneContextUser</a></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.Index#schema" visbl="pub" class="indented0 " data-isabs="false" fullComment="no" group="Ungrouped">
       <a id="schema:Option[org.apache.spark.sql.types.StructType]"></a><a id="schema:Option[StructType]"></a>
       <span class="permalink">
