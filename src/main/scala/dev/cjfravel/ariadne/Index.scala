@@ -897,64 +897,70 @@ case class Index private (
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
     try {
-      // Backfill file_size for existing index rows that don't have it
+      // Ensure legacy indexes have the file_size column before backfilling.
+      // Indexes created before ariadne introduced file_size (alpha-45) have no
+      // file_size column in their Delta schema at all. Delta MERGE schema
+      // evolution only adds new columns for star (updateAll/insertAll) actions,
+      // not for a named `update(Map("file_size" -> ...))`, so the column must
+      // be added explicitly first. This is a metadata-only change that sets
+      // file_size to null for all existing rows; the merge below populates it.
       delta(indexFilePath).foreach { dt =>
-        val indexDf = dt.toDF
-        if (
-          !indexDf.columns.contains("file_size") || indexDf
-            .where(col("file_size").isNull)
-            .limit(1)
-            .count() > 0
-        ) {
-          val nullSizeFiles = if (indexDf.columns.contains("file_size")) {
-            indexDf
-              .where(col("file_size").isNull)
-              .select("filename")
-              .collect()
-              .map(_.getString(0))
-              .toSet
-          } else {
-            indexDf.select("filename").collect().map(_.getString(0)).toSet
-          }
-          if (nullSizeFiles.nonEmpty) {
-            logger.warn(
-              s"Backfilling file sizes for ${nullSizeFiles.size} files"
+        if (!dt.toDF.columns.contains("file_size")) {
+          logger.warn(
+            s"Index '$name' predates file_size tracking; adding file_size column to its schema"
+          )
+          spark.sql(
+            s"ALTER TABLE delta.`${indexFilePath.toString}` ADD COLUMNS (file_size BIGINT)"
+          )
+        }
+      }
+
+      // Backfill file_size for index rows that don't have it yet. The Delta
+      // table is re-fetched here so the snapshot reflects any schema change
+      // applied above.
+      delta(indexFilePath).foreach { dt =>
+        val nullSizeFiles = dt.toDF
+          .where(col("file_size").isNull)
+          .select("filename")
+          .collect()
+          .map(_.getString(0))
+          .toSet
+        if (nullSizeFiles.nonEmpty) {
+          logger.warn(
+            s"Backfilling file sizes for ${nullSizeFiles.size} files"
+          )
+          val sizes = getFileSizes(nullSizeFiles)
+          val sizesBroadcast = spark.sparkContext.broadcast(sizes)
+          try {
+            val sizeUdf = udf((filename: String) =>
+              sizesBroadcast.value.getOrElse(filename, 0L)
             )
-            val sizes = getFileSizes(nullSizeFiles)
-            val sizesBroadcast = spark.sparkContext.broadcast(sizes)
-            try {
-              val sizeUdf = udf((filename: String) =>
-                sizesBroadcast.value.getOrElse(filename, 0L)
+
+            import spark.implicits._
+            val updateDf = nullSizeFiles.toSeq
+              .toDF("filename")
+              .withColumn("file_size", sizeUdf(col("filename")))
+
+            dt.as("target")
+              .merge(
+                updateDf.as("source"),
+                "target.filename = source.filename"
               )
+              .whenMatched()
+              .update(Map("file_size" -> col("source.file_size")))
+              .execute()
 
-              import spark.implicits._
-              val updateDf = nullSizeFiles.toSeq
-                .toDF("filename")
-                .withColumn("file_size", sizeUdf(col("filename")))
-
-              // Delta 3.2+: per-merge schema evolution; no shared session config.
-              dt.as("target")
-                .merge(
-                  updateDf.as("source"),
-                  "target.filename = source.filename"
-                )
-                .withSchemaEvolution()
-                .whenMatched()
-                .update(Map("file_size" -> col("source.file_size")))
-                .execute()
-
-              // Update total from the full index table
-              val totalResult = dt.toDF.agg(sum("file_size")).head()
-              metadata.total_indexed_file_size =
-                if (totalResult.isNullAt(0)) 0L else totalResult.getLong(0)
-              writeMetadata(metadata)
-            } finally {
-              safeDestroyBroadcast(sizesBroadcast)
-            }
-            logger.warn(
-              s"Backfilled file sizes for ${nullSizeFiles.size} files"
-            )
+            // Update total from the full index table
+            val totalResult = dt.toDF.agg(sum("file_size")).head()
+            metadata.total_indexed_file_size =
+              if (totalResult.isNullAt(0)) 0L else totalResult.getLong(0)
+            writeMetadata(metadata)
+          } finally {
+            safeDestroyBroadcast(sizesBroadcast)
           }
+          logger.warn(
+            s"Backfilled file sizes for ${nullSizeFiles.size} files"
+          )
         }
       }
 
