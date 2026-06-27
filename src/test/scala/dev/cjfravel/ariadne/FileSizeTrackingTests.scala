@@ -175,4 +175,54 @@ class FileSizeTrackingTests extends SparkTests with Matchers {
     val finalMetadata = readMetadataFromDisk("filesize_backfill")
     finalMetadata.total_indexed_file_size.toLong should be > 0L
   }
+
+  test("should backfill file_size when column is absent from schema") {
+    val csvOptions = Map("header" -> "true")
+    val index = Index("filesize_absent", table1Schema, "csv", csvOptions)
+    val path0 = resourcePath("/data/table1_part0.csv")
+    val path1 = resourcePath("/data/table1_part1.csv")
+    index.addFile(path0, path1)
+    index.addIndex("Id")
+    index.update
+
+    // Capture the expected total before simulating a legacy index.
+    val originalDf =
+      spark.read.format("delta").load(indexPath("filesize_absent"))
+    originalDf.columns should contain("file_size")
+    val expectedTotal = originalDf.agg(sum("file_size")).head().getLong(0)
+    expectedTotal should be > 0L
+
+    // Simulate an alpha-45-era index by rewriting the Delta table WITHOUT the
+    // file_size column entirely (not merely null), so the column is absent from
+    // the schema. This is the real legacy migration case that requires schema
+    // evolution, which a named Delta MERGE update does not provide.
+    originalDf
+      .drop("file_size")
+      .write
+      .format("delta")
+      .option("overwriteSchema", "true")
+      .mode("overwrite")
+      .save(indexPath("filesize_absent"))
+
+    val legacyDf = spark.read.format("delta").load(indexPath("filesize_absent"))
+    legacyDf.columns should not contain "file_size"
+
+    // Reset metadata total to -1 (legacy indexes had no total_indexed_file_size).
+    val metadata = readMetadataFromDisk("filesize_absent")
+    metadata.total_indexed_file_size = -1L
+    writeMetadataToDisk("filesize_absent", metadata)
+
+    // Reload and update — must add the column and backfill without a rebuild.
+    val reloaded = Index("filesize_absent", table1Schema, "csv", csvOptions)
+    reloaded.update
+
+    val migratedDf =
+      spark.read.format("delta").load(indexPath("filesize_absent"))
+    migratedDf.columns should contain("file_size")
+    migratedDf.where(col("file_size").isNull).count() shouldBe 0L
+    migratedDf.agg(sum("file_size")).head().getLong(0) shouldBe expectedTotal
+
+    val finalMetadata = readMetadataFromDisk("filesize_absent")
+    finalMetadata.total_indexed_file_size.toLong shouldBe expectedTotal
+  }
 }

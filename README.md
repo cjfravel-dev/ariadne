@@ -19,7 +19,7 @@
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne-spark35_2.12</artifactId>
-    <version>0.1.2-beta</version>
+    <version>0.1.3-beta</version>
 </dependency>
 ```
 
