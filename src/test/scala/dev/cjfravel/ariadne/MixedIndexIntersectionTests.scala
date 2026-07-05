@@ -1,22 +1,20 @@
 package dev.cjfravel.ariadne
 
-import org.scalatest.matchers.should.Matchers
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.Row
+import org.scalatest.matchers.should.Matchers
 
-/** Tests for intersection of heterogeneous index types (regular and bloom
-  * filter), verifying AND semantics when locating files across mixed index
-  * columns.
-  */
+/**
+ * Tests for intersection of heterogeneous index types (regular and bloom filter), verifying AND semantics when locating
+ * files across mixed index columns.
+ */
 class MixedIndexIntersectionTests extends SparkTests with Matchers {
 
-  val testSchema = StructType(
-    Seq(
-      StructField("id", IntegerType, nullable = false),
-      StructField("category", StringType, nullable = false),
-      StructField("value", DoubleType, nullable = false)
-    )
-  )
+  val testSchema =
+    StructType(
+      Seq(
+        StructField("id", IntegerType, nullable = false),
+        StructField("category", StringType, nullable = false),
+        StructField("value", DoubleType, nullable = false)))
 
   test("should intersect regular and bloom indexes correctly (AND semantics)") {
     val indexName = "mixed_index_intersect"
@@ -49,7 +47,8 @@ class MixedIndexIntersectionTests extends SparkTests with Matchers {
     // Expected: Empty set
     // Bug: If bloom filter returns empty set (no match), it might be ignored, and regular index (id=1) returns path1.
 
-    // We need to use locateFilesFromDataFrame logic, which is used by join() or can be called directly if we expose it or use locateFiles
+    // We need to use locateFilesFromDataFrame logic, which is used by join() or can be called
+    // directly if we expose it or use locateFiles
     // locateFiles maps to locateFilesFromDataFrame internally? No, locateFiles maps to locateFilesRegular usually.
     // Let's check Index.scala locateFiles.
 

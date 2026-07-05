@@ -1,44 +1,30 @@
 package dev.cjfravel.ariadne
-
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatest.matchers.should.Matchers
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.functions._
-import org.apache.spark.sql.Row
-import java.nio.file.Files
+import org.scalatest.matchers.should.Matchers
 
-/** Tests for file I/O operations on indexes, covering CSV and JSON formats with
-  * various read options (multiLine, headers, delimiters) and schema
-  * round-trips.
-  */
+/**
+ * Tests for file I/O operations on indexes, covering CSV and JSON formats with various read options (multiLine,
+ * headers, delimiters) and schema round-trips.
+ */
 class IndexFileOperationsTests extends SparkTests with Matchers {
 
-  val csvSchema = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Version", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false)
-    )
-  )
+  val csvSchema =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Version", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false)))
 
-  val jsonSchema = StructType(
-    Seq(
-      StructField("event_id", StringType, nullable = true),
-      StructField("event_type", StringType, nullable = true),
-      StructField(
-        "users",
-        ArrayType(
-          StructType(
-            Seq(
-              StructField("id", LongType, nullable = true),
-              StructField("name", StringType, nullable = true)
-            )
-          )
-        ),
-        nullable = true
-      )
-    )
-  )
+  val jsonSchema =
+    StructType(
+      Seq(
+        StructField("event_id", StringType, nullable = true),
+        StructField("event_type", StringType, nullable = true),
+        StructField(
+          "users",
+          ArrayType(StructType(
+            Seq(StructField("id", LongType, nullable = true), StructField("name", StringType, nullable = true)))),
+          nullable = true)))
 
   test("storedSchema should return correct schema") {
     val index = Index("file_ops_schema_test", csvSchema, "csv")
@@ -96,23 +82,15 @@ class IndexFileOperationsTests extends SparkTests with Matchers {
 
   test("should apply exploded field transformations correctly") {
     // Test exploded field functionality with existing JSON test file
-    val explodedSchema = StructType(
-      Seq(
-        StructField("event_id", StringType, nullable = true),
-        StructField(
-          "users",
-          ArrayType(
-            StructType(
-              Seq(
-                StructField("id", LongType, nullable = true),
-                StructField("name", StringType, nullable = true)
-              )
-            )
-          ),
-          nullable = true
-        )
-      )
-    )
+    val explodedSchema =
+      StructType(
+        Seq(
+          StructField("event_id", StringType, nullable = true),
+          StructField(
+            "users",
+            ArrayType(StructType(
+              Seq(StructField("id", LongType, nullable = true), StructField("name", StringType, nullable = true)))),
+            nullable = true)))
 
     val readOptions = Map("multiLine" -> "true")
     val index =
@@ -161,12 +139,7 @@ class IndexFileOperationsTests extends SparkTests with Matchers {
   }
 
   test("should handle read options correctly") {
-    val customOptions = Map(
-      "header" -> "true",
-      "delimiter" -> ",",
-      "quote" -> "\"",
-      "escape" -> "\\"
-    )
+    val customOptions = Map("header" -> "true", "delimiter" -> ",", "quote" -> "\"", "escape" -> "\\")
 
     val index = Index("read_options_test", csvSchema, "csv", customOptions)
 
@@ -176,48 +149,26 @@ class IndexFileOperationsTests extends SparkTests with Matchers {
   }
 
   test("should combine computed indexes and exploded fields") {
-    val combinedSchema = StructType(
-      Seq(
-        StructField("event_id", StringType, nullable = true),
-        StructField("priority", IntegerType, nullable = true),
-        StructField(
-          "users",
-          ArrayType(
-            StructType(
-              Seq(
-                StructField("id", LongType, nullable = true),
-                StructField("role", StringType, nullable = true)
-              )
-            )
-          ),
-          nullable = true
-        )
-      )
-    )
+    val combinedSchema =
+      StructType(
+        Seq(
+          StructField("event_id", StringType, nullable = true),
+          StructField("priority", IntegerType, nullable = true),
+          StructField(
+            "users",
+            ArrayType(StructType(
+              Seq(StructField("id", LongType, nullable = true), StructField("role", StringType, nullable = true)))),
+            nullable = true)))
 
     // Create test data
-    val testData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
-        Seq(
-          org.apache.spark.sql.Row(
-            "evt1",
-            1,
-            Array(
-              org.apache.spark.sql.Row(100L, "admin"),
-              org.apache.spark.sql.Row(101L, "user")
-            )
-          ),
-          org.apache.spark.sql.Row(
-            "evt2",
-            2,
-            Array(
-              org.apache.spark.sql.Row(102L, "user")
-            )
-          )
-        )
-      ),
-      combinedSchema
-    )
+    val testData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(
+          Seq(
+            org.apache.spark.sql
+              .Row("evt1", 1, Array(org.apache.spark.sql.Row(100L, "admin"), org.apache.spark.sql.Row(101L, "user"))),
+            org.apache.spark.sql.Row("evt2", 2, Array(org.apache.spark.sql.Row(102L, "user"))))),
+        combinedSchema)
 
     // Write test data
     val tempPath =
@@ -229,10 +180,7 @@ class IndexFileOperationsTests extends SparkTests with Matchers {
       val index = Index("combined_test", combinedSchema, "json", readOptions)
 
       index.addFile(tempPath)
-      index.addComputedIndex(
-        "high_priority",
-        "case when priority > 1 then 'high' else 'low' end"
-      )
+      index.addComputedIndex("high_priority", "case when priority > 1 then 'high' else 'low' end")
       index.addExplodedFieldIndex("users", "id", "user_id")
       index.update
 
@@ -250,8 +198,9 @@ class IndexFileOperationsTests extends SparkTests with Matchers {
 
     } finally {
       // Clean up
-      val fs = org.apache.hadoop.fs.FileSystem
-        .get(spark.sparkContext.hadoopConfiguration)
+      val fs =
+        org.apache.hadoop.fs.FileSystem
+          .get(spark.sparkContext.hadoopConfiguration)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath), true)
     }
   }

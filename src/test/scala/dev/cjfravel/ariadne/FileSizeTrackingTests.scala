@@ -1,29 +1,29 @@
 package dev.cjfravel.ariadne
 
-import org.scalatest.matchers.should.Matchers
-import org.apache.spark.sql.types._
-import org.apache.spark.sql.functions._
-import scala.io.Source
 import java.nio.charset.StandardCharsets
 
-/** Tests for file size tracking, verifying that `file_size` is stored in the
-  * index table during `update` and accessible via index metadata.
-  */
+import scala.io.Source
+
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types._
+import org.scalatest.matchers.should.Matchers
+
+/**
+ * Tests for file size tracking, verifying that `file_size` is stored in the index table during `update` and accessible
+ * via index metadata.
+ */
 class FileSizeTrackingTests extends SparkTests with Matchers {
 
-  val table1Schema = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Version", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false)
-    )
-  )
+  val table1Schema =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Version", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false)))
 
   /** Reads metadata from disk for the given index name. */
   private def readMetadataFromDisk(indexName: String): IndexMetadata = {
-    val metadataPath = new org.apache.hadoop.fs.Path(
-      tempDir.toString + "/indexes/" + indexName + "/metadata.json"
-    )
+    val metadataPath = new org.apache.hadoop.fs.Path(tempDir.toString + "/indexes/" + indexName + "/metadata.json")
     val fs = metadataPath.getFileSystem(spark.sparkContext.hadoopConfiguration)
     val inputStream = fs.open(metadataPath)
     val jsonString =
@@ -33,13 +33,8 @@ class FileSizeTrackingTests extends SparkTests with Matchers {
   }
 
   /** Writes metadata to disk for the given index name. */
-  private def writeMetadataToDisk(
-      indexName: String,
-      metadata: IndexMetadata
-  ): Unit = {
-    val metadataPath = new org.apache.hadoop.fs.Path(
-      tempDir.toString + "/indexes/" + indexName + "/metadata.json"
-    )
+  private def writeMetadataToDisk(indexName: String, metadata: IndexMetadata): Unit = {
+    val metadataPath = new org.apache.hadoop.fs.Path(tempDir.toString + "/indexes/" + indexName + "/metadata.json")
     val fs = metadataPath.getFileSystem(spark.sparkContext.hadoopConfiguration)
     val jsonString = new com.google.gson.Gson().toJson(metadata)
     val outputStream = fs.create(metadataPath, true)
@@ -106,18 +101,19 @@ class FileSizeTrackingTests extends SparkTests with Matchers {
 
     // Get size of file being deleted
     val indexDf = spark.read.format("delta").load(indexPath("filesize_delete"))
-    val file0Size = indexDf
-      .where(col("filename") === path0)
-      .select("file_size")
-      .head()
-      .getLong(0)
+    val file0Size =
+      indexDf
+        .where(col("filename") === path0)
+        .select("file_size")
+        .head()
+        .getLong(0)
     file0Size should be > 0L
 
     index.deleteFiles(path0)
 
     val metadataAfter = readMetadataFromDisk("filesize_delete")
     val totalAfter = metadataAfter.total_indexed_file_size.toLong
-    totalAfter shouldBe (totalBefore - file0Size)
+    totalAfter shouldBe totalBefore - file0Size
     totalAfter should be > 0L
   }
 
@@ -139,11 +135,12 @@ class FileSizeTrackingTests extends SparkTests with Matchers {
     // Simulate old index by nulling out file_size via Delta merge
     import io.delta.tables.DeltaTable
     val dt = DeltaTable.forPath(spark, indexPath("filesize_backfill"))
-    val allFiles = spark.read
-      .format("delta")
-      .load(indexPath("filesize_backfill"))
-      .select("filename")
-      .distinct()
+    val allFiles =
+      spark.read
+        .format("delta")
+        .load(indexPath("filesize_backfill"))
+        .select("filename")
+        .distinct()
     dt.as("target")
       .merge(allFiles.as("source"), "target.filename = source.filename")
       .whenMatched()

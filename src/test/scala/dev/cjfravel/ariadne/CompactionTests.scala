@@ -1,20 +1,19 @@
 package dev.cjfravel.ariadne
 
-import org.scalatest.matchers.should.Matchers
 import org.apache.spark.sql.types._
+import org.scalatest.matchers.should.Matchers
 
-/** Tests for `compact` and `vacuum` operations on the main index and large
-  * index Delta tables.
-  */
+/**
+ * Tests for `compact` and `vacuum` operations on the main index and large index Delta tables.
+ */
 class CompactionTests extends SparkTests with Matchers {
 
-  val testSchema: StructType = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Version", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false)
-    )
-  )
+  val testSchema: StructType =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Version", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false)))
 
   val csvOptions: Map[String, String] = Map("header" -> "true")
 

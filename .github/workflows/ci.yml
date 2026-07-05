@@ -26,6 +26,9 @@ jobs:
           java-version: 11
           cache: maven
 
+      - name: Check Scala formatting (scalafmt)
+        run: mvn -B validate -Dgpg.skip=true
+
       - name: Build and test with coverage
         run: mvn verify scoverage:report -Dgpg.skip=true -B -q
 

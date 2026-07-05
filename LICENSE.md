@@ -9,3 +9,10 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 2. **SaaS Provision**: If you use this software to provide a Software-as-a-Service (SaaS) offering, you must provide access to the source code of the modified version of the Software that you are using in your service, under the terms of this license. The access must be provided within a reasonable time, but no later than 30 days, and the access method should be publicly documented.
 
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+---
+
+## Third-party components
+
+This repository includes one file that is **not** covered by the license above:
+
+- **`scalastyle-config.xml`** is derived from [Apache Spark](https://github.com/apache/spark) and is licensed under the [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0). The full license grant is retained in the file's header. It is a build-time static-analysis configuration and is not included in the published library artifacts.
