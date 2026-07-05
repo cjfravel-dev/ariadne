@@ -1,8 +1,9 @@
 package dev.cjfravel.ariadne
 
-/** Tests for [[FileList]] covering file addition (single and batch), existence
-  * checks, and removal from the tracked file list.
-  */
+/**
+ * Tests for [[FileList]] covering file addition (single and batch), existence checks, and removal from the tracked file
+ * list.
+ */
 class FileListTests extends SparkTests {
   test("addFile") {
     val filelist = FileList("test")
@@ -14,10 +15,7 @@ class FileListTests extends SparkTests {
 
   test("addFile(s)") {
     val filelist = FileList("test2")
-    val paths = Array(
-      resourcePath("/data/table1_part0.csv"),
-      resourcePath("/data/table1_part1.csv")
-    )
+    val paths = Array(resourcePath("/data/table1_part0.csv"), resourcePath("/data/table1_part1.csv"))
     paths.foreach(path => assert(filelist.hasFile(path) === false))
     filelist.addFile(paths: _*)
     paths.foreach(path => assert(filelist.hasFile(path) === true))

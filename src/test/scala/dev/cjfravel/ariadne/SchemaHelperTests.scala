@@ -1,29 +1,21 @@
 package dev.cjfravel.ariadne
 
 import org.apache.spark.sql.types._
-
 import org.scalatest.funsuite.AnyFunSuite
 
-/** Tests for [[SchemaHelper]] verifying field lookup in flat and nested
-  * schemas.
-  */
+/**
+ * Tests for [[SchemaHelper]] verifying field lookup in flat and nested schemas.
+ */
 class SchemaHelperTests extends AnyFunSuite {
-  val schema = StructType(
-    Seq(
-      StructField("id", IntegerType, true),
-      StructField("name", StringType, true),
-      StructField(
-        "address",
-        StructType(
-          Seq(
-            StructField("street", StringType, true),
-            StructField("city", StringType, true)
-          )
-        ),
-        true
-      )
-    )
-  )
+  val schema =
+    StructType(
+      Seq(
+        StructField("id", IntegerType, true),
+        StructField("name", StringType, true),
+        StructField(
+          "address",
+          StructType(Seq(StructField("street", StringType, true), StructField("city", StringType, true))),
+          true)))
 
   test("schema contains") {
     assert(SchemaHelper.fieldExists(schema, "id") === true)

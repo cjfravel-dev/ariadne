@@ -3,43 +3,34 @@ package dev.cjfravel.ariadne
 import dev.cjfravel.ariadne.exceptions.IndexNotFoundException
 import org.apache.spark.sql.types._
 
-/** Tests for [[IndexCatalog]] covering discovery, inspection, retrieval,
-  * DataFrame conversion, and removal of indexes from the catalog.
-  */
+/**
+ * Tests for [[IndexCatalog]] covering discovery, inspection, retrieval, DataFrame conversion, and removal of indexes
+ * from the catalog.
+ */
 class IndexCatalogTests extends SparkTests {
 
-  val schema1 = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Version", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false)
-    )
-  )
+  val schema1 =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Version", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false)))
 
-  val schema2 = StructType(
-    Seq(
-      StructField("UserId", StringType, nullable = false),
-      StructField("Status", StringType, nullable = false),
-      StructField("UpdatedAt", TimestampType, nullable = false)
-    )
-  )
+  val schema2 =
+    StructType(
+      Seq(
+        StructField("UserId", StringType, nullable = false),
+        StructField("Status", StringType, nullable = false),
+        StructField("UpdatedAt", TimestampType, nullable = false)))
 
-  val schemaWithArray = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField(
-        "Tags",
-        ArrayType(
-          StructType(
-            Seq(
-              StructField("name", StringType, nullable = false)
-            )
-          )
-        ),
-        nullable = false
-      )
-    )
-  )
+  val schemaWithArray =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField(
+          "Tags",
+          ArrayType(StructType(Seq(StructField("name", StringType, nullable = false)))),
+          nullable = false)))
 
   // --- list ---
 
@@ -150,9 +141,7 @@ class IndexCatalogTests extends SparkTests {
     assert(summary.columns.contains("Version"))
   }
 
-  test(
-    "describe returns correct summary for index with exploded field indexes"
-  ) {
+  test("describe returns correct summary for index with exploded field indexes") {
     val index = Index("catalog_desc_exploded", schemaWithArray, "parquet")
     index.addExplodedFieldIndex("Tags", "name", "tag_name")
 
@@ -294,18 +283,18 @@ class IndexCatalogTests extends SparkTests {
     Index("catalog_df_schema", schema1, "parquet")
 
     val df = IndexCatalog.toDF()
-    val expectedColumns = Set(
-      "name",
-      "format",
-      "regular_indexes",
-      "bloom_indexes",
-      "computed_indexes",
-      "temporal_indexes",
-      "range_indexes",
-      "exploded_field_indexes",
-      "file_count",
-      "total_indexed_file_size"
-    )
+    val expectedColumns =
+      Set(
+        "name",
+        "format",
+        "regular_indexes",
+        "bloom_indexes",
+        "computed_indexes",
+        "temporal_indexes",
+        "range_indexes",
+        "exploded_field_indexes",
+        "file_count",
+        "total_indexed_file_size")
     assert(df.columns.toSet == expectedColumns)
   }
 

@@ -1,25 +1,20 @@
 package dev.cjfravel.ariadne
-
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatest.matchers.should.Matchers
-import org.apache.spark.sql.types._
 import dev.cjfravel.ariadne.exceptions._
-import java.util
-import java.util.Collections
+import org.apache.spark.sql.types._
+import org.scalatest.matchers.should.Matchers
 
-/** Tests for [[IndexMetadataOperations]] covering metadata read/write
-  * round-trips, format handling, schema storage, and configuration of regular,
-  * exploded, and computed indexes.
-  */
+/**
+ * Tests for [[IndexMetadataOperations]] covering metadata read/write round-trips, format handling, schema storage, and
+ * configuration of regular, exploded, and computed indexes.
+ */
 class IndexMetadataOperationsTests extends SparkTests with Matchers {
 
-  val testSchema = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Name", StringType, nullable = false),
-      StructField("Value", DoubleType, nullable = false)
-    )
-  )
+  val testSchema =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Name", StringType, nullable = false),
+        StructField("Value", DoubleType, nullable = false)))
 
   test("format property should work correctly") {
     val testIndex = Index("format_test", testSchema, "csv")
@@ -38,27 +33,21 @@ class IndexMetadataOperationsTests extends SparkTests with Matchers {
 
     testIndex.indexes should contain("Id")
     testIndex.indexes should contain("Name")
-    testIndex.indexes should not contain ("Value")
+    testIndex.indexes should not contain "Value"
   }
 
   test("metadata should handle exploded field indexes") {
-    val arraySchema = StructType(
-      Seq(
-        StructField("Id", IntegerType, nullable = false),
-        StructField(
-          "users",
-          ArrayType(
-            StructType(
-              Seq(
+    val arraySchema =
+      StructType(
+        Seq(
+          StructField("Id", IntegerType, nullable = false),
+          StructField(
+            "users",
+            ArrayType(
+              StructType(Seq(
                 StructField("id", IntegerType, nullable = false),
-                StructField("name", StringType, nullable = false)
-              )
-            )
-          ),
-          nullable = false
-        )
-      )
-    )
+                StructField("name", StringType, nullable = false)))),
+            nullable = false)))
 
     val testIndex = Index("exploded_test", arraySchema, "csv")
     testIndex.addIndex("Id")
@@ -119,33 +108,29 @@ class IndexMetadataOperationsTests extends SparkTests with Matchers {
 
   test("metadata format validation should work") {
     val indexName = "format_validation_test"
-    val index1 = Index(indexName, testSchema, "csv")
+    Index(indexName, testSchema, "csv")
 
     // Should throw exception when trying to use different format
     assertThrows[FormatMismatchException] {
-      val index2 = Index(indexName, testSchema, "parquet")
+      Index(indexName, testSchema, "parquet")
     }
   }
 
   test("metadata schema validation should work") {
     val indexName = "schema_validation_test"
-    val index1 = Index(indexName, testSchema, "csv")
+    Index(indexName, testSchema, "csv")
 
-    val differentSchema = StructType(
-      Seq(
-        StructField("DifferentField", StringType, nullable = false)
-      )
-    )
+    val differentSchema = StructType(Seq(StructField("DifferentField", StringType, nullable = false)))
 
     // Should throw exception when trying to use different schema
     assertThrows[SchemaMismatchException] {
-      val index2 = Index(indexName, differentSchema, "csv")
+      Index(indexName, differentSchema, "csv")
     }
   }
 
   test("metadata should require schema for new index") {
     assertThrows[SchemaNotProvidedException] {
-      val index = Index("no_schema_test")
+      Index("no_schema_test")
     }
   }
 
@@ -154,12 +139,9 @@ class IndexMetadataOperationsTests extends SparkTests with Matchers {
     val index1 = Index(indexName, testSchema, "csv")
     index1.addIndex("Id")
 
-    val newSchema = StructType(
-      Seq(
-        StructField("Id", IntegerType, nullable = false),
-        StructField("NewField", StringType, nullable = false)
-      )
-    )
+    val newSchema =
+      StructType(
+        Seq(StructField("Id", IntegerType, nullable = false), StructField("NewField", StringType, nullable = false)))
 
     // Should work with allowSchemaMismatch = true
     val index2 = Index(indexName, newSchema, "csv", true)

@@ -1,26 +1,23 @@
 package dev.cjfravel.ariadne
 
 import dev.cjfravel.ariadne.exceptions.ColumnNotFoundException
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatest.matchers.should.Matchers
-import org.apache.spark.sql.types._
-import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.types._
+import org.scalatest.matchers.should.Matchers
 
-/** Tests for [[BloomFilterOperations]] covering bloom filter index creation,
-  * custom false-positive-rate validation, and bloom-filter-based file location
-  * queries.
-  */
+/**
+ * Tests for [[BloomFilterOperations]] covering bloom filter index creation, custom false-positive-rate validation, and
+ * bloom-filter-based file location queries.
+ */
 class BloomFilterOperationsTests extends SparkTests with Matchers {
 
-  val testSchema = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("UserId", LongType, nullable = false),
-      StructField("Category", StringType, nullable = false),
-      StructField("Value", DoubleType, nullable = false)
-    )
-  )
+  val testSchema =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("UserId", LongType, nullable = false),
+        StructField("Category", StringType, nullable = false),
+        StructField("Value", DoubleType, nullable = false)))
 
   test("addBloomIndex should add a bloom index configuration") {
     val index =
@@ -41,12 +38,7 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
   }
 
   test("addBloomIndex should reject FPR outside valid range") {
-    val index = Index(
-      "bloom_invalid_fpr_test",
-      testSchema,
-      "csv",
-      Map("header" -> "true")
-    )
+    val index = Index("bloom_invalid_fpr_test", testSchema, "csv", Map("header" -> "true"))
 
     an[IllegalArgumentException] should be thrownBy {
       index.addBloomIndex("UserId", fpr = 0.0)
@@ -62,12 +54,7 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
   }
 
   test("addBloomIndex should reject non-existent columns") {
-    val index = Index(
-      "bloom_nonexistent_test",
-      testSchema,
-      "csv",
-      Map("header" -> "true")
-    )
+    val index = Index("bloom_nonexistent_test", testSchema, "csv", Map("header" -> "true"))
 
     a[ColumnNotFoundException] should be thrownBy {
       index.addBloomIndex("NonExistentColumn")
@@ -131,12 +118,7 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
   }
 
   test("bloom filter should return empty for definitely non-existent values") {
-    val index = Index(
-      "bloom_nonexistent_value_test",
-      testSchema,
-      "csv",
-      Map("header" -> "true")
-    )
+    val index = Index("bloom_nonexistent_value_test", testSchema, "csv", Map("header" -> "true"))
 
     val csvPath = resourcePath("/data/table1_part0.csv")
     index.addFile(csvPath)
@@ -146,7 +128,7 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
     // Query for values that definitely don't exist
     // Note: Due to false positives, this might occasionally return files
     // But with small data and high cardinality values, it should be empty
-    val files = index.locateFiles(Map("Id" -> Array(999999, 888888)))
+    index.locateFiles(Map("Id" -> Array(999999, 888888)))
     // We can't guarantee empty due to FPR, but this tests the code path
   }
 
@@ -175,17 +157,10 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
     index.update
 
     // Create a query DataFrame
-    val queryData = Seq(
-      Row(1),
-      Row(2),
-      Row(3)
-    )
+    val queryData = Seq(Row(1), Row(2), Row(3))
     val querySchema =
       StructType(Seq(StructField("Id", IntegerType, nullable = false)))
-    val queryDf = spark.createDataFrame(
-      spark.sparkContext.parallelize(queryData),
-      querySchema
-    )
+    val queryDf = spark.createDataFrame(spark.sparkContext.parallelize(queryData), querySchema)
 
     // Join should work
     val result = index.join(queryDf, Seq("Id"), "inner")
@@ -194,14 +169,9 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
 
   test("should handle multiple bloom indexes") {
     // Create test data with multiple columns
-    val multiColData = (1 to 100).map { i =>
-      Row(i, i.toLong * 1000, s"category_${i % 5}", i.toDouble)
-    }
+    val multiColData = (1 to 100).map(i => Row(i, i.toLong * 1000, s"category_${i % 5}", i.toDouble))
 
-    val df = spark.createDataFrame(
-      spark.sparkContext.parallelize(multiColData),
-      testSchema
-    )
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(multiColData), testSchema)
 
     val tempPath =
       s"${System.getProperty("java.io.tmpdir")}/bloom_multi_test_${System.currentTimeMillis()}"
@@ -212,20 +182,16 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
       .csv(tempPath)
 
     try {
-      val fileName = java.nio.file.Files
-        .walk(java.nio.file.Paths.get(tempPath))
-        .filter(java.nio.file.Files.isRegularFile(_))
-        .filter(_.getFileName.toString.endsWith(".csv"))
-        .findFirst()
-        .get()
-        .toString
+      val fileName =
+        java.nio.file.Files
+          .walk(java.nio.file.Paths.get(tempPath))
+          .filter(java.nio.file.Files.isRegularFile(_))
+          .filter(_.getFileName.toString.endsWith(".csv"))
+          .findFirst()
+          .get()
+          .toString
 
-      val index = Index(
-        "bloom_multi_col_test",
-        testSchema,
-        "csv",
-        Map("header" -> "true")
-      )
+      val index = Index("bloom_multi_col_test", testSchema, "csv", Map("header" -> "true"))
       index.addFile("file://" + fileName)
       index.addBloomIndex("Id")
       index.addBloomIndex("UserId", fpr = 0.001)
@@ -243,22 +209,18 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
       files2 should not be empty
 
     } finally {
-      val fs = org.apache.hadoop.fs.FileSystem
-        .get(spark.sparkContext.hadoopConfiguration)
+      val fs =
+        org.apache.hadoop.fs.FileSystem
+          .get(spark.sparkContext.hadoopConfiguration)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath), true)
     }
   }
 
   test("bloom filter should have acceptable false positive rate") {
     // Create test data with known values
-    val testData = (1 to 1000).map { i =>
-      Row(i, i.toLong * 1000, s"category_${i % 5}", i.toDouble)
-    }
+    val testData = (1 to 1000).map(i => Row(i, i.toLong * 1000, s"category_${i % 5}", i.toDouble))
 
-    val df = spark.createDataFrame(
-      spark.sparkContext.parallelize(testData),
-      testSchema
-    )
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(testData), testSchema)
 
     val tempPath =
       s"${System.getProperty("java.io.tmpdir")}/bloom_fpr_empirical_test_${System.currentTimeMillis()}"
@@ -269,20 +231,16 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
       .csv(tempPath)
 
     try {
-      val fileName = java.nio.file.Files
-        .walk(java.nio.file.Paths.get(tempPath))
-        .filter(java.nio.file.Files.isRegularFile(_))
-        .filter(_.getFileName.toString.endsWith(".csv"))
-        .findFirst()
-        .get()
-        .toString
+      val fileName =
+        java.nio.file.Files
+          .walk(java.nio.file.Paths.get(tempPath))
+          .filter(java.nio.file.Files.isRegularFile(_))
+          .filter(_.getFileName.toString.endsWith(".csv"))
+          .findFirst()
+          .get()
+          .toString
 
-      val index = Index(
-        "bloom_fpr_empirical_test",
-        testSchema,
-        "csv",
-        Map("header" -> "true")
-      )
+      val index = Index("bloom_fpr_empirical_test", testSchema, "csv", Map("header" -> "true"))
       index.addFile("file://" + fileName)
       index.addBloomIndex("Id", fpr = 0.01) // 1% FPR
       index.update
@@ -294,14 +252,13 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
       // Test with many values that don't exist
       // With 1% FPR and single file, we expect about 1% false positives
       val nonExistentValues = (10001 to 10100).toArray
-      val fpResults = index.locateFiles(
-        Map("Id" -> nonExistentValues.map(_.asInstanceOf[Any]))
-      )
+      index.locateFiles(Map("Id" -> nonExistentValues.map(_.asInstanceOf[Any])))
       // We can't guarantee exact FPR in tests, but verify the mechanism works
 
     } finally {
-      val fs = org.apache.hadoop.fs.FileSystem
-        .get(spark.sparkContext.hadoopConfiguration)
+      val fs =
+        org.apache.hadoop.fs.FileSystem
+          .get(spark.sparkContext.hadoopConfiguration)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath), true)
     }
   }

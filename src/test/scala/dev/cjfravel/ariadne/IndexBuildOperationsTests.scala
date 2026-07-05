@@ -1,42 +1,31 @@
 package dev.cjfravel.ariadne
-
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatest.matchers.should.Matchers
-import org.apache.spark.sql.types._
-import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.types._
+import org.scalatest.matchers.should.Matchers
 
-/** Tests for [[IndexBuildOperations]] verifying that regular and computed index
-  * columns are correctly built and persisted during the `update` workflow.
-  */
+/**
+ * Tests for [[IndexBuildOperations]] verifying that regular and computed index columns are correctly built and
+ * persisted during the `update` workflow.
+ */
 class IndexBuildOperationsTests extends SparkTests with Matchers {
 
-  val testSchema = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Version", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false)
-    )
-  )
+  val testSchema =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Version", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false)))
 
-  val arraySchema = StructType(
-    Seq(
-      StructField("event_id", StringType, nullable = true),
-      StructField(
-        "users",
-        ArrayType(
-          StructType(
-            Seq(
-              StructField("id", LongType, nullable = true),
-              StructField("name", StringType, nullable = true)
-            )
-          )
-        ),
-        nullable = true
-      ),
-      StructField("tags", ArrayType(StringType), nullable = true)
-    )
-  )
+  val arraySchema =
+    StructType(
+      Seq(
+        StructField("event_id", StringType, nullable = true),
+        StructField(
+          "users",
+          ArrayType(StructType(
+            Seq(StructField("id", LongType, nullable = true), StructField("name", StringType, nullable = true)))),
+          nullable = true),
+        StructField("tags", ArrayType(StringType), nullable = true)))
 
   test("should build regular indexes correctly") {
     val index =
@@ -84,34 +73,22 @@ class IndexBuildOperationsTests extends SparkTests with Matchers {
     // Test exploded field build operations without the problematic update call
     // The issue is with the underlying join ambiguity in production code, not our test setup
 
-    val explodedSchema = StructType(
-      Seq(
-        StructField("event_id", StringType, nullable = true),
-        StructField(
-          "participants",
-          ArrayType(
-            StructType(
-              Seq(
-                StructField("id", LongType, nullable = true),
-                StructField("name", StringType, nullable = true)
-              )
-            )
-          ),
-          nullable = true
-        )
-      )
-    )
+    val explodedSchema =
+      StructType(
+        Seq(
+          StructField("event_id", StringType, nullable = true),
+          StructField(
+            "participants",
+            ArrayType(StructType(
+              Seq(StructField("id", LongType, nullable = true), StructField("name", StringType, nullable = true)))),
+            nullable = true)))
 
     // Create test data with different column name to avoid conflicts
-    val testData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
-        Seq(
-          Row("evt1", Array(Row(100L, "Alice"), Row(101L, "Bob"))),
-          Row("evt2", Array(Row(102L, "Charlie")))
-        )
-      ),
-      explodedSchema
-    )
+    val testData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(
+          Seq(Row("evt1", Array(Row(100L, "Alice"), Row(101L, "Bob"))), Row("evt2", Array(Row(102L, "Charlie"))))),
+        explodedSchema)
 
     // Write test data
     val tempPath =
@@ -138,43 +115,34 @@ class IndexBuildOperationsTests extends SparkTests with Matchers {
 
     } finally {
       // Clean up
-      val fs = org.apache.hadoop.fs.FileSystem
-        .get(spark.sparkContext.hadoopConfiguration)
+      val fs =
+        org.apache.hadoop.fs.FileSystem
+          .get(spark.sparkContext.hadoopConfiguration)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath), true)
     }
   }
 
   test("should handle mixed index types correctly") {
     // Create test data with mixed content
-    val mixedSchema = StructType(
-      Seq(
-        StructField("event_id", StringType, nullable = true),
-        StructField("priority", IntegerType, nullable = true),
-        StructField(
-          "users",
-          ArrayType(
-            StructType(
-              Seq(
-                StructField("id", LongType, nullable = true),
-                StructField("role", StringType, nullable = true)
-              )
-            )
-          ),
-          nullable = true
-        )
-      )
-    )
-
-    val testData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
+    val mixedSchema =
+      StructType(
         Seq(
-          Row("evt1", 1, Array(Row(100L, "admin"), Row(101L, "user"))),
-          Row("evt2", 2, Array(Row(102L, "user"))),
-          Row("evt3", 3, Array(Row(100L, "admin")))
-        )
-      ),
-      mixedSchema
-    )
+          StructField("event_id", StringType, nullable = true),
+          StructField("priority", IntegerType, nullable = true),
+          StructField(
+            "users",
+            ArrayType(StructType(
+              Seq(StructField("id", LongType, nullable = true), StructField("role", StringType, nullable = true)))),
+            nullable = true)))
+
+    val testData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(
+          Seq(
+            Row("evt1", 1, Array(Row(100L, "admin"), Row(101L, "user"))),
+            Row("evt2", 2, Array(Row(102L, "user"))),
+            Row("evt3", 3, Array(Row(100L, "admin"))))),
+        mixedSchema)
 
     val tempPath =
       s"${System.getProperty("java.io.tmpdir")}/mixed_build_test_${System.currentTimeMillis()}"
@@ -188,10 +156,7 @@ class IndexBuildOperationsTests extends SparkTests with Matchers {
       // Regular index
       index.addIndex("event_id")
       // Computed index
-      index.addComputedIndex(
-        "priority_level",
-        "case when priority > 2 then 'high' else 'low' end"
-      )
+      index.addComputedIndex("priority_level", "case when priority > 2 then 'high' else 'low' end")
       // Exploded field index
       index.addExplodedFieldIndex("users", "id", "user_id")
       index.update
@@ -209,8 +174,9 @@ class IndexBuildOperationsTests extends SparkTests with Matchers {
       userFiles should not be empty
 
     } finally {
-      val fs = org.apache.hadoop.fs.FileSystem
-        .get(spark.sparkContext.hadoopConfiguration)
+      val fs =
+        org.apache.hadoop.fs.FileSystem
+          .get(spark.sparkContext.hadoopConfiguration)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath), true)
     }
   }
@@ -259,14 +225,12 @@ class IndexBuildOperationsTests extends SparkTests with Matchers {
     // The actual threshold is configurable via spark.ariadne.largeIndexLimit
 
     // Create data with many repeated values to potentially trigger large index handling
-    val largeData = (1 to 1000).map { i =>
-      Row(i % 10, i % 5, i.toDouble) // This creates many repeated values
-    }
+    val largeData =
+      (1 to 1000).map { i =>
+        Row(i % 10, i % 5, i.toDouble) // This creates many repeated values
+      }
 
-    val df = spark.createDataFrame(
-      spark.sparkContext.parallelize(largeData),
-      testSchema
-    )
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(largeData), testSchema)
 
     val tempPath =
       s"${System.getProperty("java.io.tmpdir")}/large_index_test_${System.currentTimeMillis()}"
@@ -277,13 +241,14 @@ class IndexBuildOperationsTests extends SparkTests with Matchers {
       .csv(tempPath)
 
     try {
-      val fileName = java.nio.file.Files
-        .walk(java.nio.file.Paths.get(tempPath))
-        .filter(java.nio.file.Files.isRegularFile(_))
-        .filter(_.getFileName.toString.endsWith(".csv"))
-        .findFirst()
-        .get()
-        .toString
+      val fileName =
+        java.nio.file.Files
+          .walk(java.nio.file.Paths.get(tempPath))
+          .filter(java.nio.file.Files.isRegularFile(_))
+          .filter(_.getFileName.toString.endsWith(".csv"))
+          .findFirst()
+          .get()
+          .toString
 
       val index =
         Index("large_index_test", testSchema, "csv", Map("header" -> "true"))
@@ -297,8 +262,9 @@ class IndexBuildOperationsTests extends SparkTests with Matchers {
       files should not be empty
 
     } finally {
-      val fs = org.apache.hadoop.fs.FileSystem
-        .get(spark.sparkContext.hadoopConfiguration)
+      val fs =
+        org.apache.hadoop.fs.FileSystem
+          .get(spark.sparkContext.hadoopConfiguration)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath), true)
     }
   }

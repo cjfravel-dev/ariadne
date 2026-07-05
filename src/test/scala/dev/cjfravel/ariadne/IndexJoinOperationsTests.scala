@@ -1,50 +1,35 @@
 package dev.cjfravel.ariadne
-
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatest.matchers.should.Matchers
-import org.apache.spark.sql.types._
-import org.apache.spark.sql.functions._
-import org.apache.spark.sql.Row
 import dev.cjfravel.ariadne.Index.DataFrameOps
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.types._
+import org.scalatest.matchers.should.Matchers
 
-/** Tests for [[IndexJoinOperations]] verifying index-accelerated joins between
-  * a DataFrame and indexed data, including both `index.join(df)` and
-  * `df.join(index)` directions.
-  */
+/**
+ * Tests for [[IndexJoinOperations]] verifying index-accelerated joins between a DataFrame and indexed data, including
+ * both `index.join(df)` and `df.join(index)` directions.
+ */
 class IndexJoinOperationsTests extends SparkTests with Matchers {
 
-  val indexSchema = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Version", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false)
-    )
-  )
+  val indexSchema =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Version", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false)))
 
-  val querySchema = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Version", IntegerType, nullable = false)
-    )
-  )
+  val querySchema =
+    StructType(
+      Seq(StructField("Id", IntegerType, nullable = false), StructField("Version", IntegerType, nullable = false)))
 
-  val explodedSchema = StructType(
-    Seq(
-      StructField("event_id", StringType, nullable = true),
-      StructField(
-        "users",
-        ArrayType(
-          StructType(
-            Seq(
-              StructField("id", LongType, nullable = true),
-              StructField("name", StringType, nullable = true)
-            )
-          )
-        ),
-        nullable = true
-      )
-    )
-  )
+  val explodedSchema =
+    StructType(
+      Seq(
+        StructField("event_id", StringType, nullable = true),
+        StructField(
+          "users",
+          ArrayType(StructType(
+            Seq(StructField("id", LongType, nullable = true), StructField("name", StringType, nullable = true)))),
+          nullable = true)))
 
   test("should perform basic inner join correctly") {
     val index =
@@ -57,15 +42,7 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
     index.update
 
     // Create query DataFrame
-    val queryData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
-        Seq(
-          Row(1, 1),
-          Row(2, 2)
-        )
-      ),
-      querySchema
-    )
+    val queryData = spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(1, 1), Row(2, 2))), querySchema)
 
     // Test DataFrame.join(index, ...)
     val result1 = queryData.join(index, Seq("Id", "Version"), "inner")
@@ -87,20 +64,19 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
     index.addIndex("Id")
     index.update
 
-    val queryData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
-        Seq(
-          Row(1, 1),
-          Row(2, 2),
-          Row(999, 999) // This ID shouldn't exist in the index
-        )
-      ),
-      querySchema
-    )
+    val queryData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(
+          Seq(
+            Row(1, 1),
+            Row(2, 2),
+            Row(999, 999) // This ID shouldn't exist in the index
+          )),
+        querySchema)
 
     val result = queryData.join(index, Seq("Id"), "left_semi")
     result.count() should be < queryData.count()
-    result.columns should not contain ("Value") // Semi join should only return left side columns
+    result.columns should not contain "Value" // Semi join should only return left side columns
   }
 
   test("should perform full outer join correctly") {
@@ -112,15 +88,14 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
     index.addIndex("Id")
     index.update
 
-    val queryData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
-        Seq(
-          Row(1, 1),
-          Row(999, 999) // This ID shouldn't exist in the index
-        )
-      ),
-      querySchema
-    )
+    val queryData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(
+          Seq(
+            Row(1, 1),
+            Row(999, 999) // This ID shouldn't exist in the index
+          )),
+        querySchema)
 
     val result = index.join(queryData, Seq("Id"), "fullouter")
     result.count() should be >= queryData.count()
@@ -138,15 +113,7 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
 
     val singleColumnSchema =
       StructType(Seq(StructField("Version", IntegerType, nullable = false)))
-    val queryData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
-        Seq(
-          Row(1),
-          Row(2)
-        )
-      ),
-      singleColumnSchema
-    )
+    val queryData = spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(1), Row(2))), singleColumnSchema)
 
     val result = queryData.join(index, Seq("Version"), "inner")
     result.count() should be > 0L
@@ -155,16 +122,14 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
 
   test("should handle joins with exploded field indexes") {
     // Create test data with arrays
-    val testData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
-        Seq(
-          Row("evt1", Array(Row(100L, "Alice"), Row(101L, "Bob"))),
-          Row("evt2", Array(Row(102L, "Charlie"))),
-          Row("evt3", Array(Row(100L, "Alice"), Row(103L, "David")))
-        )
-      ),
-      explodedSchema
-    )
+    val testData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(
+          Seq(
+            Row("evt1", Array(Row(100L, "Alice"), Row(101L, "Bob"))),
+            Row("evt2", Array(Row(102L, "Charlie"))),
+            Row("evt3", Array(Row(100L, "Alice"), Row(103L, "David"))))),
+        explodedSchema)
 
     val tempPath =
       s"${System.getProperty("java.io.tmpdir")}/join_exploded_test_${System.currentTimeMillis()}"
@@ -182,23 +147,16 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
       // Create query data using the exploded field column name
       val userQuerySchema =
         StructType(Seq(StructField("user_id", LongType, nullable = false)))
-      val queryData = spark.createDataFrame(
-        spark.sparkContext.parallelize(
-          Seq(
-            Row(100L),
-            Row(101L)
-          )
-        ),
-        userQuerySchema
-      )
+      val queryData = spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(100L), Row(101L))), userQuerySchema)
 
       val result = queryData.join(index, Seq("user_id"), "inner")
       result.count() should be > 0L
       result.columns should contain allOf ("user_id", "event_id")
 
     } finally {
-      val fs = org.apache.hadoop.fs.FileSystem
-        .get(spark.sparkContext.hadoopConfiguration)
+      val fs =
+        org.apache.hadoop.fs.FileSystem
+          .get(spark.sparkContext.hadoopConfiguration)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath), true)
     }
   }
@@ -214,16 +172,15 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
 
     val computedSchema =
       StructType(Seq(StructField("id_doubled", IntegerType, nullable = false)))
-    val queryData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
-        Seq(
-          Row(2), // 2 * 1
-          Row(4), // 2 * 2
-          Row(6) // 2 * 3
-        )
-      ),
-      computedSchema
-    )
+    val queryData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(
+          Seq(
+            Row(2), // 2 * 1
+            Row(4), // 2 * 2
+            Row(6) // 2 * 3
+          )),
+        computedSchema)
 
     val result = queryData.join(index, Seq("id_doubled"), "inner")
     result.count() should be > 0L
@@ -231,35 +188,25 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
   }
 
   test("should handle joins with mixed index types") {
-    val mixedSchema = StructType(
-      Seq(
-        StructField("event_id", StringType, nullable = true),
-        StructField("priority", IntegerType, nullable = true),
-        StructField(
-          "users",
-          ArrayType(
-            StructType(
-              Seq(
-                StructField("id", LongType, nullable = true),
-                StructField("role", StringType, nullable = true)
-              )
-            )
-          ),
-          nullable = true
-        )
-      )
-    )
-
-    val testData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
+    val mixedSchema =
+      StructType(
         Seq(
-          Row("evt1", 1, Array(Row(100L, "admin"))),
-          Row("evt2", 2, Array(Row(101L, "user"))),
-          Row("evt3", 3, Array(Row(102L, "admin")))
-        )
-      ),
-      mixedSchema
-    )
+          StructField("event_id", StringType, nullable = true),
+          StructField("priority", IntegerType, nullable = true),
+          StructField(
+            "users",
+            ArrayType(StructType(
+              Seq(StructField("id", LongType, nullable = true), StructField("role", StringType, nullable = true)))),
+            nullable = true)))
+
+    val testData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(
+          Seq(
+            Row("evt1", 1, Array(Row(100L, "admin"))),
+            Row("evt2", 2, Array(Row(101L, "user"))),
+            Row("evt3", 3, Array(Row(102L, "admin"))))),
+        mixedSchema)
 
     val tempPath =
       s"${System.getProperty("java.io.tmpdir")}/join_mixed_test_${System.currentTimeMillis()}"
@@ -271,43 +218,31 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
 
       index.addFile(tempPath)
       index.addIndex("event_id") // Regular index
-      index.addComputedIndex(
-        "priority_level",
-        "case when priority > 2 then 'high' else 'low' end"
-      ) // Computed
+      index.addComputedIndex("priority_level", "case when priority > 2 then 'high' else 'low' end") // Computed
       index.addExplodedFieldIndex("users", "id", "user_id") // Exploded field
       index.update
 
       // Test join with all three index types
-      val multiQuerySchema = StructType(
-        Seq(
-          StructField("event_id", StringType, nullable = false),
-          StructField("priority_level", StringType, nullable = false),
-          StructField("user_id", LongType, nullable = false)
-        )
-      )
-
-      val queryData = spark.createDataFrame(
-        spark.sparkContext.parallelize(
+      val multiQuerySchema =
+        StructType(
           Seq(
-            Row("evt1", "low", 100L),
-            Row("evt3", "high", 102L)
-          )
-        ),
-        multiQuerySchema
-      )
+            StructField("event_id", StringType, nullable = false),
+            StructField("priority_level", StringType, nullable = false),
+            StructField("user_id", LongType, nullable = false)))
 
-      val result = queryData.join(
-        index,
-        Seq("event_id", "priority_level", "user_id"),
-        "inner"
-      )
+      val queryData =
+        spark.createDataFrame(
+          spark.sparkContext.parallelize(Seq(Row("evt1", "low", 100L), Row("evt3", "high", 102L))),
+          multiQuerySchema)
+
+      val result = queryData.join(index, Seq("event_id", "priority_level", "user_id"), "inner")
       result.count() should be > 0L
       result.columns should contain allOf ("event_id", "priority_level", "user_id", "priority")
 
     } finally {
-      val fs = org.apache.hadoop.fs.FileSystem
-        .get(spark.sparkContext.hadoopConfiguration)
+      val fs =
+        org.apache.hadoop.fs.FileSystem
+          .get(spark.sparkContext.hadoopConfiguration)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath), true)
     }
   }
@@ -321,15 +256,8 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
     index.addIndex("Id")
     index.update
 
-    val queryData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
-        Seq(
-          Row(999, 999),
-          Row(998, 998)
-        )
-      ),
-      querySchema
-    )
+    val queryData =
+      spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(999, 999), Row(998, 998))), querySchema)
 
     // Inner join should return no results
     val innerResult = queryData.join(index, Seq("Id"), "inner")
@@ -349,15 +277,7 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
     index.addIndex("Id")
     index.update
 
-    val queryData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
-        Seq(
-          Row(1, 1),
-          Row(2, 2)
-        )
-      ),
-      querySchema
-    )
+    val queryData = spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(1, 1), Row(2, 2))), querySchema)
 
     // First join - should populate cache
     val result1 = queryData.join(index, Seq("Id"), "inner")
@@ -374,12 +294,7 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
   test("should handle joins with repartition option set") {
     spark.conf.set("spark.ariadne.indexRepartitionCount", "4")
     try {
-      val index = Index(
-        "join_repartition_test",
-        indexSchema,
-        "csv",
-        Map("header" -> "true")
-      )
+      val index = Index("join_repartition_test", indexSchema, "csv", Map("header" -> "true"))
 
       val csvPath = resourcePath("/data/table1_part0.csv")
       index.addFile(csvPath)
@@ -387,15 +302,7 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
       index.addIndex("Version")
       index.update
 
-      val queryData = spark.createDataFrame(
-        spark.sparkContext.parallelize(
-          Seq(
-            Row(1, 1),
-            Row(2, 2)
-          )
-        ),
-        querySchema
-      )
+      val queryData = spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(1, 1), Row(2, 2))), querySchema)
 
       // Test DataFrame.join(index, ...) with repartitioning enabled
       val result1 = queryData.join(index, Seq("Id", "Version"), "inner")
@@ -415,12 +322,7 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
   }
 
   test("should produce same results with and without repartitioning") {
-    val index = Index(
-      "join_repartition_compare_test",
-      indexSchema,
-      "csv",
-      Map("header" -> "true")
-    )
+    val index = Index("join_repartition_compare_test", indexSchema, "csv", Map("header" -> "true"))
 
     val csvPath0 = resourcePath("/data/table1_part0.csv")
     val csvPath1 = resourcePath("/data/table1_part1.csv")
@@ -429,16 +331,8 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
     index.addIndex("Id")
     index.update
 
-    val queryData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
-        Seq(
-          Row(1, 1),
-          Row(2, 2),
-          Row(3, 3)
-        )
-      ),
-      querySchema
-    )
+    val queryData =
+      spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(1, 1), Row(2, 2), Row(3, 3))), querySchema)
 
     // Join without repartitioning
     val resultWithout = queryData.join(index, Seq("Id"), "inner")

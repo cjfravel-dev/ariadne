@@ -35,7 +35,12 @@
 
     <properties>
         <scala.version>2.12.17</scala.version>
+        <scala.binary.version>2.12</scala.binary.version>
         <scoverage.plugin.version>2.0.6</scoverage.plugin.version>
+        <mvn.scalafmt.version>1.1.1640084764.9f463a9</mvn.scalafmt.version>
+        <scalafix.plugin.version>0.1.12_0.14.6</scalafix.plugin.version>
+        <semanticdb.version>4.14.2</semanticdb.version>
+        <scalastyle.plugin.version>1.0.0</scalastyle.plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <spark.suffix>35</spark.suffix>
@@ -161,6 +166,96 @@
                             <goal>testCompile</goal>
                             <goal>add-source</goal>
                             <goal>doc-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <scalaVersion>${scala.version}</scalaVersion>
+                    <args>
+                        <!-- SemanticDB for scalafix semantic rules (RemoveUnused/OrganizeImports). -->
+                        <arg>-Yrangepos</arg>
+                        <arg>-Ywarn-unused</arg>
+                    </args>
+                    <compilerPlugins>
+                        <compilerPlugin>
+                            <groupId>org.scalameta</groupId>
+                            <artifactId>semanticdb-scalac_${scala.version}</artifactId>
+                            <version>${semanticdb.version}</version>
+                        </compilerPlugin>
+                    </compilerPlugins>
+                </configuration>
+            </plugin>
+
+            <!-- scalafmt: format check bound to `validate` (fails the build if a Scala source is
+                 not formatted per .scalafmt.conf). Run `mvn scalafmt:format` to reformat. -->
+            <plugin>
+                <groupId>org.antipathy</groupId>
+                <artifactId>mvn-scalafmt_${scala.binary.version}</artifactId>
+                <version>${mvn.scalafmt.version}</version>
+                <configuration>
+                    <configLocation>${project.basedir}/.scalafmt.conf</configLocation>
+                    <skipSources>false</skipSources>
+                    <skipTestSources>false</skipTestSources>
+                    <validateOnly>false</validateOnly>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>scalafmt-check</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>format</goal>
+                        </goals>
+                        <configuration>
+                            <validateOnly>true</validateOnly>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- scalafix: lint check (RemoveUnused + OrganizeImports) bound to `verify`, after
+                 test-compile has produced SemanticDB. Run with -Dscalafix.mode=IN_PLACE to fix. -->
+            <plugin>
+                <groupId>io.github.evis</groupId>
+                <artifactId>scalafix-maven-plugin_${scala.binary.version}</artifactId>
+                <version>${scalafix.plugin.version}</version>
+                <configuration>
+                    <config>${project.basedir}/.scalafix.conf</config>
+                    <mode>CHECK</mode>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>scalafix-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>scalafix</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- scalastyle: static style checks (adapted from Apache Spark's config, license-header
+                 rule removed) bound to `verify`; fails the build on any violation. -->
+            <plugin>
+                <groupId>org.scalastyle</groupId>
+                <artifactId>scalastyle-maven-plugin</artifactId>
+                <version>${scalastyle.plugin.version}</version>
+                <configuration>
+                    <verbose>false</verbose>
+                    <failOnViolation>true</failOnViolation>
+                    <failOnWarning>false</failOnWarning>
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                    <sourceDirectory>${project.basedir}/src/main/scala</sourceDirectory>
+                    <testSourceDirectory>${project.basedir}/src/test/scala</testSourceDirectory>
+                    <configLocation>${project.basedir}/scalastyle-config.xml</configLocation>
+                    <inputEncoding>UTF-8</inputEncoding>
+                    <outputEncoding>UTF-8</outputEncoding>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>scalastyle-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
                         </goals>
                     </execution>
                 </executions>

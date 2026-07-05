@@ -1,29 +1,26 @@
 package dev.cjfravel.ariadne
 
 import dev.cjfravel.ariadne.exceptions.ColumnNotFoundException
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatest.matchers.should.Matchers
-import org.apache.spark.sql.types._
-import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
-import dev.cjfravel.ariadne.Index.DataFrameOps
+import org.apache.spark.sql.types._
+import org.scalatest.matchers.should.Matchers
 
-/** Tests for range index support covering index creation, idempotency, min/max
-  * value tracking per file, and range-based file location queries.
-  */
+/**
+ * Tests for range index support covering index creation, idempotency, min/max value tracking per file, and range-based
+ * file location queries.
+ */
 class RangeIndexTests extends SparkTests with Matchers {
 
   // table1_part0.csv: Id=[1,2,3,1], Version=[1,1,1,2], Value=[5.0,3.0,4.0,4.5]
   //   -> Id range [1,3], Version range [1,2], Value range [3.0,5.0]
   // table1_part1.csv: Id=[4,4,3,1], Version=[1,2,2,3], Value=[2.0,9.0,4.0,5.0]
   //   -> Id range [1,4], Version range [1,3], Value range [2.0,9.0]
-  val testSchema: StructType = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Version", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false)
-    )
-  )
+  val testSchema: StructType =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Version", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false)))
 
   test("should add range index") {
     val index =
@@ -116,10 +113,10 @@ class RangeIndexTests extends SparkTests with Matchers {
     index.update
 
     // Create a DataFrame with Id=4 which only appears in part1
-    val queryDf = spark.createDataFrame(
-      spark.sparkContext.parallelize(Seq(Row(4))),
-      StructType(Seq(StructField("Id", IntegerType, nullable = false)))
-    )
+    val queryDf =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(Seq(Row(4))),
+        StructType(Seq(StructField("Id", IntegerType, nullable = false))))
 
     val result = index.join(queryDf, Seq("Id"))
     result.count() should be > 0L

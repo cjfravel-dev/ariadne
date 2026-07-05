@@ -1,22 +1,22 @@
 package dev.cjfravel.ariadne
 
-import org.scalatest.matchers.should.Matchers
-import org.apache.spark.sql.types._
-import org.apache.spark.sql.Row
 import org.apache.hadoop.fs.Path
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.types._
+import org.scalatest.matchers.should.Matchers
 
-/** Tests for `deleteFiles` covering single and multi-file deletion from the
-  * main index, large index table cleanup, and file list removal.
-  */
+/**
+ * Tests for `deleteFiles` covering single and multi-file deletion from the main index, large index table cleanup, and
+ * file list removal.
+ */
 class DeleteFilesTests extends SparkTests with Matchers {
 
-  val table1Schema = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Version", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false)
-    )
-  )
+  val table1Schema =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Version", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false)))
 
   test("should delete a single file from index") {
     val csvOptions = Map("header" -> "true")
@@ -55,23 +55,17 @@ class DeleteFilesTests extends SparkTests with Matchers {
   }
 
   test("should clean up large index tables on delete") {
-    val largeSchema = StructType(
-      Seq(
-        StructField("Id", IntegerType, nullable = false),
-        StructField("Category", StringType, nullable = false),
-        StructField("Value", DoubleType, nullable = false)
-      )
-    )
+    val largeSchema =
+      StructType(
+        Seq(
+          StructField("Id", IntegerType, nullable = false),
+          StructField("Category", StringType, nullable = false),
+          StructField("Value", DoubleType, nullable = false)))
 
     // Create data with enough distinct values to trigger large index (limit is 500,000)
-    val largeData = (1 to 600000).map { i =>
-      Row(i, s"cat_$i", i.toDouble)
-    }
+    val largeData = (1 to 600000).map(i => Row(i, s"cat_$i", i.toDouble))
 
-    val df = spark.createDataFrame(
-      spark.sparkContext.parallelize(largeData),
-      largeSchema
-    )
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(largeData), largeSchema)
 
     val tempPath =
       s"${System.getProperty("java.io.tmpdir")}/delete_large_test_${System.currentTimeMillis()}"
@@ -82,13 +76,14 @@ class DeleteFilesTests extends SparkTests with Matchers {
       .csv(tempPath)
 
     try {
-      val fileName = "file://" + java.nio.file.Files
-        .walk(java.nio.file.Paths.get(tempPath))
-        .filter(java.nio.file.Files.isRegularFile(_))
-        .filter(_.getFileName.toString.endsWith(".csv"))
-        .findFirst()
-        .get()
-        .toString
+      val fileName =
+        "file://" + java.nio.file.Files
+          .walk(java.nio.file.Paths.get(tempPath))
+          .filter(java.nio.file.Files.isRegularFile(_))
+          .filter(_.getFileName.toString.endsWith(".csv"))
+          .findFirst()
+          .get()
+          .toString
 
       val index =
         Index("delete_large", largeSchema, "csv", Map("header" -> "true"))

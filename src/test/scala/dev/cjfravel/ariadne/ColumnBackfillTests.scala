@@ -1,32 +1,24 @@
 package dev.cjfravel.ariadne
-
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatest.matchers.should.Matchers
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.functions._
-import org.apache.spark.sql.Row
+import org.scalatest.matchers.should.Matchers
 
-/** Tests for column backfill functionality, verifying that newly added regular
-  * and computed index columns are correctly populated for previously indexed
-  * files.
-  */
+/**
+ * Tests for column backfill functionality, verifying that newly added regular and computed index columns are correctly
+ * populated for previously indexed files.
+ */
 class ColumnBackfillTests extends SparkTests with Matchers {
 
-  val testSchema = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Version", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false)
-    )
-  )
+  val testSchema =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Version", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false)))
 
   test("should backfill new regular index column on existing files") {
     val csvOptions = Map("header" -> "true")
     val index = Index("backfill_regular", testSchema, "csv", csvOptions)
-    val paths = Array(
-      resourcePath("/data/table1_part0.csv"),
-      resourcePath("/data/table1_part1.csv")
-    )
+    val paths = Array(resourcePath("/data/table1_part0.csv"), resourcePath("/data/table1_part1.csv"))
     index.addFile(paths: _*)
     index.addIndex("Id")
     index.update
@@ -54,10 +46,7 @@ class ColumnBackfillTests extends SparkTests with Matchers {
   test("should backfill new computed index column on existing files") {
     val csvOptions = Map("header" -> "true")
     val index = Index("backfill_computed", testSchema, "csv", csvOptions)
-    val paths = Array(
-      resourcePath("/data/table1_part0.csv"),
-      resourcePath("/data/table1_part1.csv")
-    )
+    val paths = Array(resourcePath("/data/table1_part0.csv"), resourcePath("/data/table1_part1.csv"))
     index.addFile(paths: _*)
     index.addIndex("Id")
     index.update
@@ -78,10 +67,7 @@ class ColumnBackfillTests extends SparkTests with Matchers {
   test("should backfill new bloom index column on existing files") {
     val csvOptions = Map("header" -> "true")
     val index = Index("backfill_bloom", testSchema, "csv", csvOptions)
-    val paths = Array(
-      resourcePath("/data/table1_part0.csv"),
-      resourcePath("/data/table1_part1.csv")
-    )
+    val paths = Array(resourcePath("/data/table1_part0.csv"), resourcePath("/data/table1_part1.csv"))
     index.addFile(paths: _*)
     index.addIndex("Id")
     index.update
@@ -100,20 +86,16 @@ class ColumnBackfillTests extends SparkTests with Matchers {
   }
 
   test("should backfill new temporal index column on existing files") {
-    val temporalSchema = StructType(
-      Seq(
-        StructField("Id", IntegerType, nullable = false),
-        StructField("Value", DoubleType, nullable = false),
-        StructField("UpdatedAt", TimestampType, nullable = true)
-      )
-    )
+    val temporalSchema =
+      StructType(
+        Seq(
+          StructField("Id", IntegerType, nullable = false),
+          StructField("Value", DoubleType, nullable = false),
+          StructField("UpdatedAt", TimestampType, nullable = true)))
 
     val csvOptions = Map("header" -> "true")
     val index = Index("backfill_temporal", temporalSchema, "csv", csvOptions)
-    val paths = Array(
-      resourcePath("/data/temporal_part0.csv"),
-      resourcePath("/data/temporal_part1.csv")
-    )
+    val paths = Array(resourcePath("/data/temporal_part0.csv"), resourcePath("/data/temporal_part1.csv"))
     index.addFile(paths: _*)
     index.addIndex("Value")
     index.update
@@ -134,10 +116,7 @@ class ColumnBackfillTests extends SparkTests with Matchers {
   test("should handle multiple new columns added at once") {
     val csvOptions = Map("header" -> "true")
     val index = Index("backfill_multiple", testSchema, "csv", csvOptions)
-    val paths = Array(
-      resourcePath("/data/table1_part0.csv"),
-      resourcePath("/data/table1_part1.csv")
-    )
+    val paths = Array(resourcePath("/data/table1_part0.csv"), resourcePath("/data/table1_part1.csv"))
     index.addFile(paths: _*)
     index.addIndex("Id")
     index.update
@@ -162,10 +141,7 @@ class ColumnBackfillTests extends SparkTests with Matchers {
   test("should be idempotent - second update after backfill is a no-op") {
     val csvOptions = Map("header" -> "true")
     val index = Index("backfill_idempotent", testSchema, "csv", csvOptions)
-    val paths = Array(
-      resourcePath("/data/table1_part0.csv"),
-      resourcePath("/data/table1_part1.csv")
-    )
+    val paths = Array(resourcePath("/data/table1_part0.csv"), resourcePath("/data/table1_part1.csv"))
     index.addFile(paths: _*)
     index.addIndex("Id")
     index.update

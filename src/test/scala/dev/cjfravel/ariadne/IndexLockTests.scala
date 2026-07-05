@@ -1,16 +1,18 @@
 package dev.cjfravel.ariadne
 
+import java.nio.charset.StandardCharsets
+import java.time.Instant
+
+import scala.io.Source
+
 import com.google.gson.Gson
 import dev.cjfravel.ariadne.exceptions.IndexLockException
 import org.apache.hadoop.fs.{FileSystem, Path}
 
-import java.nio.charset.StandardCharsets
-import java.time.Instant
-import scala.io.Source
-
-/** Tests for [[IndexLock]] covering lock acquisition, release, refresh, stale
-  * lock auto-healing, and contention behavior.
-  */
+/**
+ * Tests for [[IndexLock]] covering lock acquisition, release, refresh, stale lock auto-healing, and contention
+ * behavior.
+ */
 class IndexLockTests extends SparkTests {
 
   private val gson = new Gson()
@@ -21,11 +23,10 @@ class IndexLockTests extends SparkTests {
   private def lockPath(testName: String): Path =
     new Path(new Path(tempDir.toUri), s"index-lock-$testName.json")
 
-  private def cleanup(path: Path): Unit = {
+  private def cleanup(path: Path): Unit =
     if (fileSystem.exists(path)) {
       fileSystem.delete(path, true)
     }
-  }
 
   private def readLock(path: Path): LockInfo = {
     val in = fileSystem.open(path)
@@ -47,18 +48,17 @@ class IndexLockTests extends SparkTests {
     }
   }
 
-  private def withConfigOverrides[T](
-      overrides: (String, String)*
-  )(block: => T): T = {
-    val originals = overrides.map { case (key, _) =>
-      key -> spark.conf.getOption(key)
-    }
+  private def withConfigOverrides[T](overrides: (String, String)*)(block: => T): T = {
+    val originals =
+      overrides.map { case (key, _) =>
+        key -> spark.conf.getOption(key)
+      }
     overrides.foreach { case (key, value) => spark.conf.set(key, value) }
     try block
     finally {
       originals.foreach {
         case (key, Some(value)) => spark.conf.set(key, value)
-        case (key, None)        => spark.conf.unset(key)
+        case (key, None) => spark.conf.unset(key)
       }
     }
   }
@@ -172,10 +172,7 @@ class IndexLockTests extends SparkTests {
     cleanup(path)
 
     try {
-      withConfigOverrides(
-        "spark.ariadne.lockMaxWait" -> "1",
-        "spark.ariadne.lockRetryInterval" -> "1"
-      ) {
+      withConfigOverrides("spark.ariadne.lockMaxWait" -> "1", "spark.ariadne.lockRetryInterval" -> "1") {
         val lockA = IndexLock(path, "test-index")
         val lockB = IndexLock(path, "test-index")
 

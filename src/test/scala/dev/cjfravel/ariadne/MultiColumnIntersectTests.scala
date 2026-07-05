@@ -1,22 +1,21 @@
 package dev.cjfravel.ariadne
 
-import org.scalatest.matchers.should.Matchers
-import org.apache.spark.sql.types._
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.types._
+import org.scalatest.matchers.should.Matchers
 
-/** Tests for multi-column index intersection logic, verifying that
-  * `locateFiles` correctly computes the set intersection of matching files
-  * across multiple indexed columns.
-  */
+/**
+ * Tests for multi-column index intersection logic, verifying that `locateFiles` correctly computes the set intersection
+ * of matching files across multiple indexed columns.
+ */
 class MultiColumnIntersectTests extends SparkTests with Matchers {
 
-  val testSchema = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Version", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false)
-    )
-  )
+  val testSchema =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Version", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false)))
 
   test("should intersect files when querying multiple columns") {
     val index =
@@ -81,15 +80,11 @@ class MultiColumnIntersectTests extends SparkTests with Matchers {
     index.update
 
     // Query for Id=4, Version=2 — both only in part1
-    val queryData = spark.createDataFrame(
-      spark.sparkContext.parallelize(Seq(Row(4, 2))),
-      StructType(
-        Seq(
-          StructField("Id", IntegerType, nullable = false),
-          StructField("Version", IntegerType, nullable = false)
-        )
-      )
-    )
+    val queryData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(Seq(Row(4, 2))),
+        StructType(
+          Seq(StructField("Id", IntegerType, nullable = false), StructField("Version", IntegerType, nullable = false))))
 
     val result = index.join(queryData, Seq("Id", "Version"), "inner")
     val resultRows = result.collect()
@@ -131,12 +126,7 @@ class MultiColumnIntersectTests extends SparkTests with Matchers {
 
     // Version=1 exists in both files, but Id=999 exists in neither.
     // With correct AND semantics across index types, the result must be empty.
-    val files = index.locateFiles(
-      Map(
-        "Id" -> Array(999),
-        "Version" -> Array(1)
-      )
-    )
+    val files = index.locateFiles(Map("Id" -> Array(999), "Version" -> Array(1)))
 
     files shouldBe empty
   }
@@ -155,12 +145,7 @@ class MultiColumnIntersectTests extends SparkTests with Matchers {
 
     // Id=1 is in both files. Version=3 is only in part1.
     // AND across both bloom columns should yield only part1.
-    val files = index.locateFiles(
-      Map(
-        "Id" -> Array(1),
-        "Version" -> Array(3)
-      )
-    )
+    val files = index.locateFiles(Map("Id" -> Array(1), "Version" -> Array(3)))
 
     files should have size 1
     files.head should include("table1_part1")

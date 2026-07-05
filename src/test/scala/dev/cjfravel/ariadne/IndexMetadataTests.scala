@@ -1,17 +1,15 @@
 package dev.cjfravel.ariadne
 
-import org.scalatest.funsuite.AnyFunSuite
-import scala.io.Source
 import java.nio.charset.StandardCharsets
-import com.google.gson.Gson
-import java.nio.file.Paths
-import java.nio.file.Files
-import collection.JavaConverters._
 
-/** Tests for [[IndexMetadata]] JSON parsing and version migration logic,
-  * verifying forward-compatible deserialization from v1 through the latest
-  * schema version.
-  */
+import scala.collection.JavaConverters._
+
+import org.scalatest.funsuite.AnyFunSuite
+
+/**
+ * Tests for [[IndexMetadata]] JSON parsing and version migration logic, verifying forward-compatible deserialization
+ * from v1 through the latest schema version.
+ */
 class IndexMetadataTests extends AnyFunSuite {
   test("v1") {
     val stream = getClass.getResourceAsStream("/index_metadata/v1.json")

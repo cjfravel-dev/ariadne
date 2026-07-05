@@ -1,42 +1,31 @@
 package dev.cjfravel.ariadne
-
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatest.matchers.should.Matchers
-import org.apache.spark.sql.types._
-import org.apache.spark.sql.functions._
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.types._
+import org.scalatest.matchers.should.Matchers
 
-/** Tests for [[IndexQueryOperations]] covering `locateFiles` queries against
-  * single and multiple index values, including empty-result scenarios.
-  */
+/**
+ * Tests for [[IndexQueryOperations]] covering `locateFiles` queries against single and multiple index values, including
+ * empty-result scenarios.
+ */
 class IndexQueryOperationsTests extends SparkTests with Matchers {
 
-  val testSchema = StructType(
-    Seq(
-      StructField("Id", IntegerType, nullable = false),
-      StructField("Version", IntegerType, nullable = false),
-      StructField("Value", DoubleType, nullable = false)
-    )
-  )
+  val testSchema =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Version", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false)))
 
-  val arraySchema = StructType(
-    Seq(
-      StructField("event_id", StringType, nullable = true),
-      StructField(
-        "users",
-        ArrayType(
-          StructType(
-            Seq(
-              StructField("id", LongType, nullable = true),
-              StructField("name", StringType, nullable = true)
-            )
-          )
-        ),
-        nullable = true
-      ),
-      StructField("tags", ArrayType(StringType), nullable = true)
-    )
-  )
+  val arraySchema =
+    StructType(
+      Seq(
+        StructField("event_id", StringType, nullable = true),
+        StructField(
+          "users",
+          ArrayType(StructType(
+            Seq(StructField("id", LongType, nullable = true), StructField("name", StringType, nullable = true)))),
+          nullable = true),
+        StructField("tags", ArrayType(StringType), nullable = true)))
 
   test("should locate files by single index value") {
     val index =
@@ -96,19 +85,13 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
 
   test("should locate files using exploded field indexes") {
     // Create test data with arrays
-    val testData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
-        Seq(
-          Row(
-            "evt1",
-            Array(Row(100L, "Alice"), Row(101L, "Bob")),
-            Array("tag1", "tag2")
-          ),
-          Row("evt2", Array(Row(102L, "Charlie")), Array("tag3"))
-        )
-      ),
-      arraySchema
-    )
+    val testData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(
+          Seq(
+            Row("evt1", Array(Row(100L, "Alice"), Row(101L, "Bob")), Array("tag1", "tag2")),
+            Row("evt2", Array(Row(102L, "Charlie")), Array("tag3")))),
+        arraySchema)
 
     val tempPath =
       s"${System.getProperty("java.io.tmpdir")}/query_exploded_test_${System.currentTimeMillis()}"
@@ -128,8 +111,9 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
       files.exists(_.contains("query_exploded_test")) should be(true)
 
     } finally {
-      val fs = org.apache.hadoop.fs.FileSystem
-        .get(spark.sparkContext.hadoopConfiguration)
+      val fs =
+        org.apache.hadoop.fs.FileSystem
+          .get(spark.sparkContext.hadoopConfiguration)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath), true)
     }
   }
@@ -165,12 +149,7 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
   }
 
   test("should handle statistics for empty index") {
-    val index = Index(
-      "query_empty_stats_test",
-      testSchema,
-      "csv",
-      Map("header" -> "true")
-    )
+    val index = Index("query_empty_stats_test", testSchema, "csv", Map("header" -> "true"))
     // Don't add any files or update
 
     val stats = index.stats()
@@ -178,12 +157,7 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
   }
 
   test("should provide statistics for computed indexes") {
-    val index = Index(
-      "query_computed_stats_test",
-      testSchema,
-      "csv",
-      Map("header" -> "true")
-    )
+    val index = Index("query_computed_stats_test", testSchema, "csv", Map("header" -> "true"))
 
     val csvPath = resourcePath("/data/table1_part0.csv")
     index.addFile(csvPath)
@@ -212,12 +186,7 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
   }
 
   test("should handle printMetadata without errors") {
-    val index = Index(
-      "query_metadata_print_test",
-      testSchema,
-      "csv",
-      Map("header" -> "true")
-    )
+    val index = Index("query_metadata_print_test", testSchema, "csv", Map("header" -> "true"))
 
     val csvPath = resourcePath("/data/table1_part0.csv")
     index.addFile(csvPath)
@@ -233,14 +202,12 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
     // This test verifies that the large index merging logic works correctly
     // We create data that should trigger the large index path
 
-    val largeData = (1 to 1000).map { i =>
-      Row(i % 10, i % 5, i.toDouble) // Creates repeated values
-    }
+    val largeData =
+      (1 to 1000).map { i =>
+        Row(i % 10, i % 5, i.toDouble) // Creates repeated values
+      }
 
-    val df = spark.createDataFrame(
-      spark.sparkContext.parallelize(largeData),
-      testSchema
-    )
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(largeData), testSchema)
 
     val tempPath =
       s"${System.getProperty("java.io.tmpdir")}/query_large_test_${System.currentTimeMillis()}"
@@ -251,13 +218,14 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
       .csv(tempPath)
 
     try {
-      val fileName = java.nio.file.Files
-        .walk(java.nio.file.Paths.get(tempPath))
-        .filter(java.nio.file.Files.isRegularFile(_))
-        .filter(_.getFileName.toString.endsWith(".csv"))
-        .findFirst()
-        .get()
-        .toString
+      val fileName =
+        java.nio.file.Files
+          .walk(java.nio.file.Paths.get(tempPath))
+          .filter(java.nio.file.Files.isRegularFile(_))
+          .filter(_.getFileName.toString.endsWith(".csv"))
+          .findFirst()
+          .get()
+          .toString
 
       val index =
         Index("query_large_test", testSchema, "csv", Map("header" -> "true"))
@@ -274,42 +242,33 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
       stats.count() should be(1)
 
     } finally {
-      val fs = org.apache.hadoop.fs.FileSystem
-        .get(spark.sparkContext.hadoopConfiguration)
+      val fs =
+        org.apache.hadoop.fs.FileSystem
+          .get(spark.sparkContext.hadoopConfiguration)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath), true)
     }
   }
 
   test("should handle mixed queries across different index types") {
-    val mixedSchema = StructType(
-      Seq(
-        StructField("event_id", StringType, nullable = true),
-        StructField("priority", IntegerType, nullable = true),
-        StructField(
-          "users",
-          ArrayType(
-            StructType(
-              Seq(
-                StructField("id", LongType, nullable = true),
-                StructField("role", StringType, nullable = true)
-              )
-            )
-          ),
-          nullable = true
-        )
-      )
-    )
-
-    val testData = spark.createDataFrame(
-      spark.sparkContext.parallelize(
+    val mixedSchema =
+      StructType(
         Seq(
-          Row("evt1", 1, Array(Row(100L, "admin"))),
-          Row("evt2", 2, Array(Row(101L, "user"))),
-          Row("evt3", 3, Array(Row(100L, "admin")))
-        )
-      ),
-      mixedSchema
-    )
+          StructField("event_id", StringType, nullable = true),
+          StructField("priority", IntegerType, nullable = true),
+          StructField(
+            "users",
+            ArrayType(StructType(
+              Seq(StructField("id", LongType, nullable = true), StructField("role", StringType, nullable = true)))),
+            nullable = true)))
+
+    val testData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(
+          Seq(
+            Row("evt1", 1, Array(Row(100L, "admin"))),
+            Row("evt2", 2, Array(Row(101L, "user"))),
+            Row("evt3", 3, Array(Row(100L, "admin"))))),
+        mixedSchema)
 
     val tempPath =
       s"${System.getProperty("java.io.tmpdir")}/query_mixed_test_${System.currentTimeMillis()}"
@@ -321,10 +280,7 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
 
       index.addFile(tempPath)
       index.addIndex("event_id") // Regular index
-      index.addComputedIndex(
-        "priority_level",
-        "case when priority > 2 then 'high' else 'low' end"
-      )
+      index.addComputedIndex("priority_level", "case when priority > 2 then 'high' else 'low' end")
       index.addExplodedFieldIndex("users", "id", "user_id")
       index.update
 
@@ -343,17 +299,13 @@ class IndexQueryOperationsTests extends SparkTests with Matchers {
       userFiles should not be empty
 
       // Test combined query
-      val combinedFiles = index.locateFiles(
-        Map(
-          "event_id" -> Array("evt1"),
-          "user_id" -> Array(100L)
-        )
-      )
+      val combinedFiles = index.locateFiles(Map("event_id" -> Array("evt1"), "user_id" -> Array(100L)))
       combinedFiles should not be empty
 
     } finally {
-      val fs = org.apache.hadoop.fs.FileSystem
-        .get(spark.sparkContext.hadoopConfiguration)
+      val fs =
+        org.apache.hadoop.fs.FileSystem
+          .get(spark.sparkContext.hadoopConfiguration)
       fs.delete(new org.apache.hadoop.fs.Path(tempPath), true)
     }
   }
