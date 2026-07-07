@@ -5,8 +5,8 @@
 [![CI](https://github.com/cjfravel-dev/ariadne/actions/workflows/ci.yml/badge.svg)](https://github.com/cjfravel-dev/ariadne/actions/workflows/ci.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/dev.cjfravel/ariadne-spark35_2.12?label=Maven%20Central)](https://central.sonatype.com/artifact/dev.cjfravel/ariadne-spark35_2.12)
 [![License](https://img.shields.io/badge/license-MIT%20%2B%20SaaS-blue)](LICENSE.md)
-[![Spark](https://img.shields.io/badge/Apache%20Spark-3.5-E25A1C?logo=apachespark&logoColor=white)](https://spark.apache.org/)
-[![Scala](https://img.shields.io/badge/Scala-2.12-DC322F?logo=scala&logoColor=white)](https://www.scala-lang.org/)
+[![Spark](https://img.shields.io/badge/Apache%20Spark-3.5%20%7C%204.1-E25A1C?logo=apachespark&logoColor=white)](https://spark.apache.org/)
+[![Scala](https://img.shields.io/badge/Scala-2.12%20%7C%202.13-DC322F?logo=scala&logoColor=white)](https://www.scala-lang.org/)
 
 **Find the thread through your data lake.** Ariadne builds lightweight Delta-backed indexes over your Parquet, CSV, and JSON files so Spark joins read only the files they actually need.
 
@@ -15,10 +15,17 @@
 ## Install
 
 ```xml
-<!-- Spark 3.5 / Delta 3.2 -->
+<!-- Spark 3.5 / Delta 3.2 (Scala 2.12, Java 11) -->
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne-spark35_2.12</artifactId>
+    <version>0.1.3-beta</version>
+</dependency>
+
+<!-- Spark 4.1 / Delta 4.1 (Scala 2.13, Java 21) -->
+<dependency>
+    <groupId>dev.cjfravel</groupId>
+    <artifactId>ariadne-spark41_2.13</artifactId>
     <version>0.1.3-beta</version>
 </dependency>
 ```

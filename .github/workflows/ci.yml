@@ -62,3 +62,21 @@ jobs:
         with:
           header: coverage-spark35
           path: code-coverage-results.md
+
+  build-spark41:
+    runs-on: ubuntu-latest
+    name: Build & Test (Spark 4.1)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Build and test (Spark 4.1)
+        run: mvn -B verify -Pspark41 -Dgpg.skip=true

@@ -2,8 +2,8 @@ package dev.cjfravel.ariadne
 
 import java.nio.file.{Files, Path}
 
-import org.apache.spark.SparkContext
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.{SparkConf, SparkContext}
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -22,7 +22,14 @@ trait SparkTests extends AnyFunSuite with BeforeAndAfterAll {
 
   override def beforeAll(): Unit = {
     tempDir = Files.createTempDirectory("ariadne-test-output-")
-    sc = new SparkContext("local[*]", "TestAriadne")
+    // spark.sql.extensions must be set on the SparkConf before the SparkContext is created so the
+    // Delta session extension is installed; Delta path-based commands (e.g. VACUUM) rely on it.
+    val conf =
+      new SparkConf()
+        .setMaster("local[*]")
+        .setAppName("TestAriadne")
+        .set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+    sc = new SparkContext(conf)
 
     spark =
       SparkSession
