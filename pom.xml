@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>dev.cjfravel</groupId>
-    <artifactId>ariadne-spark${spark.suffix}_2.12</artifactId>
+    <artifactId>ariadne-spark${spark.suffix}_${scala.binary.version}</artifactId>
     <version>0.1.3-beta</version>
     <packaging>jar</packaging>
 
@@ -34,8 +34,6 @@
     </scm>
 
     <properties>
-        <scala.version>2.12.17</scala.version>
-        <scala.binary.version>2.12</scala.binary.version>
         <scoverage.plugin.version>2.0.6</scoverage.plugin.version>
         <mvn.scalafmt.version>1.1.1640084764.9f463a9</mvn.scalafmt.version>
         <scalafix.plugin.version>0.1.12_0.14.6</scalafix.plugin.version>
@@ -43,34 +41,94 @@
         <scalastyle.plugin.version>1.0.0</scalastyle.plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <spark.suffix>35</spark.suffix>
-        <spark.version>3.5.5</spark.version>
-        <delta.artifactId>delta-spark_2.12</delta.artifactId>
-        <delta.version>3.2.1</delta.version>
     </properties>
 
-    <dependencyManagement>
-        <dependencies>
-            <!-- Force jackson-core 2.15.2 to match jackson-databind from Spark 3.5 -->
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-core</artifactId>
-                <version>2.15.2</version>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
+    <!-- One profile per supported Spark/Delta line. Each profile pins the Scala
+         binary version (used throughout the artifactId and dependency coordinates),
+         the Spark/Delta versions, and the Scala compiler flags for that Scala series.
+         spark35 is the default; build the others with, e.g., `mvn -Pspark41`. -->
+    <profiles>
+        <profile>
+            <id>spark35</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <scala.version>2.12.17</scala.version>
+                <scala.binary.version>2.12</scala.binary.version>
+                <spark.suffix>35</spark.suffix>
+                <spark.version>3.5.5</spark.version>
+                <spark.compat>spark3</spark.compat>
+                <delta.artifactId>delta-spark_2.12</delta.artifactId>
+                <delta.version>3.2.1</delta.version>
+                <log4j.version>2.19.0</log4j.version>
+            </properties>
+            <dependencyManagement>
+                <dependencies>
+                    <!-- Force jackson-core 2.15.2 to match jackson-databind from Spark 3.5 -->
+                    <dependency>
+                        <groupId>com.fasterxml.jackson.core</groupId>
+                        <artifactId>jackson-core</artifactId>
+                        <version>2.15.2</version>
+                    </dependency>
+                </dependencies>
+            </dependencyManagement>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>net.alchim31.maven</groupId>
+                        <artifactId>scala-maven-plugin</artifactId>
+                        <configuration>
+                            <args>
+                                <arg>-Yrangepos</arg>
+                                <arg>-Ywarn-unused</arg>
+                            </args>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>spark41</id>
+            <properties>
+                <scala.version>2.13.16</scala.version>
+                <scala.binary.version>2.13</scala.binary.version>
+                <spark.suffix>41</spark.suffix>
+                <spark.version>4.1.0</spark.version>
+                <spark.compat>spark4</spark.compat>
+                <delta.artifactId>delta-spark_2.13</delta.artifactId>
+                <delta.version>4.1.0</delta.version>
+                <log4j.version>2.24.3</log4j.version>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>net.alchim31.maven</groupId>
+                        <artifactId>scala-maven-plugin</artifactId>
+                        <configuration>
+                            <args>
+                                <!-- Spark 4.1 requires Java 17+; target Java 21 bytecode. -->
+                                <arg>-release:21</arg>
+                                <arg>-Wunused</arg>
+                            </args>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
     <dependencies>
         <!-- Spark Core and SQL for DataFrame API -->
         <dependency>
             <groupId>org.apache.spark</groupId>
-            <artifactId>spark-core_2.12</artifactId>
+            <artifactId>spark-core_${scala.binary.version}</artifactId>
             <version>${spark.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.spark</groupId>
-            <artifactId>spark-sql_2.12</artifactId>
+            <artifactId>spark-sql_${scala.binary.version}</artifactId>
             <version>${spark.version}</version>
             <scope>provided</scope>
         </dependency>
@@ -97,24 +155,25 @@
             <version>33.5.0-jre</version>
         </dependency>
 
-        <!-- Log4J -->
+        <!-- Log4J (version tracks the Spark line's log4j via the active profile so the
+             log4j-api we compile against matches the log4j-core Spark provides at runtime). -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-api</artifactId>
-            <version>2.19.0</version>
+            <version>${log4j.version}</version>
             <scope>provided</scope>
         </dependency>
 
         <!-- ScalaTest -->
         <dependency>
             <groupId>org.scalatest</groupId>
-            <artifactId>scalatest_2.12</artifactId>
+            <artifactId>scalatest_${scala.binary.version}</artifactId>
             <version>3.2.18</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.scalatestplus</groupId>
-            <artifactId>junit-4-13_2.12</artifactId>
+            <artifactId>junit-4-13_${scala.binary.version}</artifactId>
             <version>3.2.18.0</version>
             <scope>test</scope>
         </dependency>
@@ -122,6 +181,29 @@
 
     <build>
         <plugins>
+            <!-- Adds the Spark-major-version-specific source root (${spark.compat} is set per
+                 profile: spark3 or spark4) so Ariadne can bridge to Spark internals whose package
+                 moved between Spark 3.x and 4.x (e.g. Dataset.ofRows). -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <id>add-spark-compat-source</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.basedir}/src/main/${spark.compat}/scala</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <plugin>
                 <groupId>org.scoverage</groupId>
                 <artifactId>scoverage-maven-plugin</artifactId>
@@ -171,11 +253,8 @@
                 </executions>
                 <configuration>
                     <scalaVersion>${scala.version}</scalaVersion>
-                    <args>
-                        <!-- SemanticDB for scalafix semantic rules (RemoveUnused/OrganizeImports). -->
-                        <arg>-Yrangepos</arg>
-                        <arg>-Ywarn-unused</arg>
-                    </args>
+                    <!-- SemanticDB for scalafix semantic rules (RemoveUnused/OrganizeImports).
+                         Per-Scala-series compiler flags are set in the profile plugins above. -->
                     <compilerPlugins>
                         <compilerPlugin>
                             <groupId>org.scalameta</groupId>
@@ -197,6 +276,12 @@
                     <skipSources>false</skipSources>
                     <skipTestSources>false</skipTestSources>
                     <validateOnly>false</validateOnly>
+                    <!-- Include the active Spark line's version-specific source dir
+                         (src/main/${spark.compat}/scala) alongside the standard main sources. -->
+                    <sourceDirectories>
+                        <param>${project.basedir}/src/main/scala</param>
+                        <param>${project.basedir}/src/main/${spark.compat}/scala</param>
+                    </sourceDirectories>
                 </configuration>
                 <executions>
                     <execution>
@@ -244,7 +329,12 @@
                     <failOnViolation>true</failOnViolation>
                     <failOnWarning>false</failOnWarning>
                     <includeTestSourceDirectory>true</includeTestSourceDirectory>
-                    <sourceDirectory>${project.basedir}/src/main/scala</sourceDirectory>
+                    <!-- Lint the standard main sources plus the active Spark line's
+                         version-specific source dir (src/main/${spark.compat}/scala). -->
+                    <sourceDirectories>
+                        <param>${project.basedir}/src/main/scala</param>
+                        <param>${project.basedir}/src/main/${spark.compat}/scala</param>
+                    </sourceDirectories>
                     <testSourceDirectory>${project.basedir}/src/test/scala</testSourceDirectory>
                     <configLocation>${project.basedir}/scalastyle-config.xml</configLocation>
                     <inputEncoding>UTF-8</inputEncoding>

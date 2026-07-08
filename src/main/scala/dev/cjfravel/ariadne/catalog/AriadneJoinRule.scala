@@ -276,9 +276,11 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
    */
   private def extractDirectAriadneTable(plan: LogicalPlan): Option[(String, AriadneTable)] =
     plan match {
-      case DataSourceV2Relation(table: AriadneTable, _, _, _, _) =>
+      case r: DataSourceV2Relation if r.table.isInstanceOf[AriadneTable] =>
+        val table = r.table.asInstanceOf[AriadneTable]
         Some((table.indexName, table))
-      case DataSourceV2ScanRelation(DataSourceV2Relation(table: AriadneTable, _, _, _, _), _, _, _, _) =>
+      case s: DataSourceV2ScanRelation if s.relation.table.isInstanceOf[AriadneTable] =>
+        val table = s.relation.table.asInstanceOf[AriadneTable]
         Some((table.indexName, table))
       case Project(projectList, child) if projectList.forall(_.isInstanceOf[Attribute]) =>
         extractDirectAriadneTable(child)
