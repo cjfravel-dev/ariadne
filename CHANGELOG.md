@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.4-beta]
+
 ### Added
 
 - Spark 4.1 build profile. A new `spark41` Maven profile cross-builds the library for
