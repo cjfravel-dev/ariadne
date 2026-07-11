@@ -1,5 +1,7 @@
 package dev.cjfravel.ariadne
 
+import java.io.IOException
+import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 
@@ -7,7 +9,29 @@ import scala.io.Source
 
 import com.google.gson.Gson
 import dev.cjfravel.ariadne.exceptions.IndexLockException
-import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.hadoop.fs._
+import org.apache.hadoop.fs.permission.FsPermission
+import org.apache.hadoop.util.Progressable
+
+/**
+ * Test-only filesystem that injects a non-contention failure when creating a lock file.
+ */
+class FailingLockCreateFileSystem extends RawLocalFileSystem {
+  override def getUri: URI = URI.create("faulty-lock:///")
+
+  override def create(path: Path, overwrite: Boolean): FSDataOutputStream =
+    throw new IOException("injected lock create failure")
+
+  override def create(
+      path: Path,
+      permission: FsPermission,
+      overwrite: Boolean,
+      bufferSize: Int,
+      replication: Short,
+      blockSize: Long,
+      progress: Progressable): FSDataOutputStream =
+    throw new IOException("injected lock create failure")
+}
 
 /**
  * Tests for [[IndexLock]] covering lock acquisition, release, refresh, stale lock auto-healing, and contention
@@ -187,6 +211,30 @@ class IndexLockTests extends SparkTests {
       }
     } finally {
       cleanup(path)
+    }
+  }
+
+  test("non-contention create IOException is propagated") {
+    val storageKey = "spark.ariadne.storagePath"
+    val originalStoragePath = spark.conf.get(storageKey)
+    val hadoopConf = spark.sparkContext.hadoopConfiguration
+    hadoopConf.set("fs.faulty-lock.impl", classOf[FailingLockCreateFileSystem].getName)
+    hadoopConf.setBoolean("fs.faulty-lock.impl.disable.cache", true)
+    val faultyStoragePath = s"faulty-lock://${tempDir.toAbsolutePath}"
+    spark.conf.set(storageKey, faultyStoragePath)
+
+    try {
+      val lock = IndexLock(new Path(s"$faultyStoragePath/non-contention.lock"), "test-index")
+      val error =
+        intercept[IOException] {
+          lock.acquire("io-failure")
+        }
+      assert(error.getMessage.contains("injected lock create failure"))
+    } finally {
+      spark.conf.set(storageKey, originalStoragePath)
+      hadoopConf.unset("fs.faulty-lock.impl")
+      hadoopConf.unset("fs.faulty-lock.impl.disable.cache")
+      FileSystem.closeAll()
     }
   }
 }

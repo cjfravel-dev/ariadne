@@ -125,7 +125,7 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: Spar
       writeLockFile(LockInfo(correlationId, now, now, getOwner), overwrite = false)
       logger.warn(s"Lock acquired for index '$indexName' (correlationId='$correlationId')")
     } catch {
-      case _: org.apache.hadoop.fs.FileAlreadyExistsException | _: java.io.IOException =>
+      case _: org.apache.hadoop.fs.FileAlreadyExistsException =>
         handleExistingLock(correlationId, startTime, 0, depth)
     }
   }
@@ -226,7 +226,7 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: Spar
             logger.warn(s"Lock acquired for index '$indexName' (correlationId='$correlationId')")
             acquired = true
           } catch {
-            case _: org.apache.hadoop.fs.FileAlreadyExistsException | _: java.io.IOException =>
+            case _: org.apache.hadoop.fs.FileAlreadyExistsException =>
               currentLock = readLock().getOrElse(currentLock)
           }
         case Some(lock) =>
@@ -238,7 +238,7 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: Spar
             logger.warn(s"Lock acquired for index '$indexName' (correlationId='$correlationId')")
             acquired = true
           } catch {
-            case _: org.apache.hadoop.fs.FileAlreadyExistsException | _: java.io.IOException =>
+            case _: org.apache.hadoop.fs.FileAlreadyExistsException =>
               currentLock = readLock().getOrElse(currentLock)
           }
       }
