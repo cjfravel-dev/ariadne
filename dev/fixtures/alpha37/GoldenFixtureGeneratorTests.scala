@@ -8,13 +8,16 @@ import org.apache.spark.sql.types._
 class GoldenFixtureGeneratorTests extends SparkTests {
 
   private def copyTree(source: Path, destination: Path): Unit = {
-    Files
-      .walk(source)
-      .forEach { path =>
+    val paths = Files.walk(source)
+    try {
+      paths.forEach { path =>
         val target = destination.resolve(source.relativize(path).toString)
         if (Files.isDirectory(path)) Files.createDirectories(target)
         else Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING)
       }
+    } finally {
+      paths.close()
+    }
   }
 
   test("generate alpha37 golden fixture") {

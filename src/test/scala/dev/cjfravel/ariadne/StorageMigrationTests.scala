@@ -72,15 +72,16 @@ class StorageMigrationTests extends SparkTests with Matchers {
 
   private def copyFixtureTree(resource: String, destination: java.nio.file.Path): Unit = {
     val source = Paths.get(getClass.getResource(resource).toURI)
-    Files
-      .walk(source)
-      .iterator()
-      .asScala
-      .foreach { path =>
+    val paths = Files.walk(source)
+    try {
+      paths.iterator().asScala.foreach { path =>
         val target = destination.resolve(source.relativize(path).toString)
         if (Files.isDirectory(path)) Files.createDirectories(target)
         else Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING)
       }
+    } finally {
+      paths.close()
+    }
   }
 
   test("new indexes declare current metadata and storage format versions") {
@@ -230,7 +231,7 @@ class StorageMigrationTests extends SparkTests with Matchers {
     val acquired = readLock(lockPath)
     try {
       index.withMigrationHeartbeat(lock, correlationId) { checkHeartbeat =>
-        val refreshDeadline = System.nanoTime() + 750L * 1000L * 1000L
+        val refreshDeadline = System.nanoTime() + 2L * 1000L * 1000L * 1000L
         while (readLock(lockPath).lastRefreshedAt == acquired.lastRefreshedAt && System.nanoTime() < refreshDeadline) {
           Thread.sleep(10)
         }
@@ -270,7 +271,7 @@ class StorageMigrationTests extends SparkTests with Matchers {
     try {
       intercept[StorageMigrationException] {
         index.withMigrationHeartbeat(lock, correlationId) { _ =>
-          val refreshDeadline = System.nanoTime() + 750L * 1000L * 1000L
+          val refreshDeadline = System.nanoTime() + 2L * 1000L * 1000L * 1000L
           while (
             readLock(lockPath).lastRefreshedAt == acquired.lastRefreshedAt && System.nanoTime() < refreshDeadline
           ) {

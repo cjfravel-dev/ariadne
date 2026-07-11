@@ -1,7 +1,0 @@
-Generated from Ariadne tag 0.0.1-alpha-37 at commit 7240a1c.
-
-Generator: dev/scripts/generate-alpha37-fixture.sh
-Runtime: Java 11, Scala 2.12.17, Spark 3.4.1, Delta Lake 2.4.0.
-Source URI: file:///tmp/ariadne-alpha37-source.json
-
-The fixture is immutable test input. Regenerate it only through the pinned script.
