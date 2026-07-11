@@ -262,8 +262,9 @@ trait IndexJoinOperations extends IndexBuildOperations {
    * Applies temporal deduplication to keep only the latest version of each value for temporal index columns being used
    * in the current join.
    *
-   * Uses row_number() window function partitioned by the value column and ordered by the timestamp column descending,
-   * keeping only rank 1.
+   * Uses a row_number() window for each applicable temporal index, partitioned by its value column and ordered by its
+   * timestamp column descending. All ranks are computed against the original rows before filtering to rows ranked first
+   * for every applicable temporal index.
    *
    * @param df
    *   The DataFrame read from data files
@@ -281,17 +282,28 @@ trait IndexJoinOperations extends IndexBuildOperations {
       df
     } else {
       logger.warn(s"Applying temporal deduplication for columns: ${applicableConfigs.map(_.column).mkString(", ")}")
-      val result =
-        applicableConfigs.foldLeft(df) { (accumDf, config) =>
-          val w =
-            Window
-              .partitionBy(config.column)
-              .orderBy(col(config.timestamp_column).desc_nulls_last)
-          accumDf
-            .withColumn("_ariadne_temporal_rank", row_number().over(w))
-            .filter(col("_ariadne_temporal_rank") === 1)
-            .drop("_ariadne_temporal_rank")
+      def unusedRankColumn(base: String, usedColumns: Set[String]): String =
+        Iterator
+          .from(0)
+          .map(index => if (index == 0) base else s"${base}_$index")
+          .find(name => !usedColumns.contains(name))
+          .fold(throw new IllegalStateException("Unable to allocate a temporary temporal rank column"))(identity)
+
+      val (rankedDf, _, rankColumns) =
+        applicableConfigs.zipWithIndex.foldLeft((df, df.columns.toSet, Vector.empty[String])) {
+          case ((accumDf, usedColumns, accumulatedRankColumns), (config, index)) =>
+            val rankColumn = unusedRankColumn(s"_ariadne_temporal_rank_$index", usedColumns)
+            val w =
+              Window
+                .partitionBy(config.column)
+                .orderBy(col(config.timestamp_column).desc_nulls_last)
+            (
+              accumDf.withColumn(rankColumn, row_number().over(w)),
+              usedColumns + rankColumn,
+              accumulatedRankColumns :+ rankColumn)
         }
+      val allLatest = rankColumns.map(rankColumn => col(rankColumn) === 1).reduce(_ && _)
+      val result = rankedDf.filter(allLatest).drop(rankColumns: _*)
       logger.debug(s"Temporal deduplication applied for ${applicableConfigs.size} column(s)")
       result
     }

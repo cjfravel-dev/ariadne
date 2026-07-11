@@ -340,4 +340,45 @@ class TemporalIndexTests extends SparkTests with Matchers {
       fs.delete(new org.apache.hadoop.fs.Path(tempPath2), true)
     }
   }
+
+  test("multiple temporal indexes should rank each column against the original rows") {
+    val multiTemporalSchema =
+      StructType(
+        Seq(
+          StructField("EntityA", IntegerType, nullable = false),
+          StructField("UpdatedA", TimestampType, nullable = false),
+          StructField("EntityB", StringType, nullable = false),
+          StructField("UpdatedB", TimestampType, nullable = false),
+          StructField("Payload", StringType, nullable = false)))
+
+    val index = Index("multi_temporal_independent_ranks", multiTemporalSchema, "parquet")
+    index.addTemporalIndex("EntityA", "UpdatedA")
+    index.addTemporalIndex("EntityB", "UpdatedB")
+
+    val rows =
+      Seq(
+        Row(
+          1,
+          java.sql.Timestamp.valueOf("2024-03-01 00:00:00"),
+          "x",
+          java.sql.Timestamp.valueOf("2024-01-01 00:00:00"),
+          "stale-for-b"),
+        Row(
+          2,
+          java.sql.Timestamp.valueOf("2024-01-01 00:00:00"),
+          "x",
+          java.sql.Timestamp.valueOf("2024-03-01 00:00:00"),
+          "stale-for-a"),
+        Row(
+          2,
+          java.sql.Timestamp.valueOf("2024-02-01 00:00:00"),
+          "y",
+          java.sql.Timestamp.valueOf("2024-02-01 00:00:00"),
+          "latest-for-both"))
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(rows), multiTemporalSchema)
+
+    val result = index.applyTemporalDeduplication(df, Seq("EntityA", "EntityB"))
+
+    result.select("Payload").collect().map(_.getString(0)).toSeq shouldBe Seq("latest-for-both")
+  }
 }
