@@ -12,6 +12,8 @@ All notable changes to this project are documented here. The format is based on
   stale rows from being promoted by an earlier temporal deduplication pass.
 - Index updates now migrate legacy exploded-field column names in both main and staging tables under the update lock
   before file-size backfill or consolidation can reintroduce an old column.
+- Lock acquisition now retries only true file-exists contention; other filesystem `IOException`s propagate immediately
+  instead of being converted into misleading lock-contention failures.
 
 ## [0.1.4-beta]
 
