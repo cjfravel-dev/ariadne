@@ -3,11 +3,11 @@ package dev.cjfravel.ariadne.catalog
 import java.nio.file.Files
 
 import dev.cjfravel.ariadne.{Index, IndexCatalog, SparkTests}
+import org.apache.spark.SparkContext
 import org.apache.spark.sql.connector.catalog.Identifier
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.sql.{Row, SparkSession}
-import org.apache.spark.{SparkConf, SparkContext}
 import org.scalatest.matchers.should.Matchers
 
 /**
@@ -45,10 +45,7 @@ class AriadneCatalogTests extends SparkTests with Matchers {
     tempDir = Files.createTempDirectory("ariadne-catalog-test-")
 
     val conf =
-      new SparkConf()
-        .setMaster("local[*]")
-        .setAppName("TestAriadneCatalog")
-        .set("spark.sql.extensions", "dev.cjfravel.ariadne.catalog.AriadneSparkExtension")
+      SparkTests.sparkConf("TestAriadneCatalog", "dev.cjfravel.ariadne.catalog.AriadneSparkExtension")
     sc = new SparkContext(conf)
 
     spark =
