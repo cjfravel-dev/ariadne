@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Multi-column temporal joins now calculate every temporal rank against the original rows before filtering, preventing
+  stale rows from being promoted by an earlier temporal deduplication pass.
+
 ## [0.1.4-beta]
 
 ### Added
