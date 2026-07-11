@@ -324,22 +324,26 @@ trait IndexBuildOperations extends BloomFilterOperations {
 
   private def needsExplodedFieldMigration: Boolean = {
     val mappings = metadata.exploded_field_indexes.asScala.toSeq
-    val tableNeedsMigration =
-      Seq(indexFilePath -> "main table", stagingFilePath -> "staging table").exists { case (path, tableName) =>
-        migrationDelta(path, tableName).exists { table =>
-          val columns = table.toDF.columns.toSet
-          mappings.exists(mapping =>
-            columns.contains(mapping.array_column) &&
-              !columns.contains(mapping.as_column) &&
-              mapping.array_column != mapping.as_column)
+    if (mappings.isEmpty) {
+      false
+    } else {
+      val tableNeedsMigration =
+        Seq(indexFilePath -> "main table", stagingFilePath -> "staging table").exists { case (path, tableName) =>
+          migrationDelta(path, tableName).exists { table =>
+            val columns = table.toDF.columns.toSet
+            mappings.exists(mapping =>
+              columns.contains(mapping.array_column) &&
+                !columns.contains(mapping.as_column) &&
+                mapping.array_column != mapping.as_column)
+          }
         }
-      }
-    val largeIndexNeedsMigration =
-      mappings.exists(mapping =>
-        mapping.array_column != mapping.as_column &&
-          !metadata.indexes.contains(mapping.array_column) &&
-          exists(new Path(largeIndexesFilePath, mapping.array_column)))
-    tableNeedsMigration || largeIndexNeedsMigration
+      val largeIndexNeedsMigration =
+        mappings.exists(mapping =>
+          mapping.array_column != mapping.as_column &&
+            !metadata.indexes.contains(mapping.array_column) &&
+            exists(new Path(largeIndexesFilePath, mapping.array_column)))
+      tableNeedsMigration || largeIndexNeedsMigration
+    }
   }
 
   /**

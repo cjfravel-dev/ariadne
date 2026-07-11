@@ -77,6 +77,17 @@ class StorageMigrationTests extends SparkTests with Matchers {
     json.get("storage_format_version").getAsInt shouldBe 3
   }
 
+  test("indexes without exploded mappings skip exploded storage inspection") {
+    val schema = StructType(Seq(StructField("Id", IntegerType, nullable = false)))
+    val indexName = "no_exploded_fast_path"
+    val index = Index(indexName, schema, "parquet")
+    val invalidIndexPath = new Path(index.storagePath, "index")
+    val filesystem = invalidIndexPath.getFileSystem(spark.sparkContext.hadoopConfiguration)
+    filesystem.mkdirs(invalidIndexPath)
+
+    index.locateFiles(Map("Id" -> Array[Any](1))) shouldBe empty
+  }
+
   test("plain open leaves unversioned metadata unchanged") {
     val schema = StructType(Seq(StructField("Id", IntegerType, nullable = false)))
     val indexName = "unversioned_read_only_open"
