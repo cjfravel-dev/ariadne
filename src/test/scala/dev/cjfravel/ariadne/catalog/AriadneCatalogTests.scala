@@ -3,11 +3,11 @@ package dev.cjfravel.ariadne.catalog
 import java.nio.file.Files
 
 import dev.cjfravel.ariadne.{Index, IndexCatalog, SparkTests}
+import org.apache.spark.SparkContext
 import org.apache.spark.sql.connector.catalog.Identifier
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.sql.{Row, SparkSession}
-import org.apache.spark.SparkContext
 import org.scalatest.matchers.should.Matchers
 
 /**

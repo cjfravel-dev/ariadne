@@ -3,6 +3,7 @@
 set -euo pipefail
 
 WORKFLOW=".github/workflows/ci.yml"
+POM="pom.xml"
 
 if [[ ! -f "$WORKFLOW" ]]; then
     echo "CI workflow not found: $WORKFLOW"
@@ -26,3 +27,8 @@ fi
 assert_contains 'mvn -B -q scoverage:report -Dgpg.skip=true' "single coverage lifecycle"
 assert_contains 'mvn -B -q verify -DskipTests -Dgpg.skip=true' "post-coverage verify command"
 assert_contains 'MAVEN_OPTS: -Xmx8g -XX:+UseG1GC' "bounded Maven heap"
+
+if ! grep -Fq '<skip>${skipTests}</skip>' "$POM"; then
+    echo "Maven exec scripts must honor -DskipTests during the post-coverage verify lifecycle"
+    exit 1
+fi
