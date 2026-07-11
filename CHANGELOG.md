@@ -14,6 +14,8 @@ All notable changes to this project are documented here. The format is based on
   before file-size backfill or consolidation can reintroduce an old column.
 - Lock acquisition now retries only true file-exists contention; other filesystem `IOException`s propagate immediately
   instead of being converted into misleading lock-contention failures.
+- Opening an existing index no longer rewrites `metadata.json`, preserving unknown fields for forward compatibility;
+  metadata is written only when creation or explicit schema/read-option changes require it.
 
 ### Changed
 

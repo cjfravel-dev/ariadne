@@ -1297,6 +1297,7 @@ object Index {
 
     val metadataExists = index.metadataExists
     logger.warn(s"Index '$name': ${if (metadataExists) "reconnecting" else "creating new"}")
+    var metadataChanged = !metadataExists
     val metadata =
       if (metadataExists) {
         index.metadata
@@ -1355,8 +1356,9 @@ object Index {
                 // cannot validate the expression references without executing it
               }
               logger.warn(s"Index '$name': schema evolved (allowSchemaMismatch=true)")
+              metadata.schema = s.json
+              metadataChanged = true
             }
-            metadata.schema = s.json
           } else if (metadata.schema != s.json) {
             throw new SchemaMismatchException(name)
           }
@@ -1389,7 +1391,10 @@ object Index {
         if (metadataExists) {
           // Merge with existing options, with new options taking precedence
           options.foreach { case (key, value) =>
-            metadata.read_options.put(key, value)
+            if (metadata.read_options.get(key) != value) {
+              metadata.read_options.put(key, value)
+              metadataChanged = true
+            }
           }
         } else {
           // Set initial options
@@ -1400,7 +1405,9 @@ object Index {
       case None => // Keep existing options
     }
 
-    index.writeMetadata(metadata)
+    if (metadataChanged) {
+      index.writeMetadata(metadata)
+    }
     index
   }
 
