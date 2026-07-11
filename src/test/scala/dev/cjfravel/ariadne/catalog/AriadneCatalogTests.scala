@@ -49,8 +49,9 @@ class AriadneCatalogTests extends SparkTests with Matchers {
         .setMaster("local[4]")
         .setAppName("TestAriadneCatalog")
         .set("spark.sql.extensions", "dev.cjfravel.ariadne.catalog.AriadneSparkExtension")
-        .set("spark.sql.shuffle.partitions", "4")
+        .set("spark.sql.shuffle.partitions", "1")
         .set("spark.default.parallelism", "4")
+        .set("spark.databricks.delta.snapshotPartitions", "1")
         .set("spark.ui.enabled", "false")
     sc = new SparkContext(conf)
 

@@ -29,8 +29,9 @@ trait SparkTests extends AnyFunSuite with BeforeAndAfterAll {
         .setMaster("local[4]")
         .setAppName("TestAriadne")
         .set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-        .set("spark.sql.shuffle.partitions", "4")
+        .set("spark.sql.shuffle.partitions", "1")
         .set("spark.default.parallelism", "4")
+        .set("spark.databricks.delta.snapshotPartitions", "1")
         .set("spark.ui.enabled", "false")
     sc = new SparkContext(conf)
 
