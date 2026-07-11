@@ -1265,7 +1265,9 @@ schema.printTreeString()</pre></li></ol>
       </span>
 
       <p class="shortcomment cmt">Writes metadata to the <code>metadata.json</code> file and updates the in-memory cache.</p><div class="fullcomment"><div class="comment cmt"><p>Writes metadata to the <code>metadata.json</code> file and updates the in-memory cache.</p><p>Creates the parent directory if it does not exist. JSON is written and validated at a unique sibling path, then
-replaced through Hadoop's overwrite rename operation so readers never observe a partially written metadata file.
+replaced through Hadoop's overwrite rename operation. The replacement is atomic on filesystems with atomic rename
+semantics (such as HDFS); object-store connectors may implement rename as copy/delete and cannot provide the same
+guarantee.
 </p></div><dl class="paramcmts block"><dt class="param">metadata</dt><dd class="cmt"><p>
   the metadata instance to serialize and persist</p></dd></dl><dl class="attributes block"> <dt>Attributes</dt><dd>protected </dd><dt>Definition Classes</dt><dd><a href="IndexMetadataOperations.html" class="extype" name="dev.cjfravel.ariadne.IndexMetadataOperations">IndexMetadataOperations</a></dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="java.io.IOException"><code>java.io.IOException</code></span>
   if the write fails (the error is logged before propagating)</p></span></dd></dl></div>

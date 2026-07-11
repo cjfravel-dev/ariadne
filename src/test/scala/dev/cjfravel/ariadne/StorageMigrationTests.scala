@@ -198,6 +198,36 @@ class StorageMigrationTests extends SparkTests with Matchers {
     }
   }
 
+  test("migration heartbeat fails when lock ownership is replaced") {
+    val schema = StructType(Seq(StructField("Id", IntegerType, nullable = false)))
+    val indexName = "migration_heartbeat_ownership"
+    val index = Index(indexName, schema, "parquet")
+    val lockPath = new Path(index.storagePath, ".update.lock")
+    val lock = IndexLock(lockPath, indexName)
+    val replacement = IndexLock(lockPath, indexName)
+    val correlationId = "migration-owner"
+    val replacementId = "replacement-owner"
+    val originalTimeout = spark.conf.getOption("spark.ariadne.lockTimeout")
+    spark.conf.set("spark.ariadne.lockTimeout", "2")
+
+    lock.acquire(correlationId)
+    try {
+      intercept[StorageMigrationException] {
+        index.withMigrationHeartbeat(lock, correlationId) { _ =>
+          lock.release(correlationId)
+          replacement.acquire(replacementId)
+          Thread.sleep(1200)
+        }
+      }
+    } finally {
+      replacement.release(replacementId)
+      originalTimeout match {
+        case Some(value) => spark.conf.set("spark.ariadne.lockTimeout", value)
+        case None => spark.conf.unset("spark.ariadne.lockTimeout")
+      }
+    }
+  }
+
   test("future storage versions fail before querying") {
     val schema = StructType(Seq(StructField("Id", IntegerType, nullable = false)))
     val indexName = "future_storage_version"

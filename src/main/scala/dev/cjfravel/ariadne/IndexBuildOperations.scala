@@ -217,7 +217,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
       new Runnable {
         override def run(): Unit =
           try {
-            lock.refresh(correlationId)
+            lock.refreshOrThrow(correlationId)
           } catch {
             case e: Throwable =>
               logger.warn(s"Storage migration lock heartbeat failed for index '$name': ${e.getMessage}", e)
@@ -237,11 +237,14 @@ trait IndexBuildOperations extends BloomFilterOperations {
       body(() => checkHeartbeat())
       checkHeartbeat()
     } finally {
-      scheduler.shutdownNow()
+      scheduler.shutdown()
       try {
-        scheduler.awaitTermination(5, TimeUnit.SECONDS)
+        if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+          scheduler.shutdownNow()
+        }
       } catch {
         case _: InterruptedException =>
+          scheduler.shutdownNow()
           Thread.currentThread().interrupt()
       }
     }
