@@ -113,7 +113,9 @@ trait IndexMetadataOperations extends AriadneContextUser {
    * Writes metadata to the `metadata.json` file and updates the in-memory cache.
    *
    * Creates the parent directory if it does not exist. JSON is written and validated at a unique sibling path, then
-   * replaced through Hadoop's overwrite rename operation so readers never observe a partially written metadata file.
+   * replaced through Hadoop's overwrite rename operation. The replacement is atomic on filesystems with atomic rename
+   * semantics (such as HDFS); object-store connectors may implement rename as copy/delete and cannot provide the same
+   * guarantee.
    *
    * @param metadata
    *   the metadata instance to serialize and persist

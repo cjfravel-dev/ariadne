@@ -271,6 +271,54 @@ class StorageMigrationTests extends SparkTests with Matchers {
     Index(indexName).locateFiles(Map("user_id" -> Array[Any](100))) should not be empty
   }
 
+  test("new exploded aliases on regular array indexes wait for update backfill") {
+    val schema =
+      StructType(
+        Seq(
+          StructField("event_id", StringType, nullable = false),
+          StructField(
+            "users",
+            ArrayType(StructType(Seq(StructField("id", IntegerType, nullable = false)))),
+            nullable = false)))
+    val source =
+      spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row("e1", Array(Row(100))))), schema)
+    val sourcePath = s"${System.getProperty("java.io.tmpdir")}/storage_pending_alias_${System.currentTimeMillis()}"
+    source.write.mode("overwrite").parquet(sourcePath)
+    val indexName = "pending_exploded_alias"
+    val index = Index(indexName, schema, "parquet")
+    index.addFile(sourcePath)
+    index.addIndex("users")
+    index.update
+    index.addExplodedFieldIndex("users", "id", "user_id")
+    index.update
+
+    index.locateFiles(Map("user_id" -> Array[Any](100))) should not be empty
+  }
+
+  test("current storage versions skip repeated exploded schema inspection") {
+    val schema =
+      StructType(
+        Seq(
+          StructField("event_id", StringType, nullable = false),
+          StructField(
+            "users",
+            ArrayType(StructType(Seq(StructField("id", IntegerType, nullable = false)))),
+            nullable = false)))
+    val source =
+      spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row("e1", Array(Row(100))))), schema)
+    val sourcePath = s"${System.getProperty("java.io.tmpdir")}/storage_current_skip_${System.currentTimeMillis()}"
+    source.write.mode("overwrite").parquet(sourcePath)
+    val indexName = "current_skip_exploded_inspection"
+    val index = Index(indexName, schema, "parquet")
+    index.addFile(sourcePath)
+    index.addExplodedFieldIndex("users", "id", "user_id")
+    index.update
+    val invalidStagingPath = new Path(index.storagePath, "staging")
+    invalidStagingPath.getFileSystem(spark.sparkContext.hadoopConfiguration).mkdirs(invalidStagingPath)
+
+    index.locateFiles(Map("user_id" -> Array[Any](100))) should not be empty
+  }
+
   test("unversioned self-mapped exploded columns migrate without a false collision") {
     val schema =
       StructType(

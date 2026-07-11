@@ -141,8 +141,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
       metadata.storage_format_version == null ||
       declaredStorageVersion < StorageFormat.CurrentStorageVersion ||
       metadata.metadata_version == null ||
-      metadata.metadata_version != StorageFormat.CurrentMetadataVersion ||
-      needsExplodedFieldMigration
+      metadata.metadata_version != StorageFormat.CurrentMetadataVersion
     ) {
       val lock = IndexLock(updateLockPath, name)
       val correlationId = UUID.randomUUID().toString
@@ -334,6 +333,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
             mappings.exists(mapping =>
               columns.contains(mapping.array_column) &&
                 !columns.contains(mapping.as_column) &&
+                !metadata.indexes.contains(mapping.array_column) &&
                 mapping.array_column != mapping.as_column)
           }
         }
