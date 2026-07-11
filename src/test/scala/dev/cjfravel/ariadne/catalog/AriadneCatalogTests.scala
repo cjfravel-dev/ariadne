@@ -46,9 +46,12 @@ class AriadneCatalogTests extends SparkTests with Matchers {
 
     val conf =
       new SparkConf()
-        .setMaster("local[*]")
+        .setMaster("local[4]")
         .setAppName("TestAriadneCatalog")
         .set("spark.sql.extensions", "dev.cjfravel.ariadne.catalog.AriadneSparkExtension")
+        .set("spark.sql.shuffle.partitions", "4")
+        .set("spark.default.parallelism", "4")
+        .set("spark.ui.enabled", "false")
     sc = new SparkContext(conf)
 
     spark =

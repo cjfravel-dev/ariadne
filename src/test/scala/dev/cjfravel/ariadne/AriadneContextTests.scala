@@ -12,4 +12,10 @@ class AriadneContextTests extends SparkTests {
       }
     assert(contextUser.storagePath.toString === tempDir.toString)
   }
+
+  test("Spark test session uses bounded parallelism for tiny fixtures") {
+    assert(spark.conf.get("spark.sql.shuffle.partitions") === "4")
+    assert(spark.sparkContext.defaultParallelism === 4)
+    assert(!spark.sparkContext.getConf.getBoolean("spark.ui.enabled", true))
+  }
 }

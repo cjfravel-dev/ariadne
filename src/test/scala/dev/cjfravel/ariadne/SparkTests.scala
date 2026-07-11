@@ -26,9 +26,12 @@ trait SparkTests extends AnyFunSuite with BeforeAndAfterAll {
     // Delta session extension is installed; Delta path-based commands (e.g. VACUUM) rely on it.
     val conf =
       new SparkConf()
-        .setMaster("local[*]")
+        .setMaster("local[4]")
         .setAppName("TestAriadne")
         .set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+        .set("spark.sql.shuffle.partitions", "4")
+        .set("spark.default.parallelism", "4")
+        .set("spark.ui.enabled", "false")
     sc = new SparkContext(conf)
 
     spark =

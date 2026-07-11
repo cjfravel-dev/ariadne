@@ -247,6 +247,19 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>test-ci-runtime-script</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/ci-runtime-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
 
