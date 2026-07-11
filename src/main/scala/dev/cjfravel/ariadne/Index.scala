@@ -743,6 +743,9 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
     try {
+      // Normalize every persisted table before file-size backfill or staging consolidation.
+      migrateExplodedFieldColumns(force = true)
+
       // Ensure legacy indexes have the file_size column before backfilling.
       // Indexes created before ariadne introduced file_size (alpha-45) have no
       // file_size column in their Delta schema at all. Delta MERGE schema

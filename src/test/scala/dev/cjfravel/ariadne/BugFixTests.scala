@@ -232,4 +232,49 @@ class BugFixTests extends SparkTests {
     assert(afterSchema.contains("user_id"), "Post-migration: should have 'user_id' column")
     assert(!afterSchema.contains("users"), "Post-migration: should NOT have 'users' column")
   }
+
+  test("Migration - update normalizes old exploded columns in main and staging tables") {
+    val arrayTestSchema =
+      StructType(
+        Seq(
+          StructField("event_id", StringType, nullable = false),
+          StructField(
+            "users",
+            ArrayType(StructType(Seq(StructField("id", IntegerType, nullable = false)))),
+            nullable = false)))
+    val testData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(Seq(Row("e1", Array(Row(100))), Row("e2", Array(Row(101))))),
+        arrayTestSchema)
+    val tempPath =
+      s"${System.getProperty("java.io.tmpdir")}/migration_update_test_${System.currentTimeMillis()}"
+    testData.write.mode("overwrite").parquet(tempPath)
+
+    val index = Index("migration_update_test", arrayTestSchema, "parquet")
+    index.addFile(tempPath)
+    index.addExplodedFieldIndex("users", "id", "user_id")
+
+    val oldStyleIndex =
+      spark.read
+        .parquet(tempPath)
+        .withColumn("filename", input_file_name())
+        .select("filename", "users")
+        .withColumn("temp", explode(col("users.id")))
+        .groupBy("filename")
+        .agg(collect_set(col("temp")).alias("users"))
+
+    val indexRoot = new Path(IndexPathUtils.storagePath, "migration_update_test")
+    val indexPath = new Path(indexRoot, "index")
+    val stagingPath = new Path(indexRoot, "staging")
+    oldStyleIndex.write.format("delta").mode("overwrite").save(indexPath.toString)
+    oldStyleIndex.write.format("delta").mode("overwrite").save(stagingPath.toString)
+
+    Index("migration_update_test").update
+
+    val migrated = spark.read.format("delta").load(indexPath.toString)
+    assert(migrated.columns.contains("user_id"), "Post-migration: main table should have 'user_id'")
+    assert(!migrated.columns.contains("users"), "Post-migration: main table should not retain legacy 'users'")
+    assert(migrated.columns.contains("file_size"), "Post-migration: main table should have 'file_size'")
+    assert(migrated.where(col("file_size").isNull).count() === 0L, "Post-migration: file_size should be populated")
+  }
 }
