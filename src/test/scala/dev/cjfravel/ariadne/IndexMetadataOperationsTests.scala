@@ -1,5 +1,8 @@
 package dev.cjfravel.ariadne
+import java.nio.charset.StandardCharsets
+
 import dev.cjfravel.ariadne.exceptions._
+import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.types._
 import org.scalatest.matchers.should.Matchers
 
@@ -104,6 +107,41 @@ class IndexMetadataOperationsTests extends SparkTests with Matchers {
     index2.storedSchema should be(testSchema)
     index2.indexes should contain("Id")
     index2.indexes should contain("test_computed")
+  }
+
+  test("opening an existing index should not rewrite metadata") {
+    val indexName = "read_only_open_test"
+    val created = Index(indexName, testSchema, "csv")
+    created.addIndex("Id")
+    val metadataPath = new Path(created.storagePath, "metadata.json")
+    val filesystem = metadataPath.getFileSystem(spark.sparkContext.hadoopConfiguration)
+
+    val input = filesystem.open(metadataPath)
+    val originalJson =
+      try {
+        new String(input.readAllBytes(), StandardCharsets.UTF_8)
+      } finally {
+        input.close()
+      }
+    val metadataWithFutureField =
+      originalJson.trim.stripSuffix("}") + ""","future_field":{"enabled":true}}"""
+    val output = filesystem.create(metadataPath, true)
+    try {
+      output.write(metadataWithFutureField.getBytes(StandardCharsets.UTF_8))
+    } finally {
+      output.close()
+    }
+
+    Index(indexName)
+
+    val reopenedInput = filesystem.open(metadataPath)
+    val reopenedJson =
+      try {
+        new String(reopenedInput.readAllBytes(), StandardCharsets.UTF_8)
+      } finally {
+        reopenedInput.close()
+      }
+    reopenedJson shouldBe metadataWithFutureField
   }
 
   test("metadata format validation should work") {
