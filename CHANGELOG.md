@@ -10,6 +10,8 @@ All notable changes to this project are documented here. The format is based on
 
 - Multi-column temporal joins now calculate every temporal rank against the original rows before filtering, preventing
   stale rows from being promoted by an earlier temporal deduplication pass.
+- Index updates now migrate legacy exploded-field column names in both main and staging tables under the update lock
+  before file-size backfill or consolidation can reintroduce an old column.
 
 ## [0.1.4-beta]
 
