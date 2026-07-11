@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format is based on
 - Lock acquisition now retries only true file-exists contention; other filesystem `IOException`s propagate immediately
   instead of being converted into misleading lock-contention failures.
 
+### Changed
+
+- Release version checks now cover the changelog and include a shell regression test in the Maven test phase.
+
 ## [0.1.4-beta]
 
 ### Added
