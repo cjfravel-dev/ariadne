@@ -328,4 +328,25 @@ class StorageMigrationTests extends SparkTests with Matchers {
     val lockPath = new Path(indexRoot, ".update.lock")
     lockPath.getFileSystem(spark.sparkContext.hadoopConfiguration).exists(lockPath) shouldBe false
   }
+
+  test("missing source files prevent file-size migration and version advancement") {
+    val schema = StructType(Seq(StructField("Id", IntegerType, nullable = false)))
+    val indexName = "missing_file_size_source"
+    Index(indexName, schema, "parquet")
+    val sparkSession = spark
+    import sparkSession.implicits._
+    Seq(("/definitely/missing/source.parquet", Seq(1)))
+      .toDF("filename", "Id")
+      .write
+      .format("delta")
+      .mode("overwrite")
+      .save(new Path(new Path(IndexPathUtils.storagePath, indexName), "index").toString)
+    makeUnversioned(indexName)
+
+    intercept[StorageMigrationException] {
+      Index(indexName).locateFiles(Map("Id" -> Array[Any](1)))
+    }
+
+    readMetadataJson(indexName).get("storage_format_version") shouldBe null
+  }
 }

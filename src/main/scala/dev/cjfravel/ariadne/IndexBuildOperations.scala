@@ -270,11 +270,18 @@ trait IndexBuildOperations extends BloomFilterOperations {
           table.toDF
             .where(col("file_size").isNull)
             .select("filename")
-            .collect()
+            .toLocalIterator()
+            .asScala
             .map(_.getString(0))
             .toSet
         if (nullSizeFiles.nonEmpty) {
           val sizes = getFileSizes(nullSizeFiles)
+          val missingSizes = nullSizeFiles -- sizes.keySet
+          if (missingSizes.nonEmpty) {
+            throw new StorageMigrationException(
+              s"Cannot migrate file_size for index '$name': ${missingSizes.size} source file(s) " +
+                s"are missing or unreadable, including '${missingSizes.head}'")
+          }
           val sizesBroadcast = spark.sparkContext.broadcast(sizes)
           try {
             val sizeUdf = udf((filename: String) => sizesBroadcast.value.getOrElse(filename, 0L))
