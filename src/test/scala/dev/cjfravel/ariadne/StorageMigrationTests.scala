@@ -100,37 +100,42 @@ class StorageMigrationTests extends SparkTests with Matchers {
     copyFixtureTree(
       "/fixtures/alpha37/filelist",
       tempDir.resolve(s"filelists/${IndexPathUtils.fileListName(indexName)}"))
+    val fixedSourcePath = Paths.get("/tmp/ariadne-alpha37-source.json")
     Files.copy(
       Paths.get(getClass.getResource("/fixtures/alpha37/source.json").toURI),
-      Paths.get("/tmp/ariadne-alpha37-source.json"),
+      fixedSourcePath,
       StandardCopyOption.REPLACE_EXISTING)
 
-    val beforeMetadata = readMetadataJson(indexName)
-    beforeMetadata.has("metadata_version") shouldBe false
-    beforeMetadata.has("storage_format_version") shouldBe false
-    val indexPath = new Path(new Path(IndexPathUtils.storagePath, indexName), "index")
-    val before = spark.read.format("delta").load(indexPath.toString)
-    before.columns should contain("users")
-    before.columns should not contain "user_id"
-    before.columns should not contain "file_size"
+    try {
+      val beforeMetadata = readMetadataJson(indexName)
+      beforeMetadata.has("metadata_version") shouldBe false
+      beforeMetadata.has("storage_format_version") shouldBe false
+      val indexPath = new Path(new Path(IndexPathUtils.storagePath, indexName), "index")
+      val before = spark.read.format("delta").load(indexPath.toString)
+      before.columns should contain("users")
+      before.columns should not contain "user_id"
+      before.columns should not contain "file_size"
 
-    Index(indexName).locateFiles(Map("user_id" -> Array[Any](100))) should contain(
-      "file:///tmp/ariadne-alpha37-source.json")
+      Index(indexName).locateFiles(Map("user_id" -> Array[Any](100))) should contain(
+        "file:///tmp/ariadne-alpha37-source.json")
 
-    val migrated = spark.read.format("delta").load(indexPath.toString)
-    migrated.columns should contain("user_id")
-    migrated.columns should contain("file_size")
-    migrated.columns should not contain "users"
-    migrated.where(col("file_size").isNull).count() shouldBe 0L
-    val migratedMetadata = readMetadataJson(indexName)
-    migratedMetadata.get("metadata_version").getAsInt shouldBe 10
-    migratedMetadata.get("storage_format_version").getAsInt shouldBe 3
+      val migrated = spark.read.format("delta").load(indexPath.toString)
+      migrated.columns should contain("user_id")
+      migrated.columns should contain("file_size")
+      migrated.columns should not contain "users"
+      migrated.where(col("file_size").isNull).count() shouldBe 0L
+      val migratedMetadata = readMetadataJson(indexName)
+      migratedMetadata.get("metadata_version").getAsInt shouldBe 10
+      migratedMetadata.get("storage_format_version").getAsInt shouldBe 3
 
-    val metadataAfterMigration = readMetadataString(indexName)
-    val historyAfterMigration = DeltaTable.forPath(spark, indexPath.toString).history().count()
-    Index(indexName).locateFiles(Map("user_id" -> Array[Any](100))) should not be empty
-    readMetadataString(indexName) shouldBe metadataAfterMigration
-    DeltaTable.forPath(spark, indexPath.toString).history().count() shouldBe historyAfterMigration
+      val metadataAfterMigration = readMetadataString(indexName)
+      val historyAfterMigration = DeltaTable.forPath(spark, indexPath.toString).history().count()
+      Index(indexName).locateFiles(Map("user_id" -> Array[Any](100))) should not be empty
+      readMetadataString(indexName) shouldBe metadataAfterMigration
+      DeltaTable.forPath(spark, indexPath.toString).history().count() shouldBe historyAfterMigration
+    } finally {
+      Files.deleteIfExists(fixedSourcePath)
+    }
   }
 
   test("indexes without exploded mappings skip exploded storage inspection") {

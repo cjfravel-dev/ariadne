@@ -45,6 +45,10 @@ class GoldenFixtureGeneratorTests extends SparkTests {
     Files.createDirectories(output)
     copyTree(tempDir.resolve("indexes/alpha37_fixture"), output.resolve("index-root"))
     copyTree(tempDir.resolve("filelists/[ariadne_index] alpha37_fixture"), output.resolve("filelist"))
-    Files.copy(sourcePath, output.resolve("source.json"), StandardCopyOption.REPLACE_EXISTING)
+    try {
+      Files.copy(sourcePath, output.resolve("source.json"), StandardCopyOption.REPLACE_EXISTING)
+    } finally {
+      Files.deleteIfExists(sourcePath)
+    }
   }
 }
