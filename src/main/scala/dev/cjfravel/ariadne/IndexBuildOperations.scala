@@ -225,7 +225,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
               heartbeatFailure.compareAndSet(null, e)
           }
       },
-      intervalSeconds,
+      0L,
       intervalSeconds,
       TimeUnit.SECONDS)
 

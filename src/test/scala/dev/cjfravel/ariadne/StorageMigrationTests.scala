@@ -41,6 +41,15 @@ class StorageMigrationTests extends SparkTests with Matchers {
     }
   }
 
+  private def readLock(path: Path): LockInfo = {
+    val input = path.getFileSystem(spark.sparkContext.hadoopConfiguration).open(path)
+    try {
+      gson.fromJson(new String(input.readAllBytes(), StandardCharsets.UTF_8), classOf[LockInfo])
+    } finally {
+      input.close()
+    }
+  }
+
   private def writeMetadataJson(indexName: String, json: JsonObject): Unit = {
     val path = metadataPath(indexName)
     val output = path.getFileSystem(spark.sparkContext.hadoopConfiguration).create(path, true)
@@ -152,8 +161,14 @@ class StorageMigrationTests extends SparkTests with Matchers {
     spark.conf.set("spark.ariadne.lockRetryInterval", "1")
 
     lock.acquire(correlationId)
+    val acquired = readLock(lockPath)
     try {
       index.withMigrationHeartbeat(lock, correlationId) { checkHeartbeat =>
+        val refreshDeadline = System.nanoTime() + 750L * 1000L * 1000L
+        while (readLock(lockPath).lastRefreshedAt == acquired.lastRefreshedAt && System.nanoTime() < refreshDeadline) {
+          Thread.sleep(10)
+        }
+        readLock(lockPath).lastRefreshedAt should not be acquired.lastRefreshedAt
         Thread.sleep(3500)
         intercept[IndexLockException] {
           IndexLock(lockPath, indexName).acquire("migration-contender")
