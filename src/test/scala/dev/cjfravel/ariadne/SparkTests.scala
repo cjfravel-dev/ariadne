@@ -8,6 +8,35 @@ import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
 
 /**
+ * Shared Spark configuration for Ariadne test suites.
+ *
+ * Keeps the base and catalog-specific sessions aligned with the four-core GitHub-hosted runner while minimizing tiny
+ * fixture shuffle and Delta snapshot overhead.
+ */
+private[ariadne] object SparkTests {
+
+  /**
+   * Creates the common SparkConf used by test suites.
+   *
+   * @param appName
+   *   Spark application name for the suite
+   * @param extensions
+   *   Spark SQL extension class configured before SparkContext creation
+   * @return
+   *   bounded local Spark configuration for tiny test fixtures
+   */
+  def sparkConf(appName: String, extensions: String): SparkConf =
+    new SparkConf()
+      .setMaster("local[4]")
+      .setAppName(appName)
+      .set("spark.sql.extensions", extensions)
+      .set("spark.sql.shuffle.partitions", "1")
+      .set("spark.default.parallelism", "4")
+      .set("spark.databricks.delta.snapshotPartitions", "1")
+      .set("spark.ui.enabled", "false")
+}
+
+/**
  * Base test infrastructure trait for all Ariadne Spark tests.
  *
  * Creates a local-mode `SparkSession` with Delta Lake extensions and a temporary directory as
@@ -24,15 +53,7 @@ trait SparkTests extends AnyFunSuite with BeforeAndAfterAll {
     tempDir = Files.createTempDirectory("ariadne-test-output-")
     // spark.sql.extensions must be set on the SparkConf before the SparkContext is created so the
     // Delta session extension is installed; Delta path-based commands (e.g. VACUUM) rely on it.
-    val conf =
-      new SparkConf()
-        .setMaster("local[4]")
-        .setAppName("TestAriadne")
-        .set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-        .set("spark.sql.shuffle.partitions", "1")
-        .set("spark.default.parallelism", "4")
-        .set("spark.databricks.delta.snapshotPartitions", "1")
-        .set("spark.ui.enabled", "false")
+    val conf = SparkTests.sparkConf("TestAriadne", "io.delta.sql.DeltaSparkSessionExtension")
     sc = new SparkContext(conf)
 
     spark =
