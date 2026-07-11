@@ -288,6 +288,7 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
       </table>
     </div>
     <p>Plain <code>Index(name)</code> construction remains read-only. Operational entry points run preflight; versions newer than the current build raise a typed compatibility exception instead of returning incomplete results.</p>
+    <p>The compatibility floor is covered by a physical fixture under <code>src/test/resources/fixtures/alpha37/</code>, generated from tag <code>0.0.1-alpha-37</code> with <code>dev/scripts/generate-alpha37-fixture.sh</code>. Normal tests use only the committed fixture and require no network access.</p>
 
     <h2 id="concurrency">Thread safety</h2>
 

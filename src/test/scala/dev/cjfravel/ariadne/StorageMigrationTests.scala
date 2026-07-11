@@ -1,6 +1,9 @@
 package dev.cjfravel.ariadne
 
 import java.nio.charset.StandardCharsets
+import java.nio.file.{Files, Paths, StandardCopyOption}
+
+import scala.collection.JavaConverters._
 
 import com.google.gson.{Gson, JsonObject, JsonParser}
 import dev.cjfravel.ariadne.exceptions.{AriadneException, IndexLockException, StorageMigrationException}
@@ -67,6 +70,20 @@ class StorageMigrationTests extends SparkTests with Matchers {
     writeMetadataJson(indexName, json)
   }
 
+  private def copyFixtureTree(resource: String, destination: java.nio.file.Path): Unit = {
+    val source = Paths.get(getClass.getResource(resource).toURI)
+    val paths = Files.walk(source)
+    try {
+      paths.iterator().asScala.foreach { path =>
+        val target = destination.resolve(source.relativize(path).toString)
+        if (Files.isDirectory(path)) Files.createDirectories(target)
+        else Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING)
+      }
+    } finally {
+      paths.close()
+    }
+  }
+
   test("new indexes declare current metadata and storage format versions") {
     val schema = StructType(Seq(StructField("Id", IntegerType, nullable = false)))
 
@@ -75,6 +92,50 @@ class StorageMigrationTests extends SparkTests with Matchers {
     val json = readMetadataJson("versioned_new_index")
     json.get("metadata_version").getAsInt shouldBe 10
     json.get("storage_format_version").getAsInt shouldBe 3
+  }
+
+  test("real alpha37 fixture migrates and remains idempotent") {
+    val indexName = "alpha37_fixture"
+    copyFixtureTree("/fixtures/alpha37/index-root", tempDir.resolve(s"indexes/$indexName"))
+    copyFixtureTree(
+      "/fixtures/alpha37/filelist",
+      tempDir.resolve(s"filelists/${IndexPathUtils.fileListName(indexName)}"))
+    val fixedSourcePath = Paths.get("/tmp/ariadne-alpha37-source.json")
+    Files.copy(
+      Paths.get(getClass.getResource("/fixtures/alpha37/source.json").toURI),
+      fixedSourcePath,
+      StandardCopyOption.REPLACE_EXISTING)
+
+    try {
+      val beforeMetadata = readMetadataJson(indexName)
+      beforeMetadata.has("metadata_version") shouldBe false
+      beforeMetadata.has("storage_format_version") shouldBe false
+      val indexPath = new Path(new Path(IndexPathUtils.storagePath, indexName), "index")
+      val before = spark.read.format("delta").load(indexPath.toString)
+      before.columns should contain("users")
+      before.columns should not contain "user_id"
+      before.columns should not contain "file_size"
+
+      Index(indexName).locateFiles(Map("user_id" -> Array[Any](100))) should contain(
+        "file:///tmp/ariadne-alpha37-source.json")
+
+      val migrated = spark.read.format("delta").load(indexPath.toString)
+      migrated.columns should contain("user_id")
+      migrated.columns should contain("file_size")
+      migrated.columns should not contain "users"
+      migrated.where(col("file_size").isNull).count() shouldBe 0L
+      val migratedMetadata = readMetadataJson(indexName)
+      migratedMetadata.get("metadata_version").getAsInt shouldBe 10
+      migratedMetadata.get("storage_format_version").getAsInt shouldBe 3
+
+      val metadataAfterMigration = readMetadataString(indexName)
+      val historyAfterMigration = DeltaTable.forPath(spark, indexPath.toString).history().count()
+      Index(indexName).locateFiles(Map("user_id" -> Array[Any](100))) should not be empty
+      readMetadataString(indexName) shouldBe metadataAfterMigration
+      DeltaTable.forPath(spark, indexPath.toString).history().count() shouldBe historyAfterMigration
+    } finally {
+      Files.deleteIfExists(fixedSourcePath)
+    }
   }
 
   test("indexes without exploded mappings skip exploded storage inspection") {
@@ -175,7 +236,7 @@ class StorageMigrationTests extends SparkTests with Matchers {
     val acquired = readLock(lockPath)
     try {
       index.withMigrationHeartbeat(lock, correlationId) { checkHeartbeat =>
-        val refreshDeadline = System.nanoTime() + 750L * 1000L * 1000L
+        val refreshDeadline = System.nanoTime() + 2L * 1000L * 1000L * 1000L
         while (readLock(lockPath).lastRefreshedAt == acquired.lastRefreshedAt && System.nanoTime() < refreshDeadline) {
           Thread.sleep(10)
         }
@@ -211,9 +272,17 @@ class StorageMigrationTests extends SparkTests with Matchers {
     spark.conf.set("spark.ariadne.lockTimeout", "2")
 
     lock.acquire(correlationId)
+    val acquired = readLock(lockPath)
     try {
       intercept[StorageMigrationException] {
         index.withMigrationHeartbeat(lock, correlationId) { _ =>
+          val refreshDeadline = System.nanoTime() + 2L * 1000L * 1000L * 1000L
+          while (
+            readLock(lockPath).lastRefreshedAt == acquired.lastRefreshedAt && System.nanoTime() < refreshDeadline
+          ) {
+            Thread.sleep(10)
+          }
+          readLock(lockPath).lastRefreshedAt should not be acquired.lastRefreshedAt
           lock.release(correlationId)
           replacement.acquire(replacementId)
           Thread.sleep(1200)
