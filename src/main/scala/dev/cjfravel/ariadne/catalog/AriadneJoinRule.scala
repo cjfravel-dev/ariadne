@@ -3,6 +3,7 @@ package dev.cjfravel.ariadne.catalog
 import scala.collection.JavaConverters._
 
 import dev.cjfravel.ariadne.Index
+import dev.cjfravel.ariadne.exceptions.StorageMigrationException
 import org.apache.logging.log4j.LogManager
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.expressions._
@@ -239,6 +240,7 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
       Some(Join(newLeft, newRight, joinType, Some(condition), hint))
     } catch {
       case e: InterruptedException => throw e
+      case e: StorageMigrationException => throw e
       case e: Exception =>
         logger.warn(
           s"AriadneJoinRule: failed to optimize join for index " +

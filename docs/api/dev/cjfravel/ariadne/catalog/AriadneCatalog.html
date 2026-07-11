@@ -3,12 +3,12 @@
         <head>
           <meta http-equiv="X-UA-Compatible" content="IE=edge" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-          <title>dev.cjfravel:ariadne-spark35_2.12 0.1.1-beta API  - dev.cjfravel.ariadne.catalog.AriadneCatalog</title>
-          <meta name="description" content="dev.cjfravel ariadne - spark35 2.12 0.1.1 - beta API - dev.cjfravel.ariadne.catalog.AriadneCatalog" />
-          <meta name="keywords" content="dev.cjfravel ariadne spark35 2.12 0.1.1 beta API dev.cjfravel.ariadne.catalog.AriadneCatalog" />
+          <title>dev.cjfravel:ariadne-spark35_2.12 0.1.4-beta API  - dev.cjfravel.ariadne.catalog.AriadneCatalog</title>
+          <meta name="description" content="dev.cjfravel ariadne - spark35 2.12 0.1.4 - beta API - dev.cjfravel.ariadne.catalog.AriadneCatalog" />
+          <meta name="keywords" content="dev.cjfravel ariadne spark35 2.12 0.1.4 beta API dev.cjfravel.ariadne.catalog.AriadneCatalog" />
           <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
-          
-      
+
+
       <link href="../../../../lib/index.css" media="screen" type="text/css" rel="stylesheet" />
       <link href="../../../../lib/template.css" media="screen" type="text/css" rel="stylesheet" />
       <link href="../../../../lib/diagrams.css" media="screen" type="text/css" rel="stylesheet" id="diagrams-css" />
@@ -19,16 +19,16 @@
       <script type="text/javascript" src="../../../../index.js"></script>
       <script type="text/javascript" src="../../../../lib/scheduler.js"></script>
       <script type="text/javascript" src="../../../../lib/template.js"></script>
-      
+
       <script type="text/javascript">
         /* this variable can be used by the JS to determine the path to the root document */
         var toRoot = '../../../../';
       </script>
-    
+
         </head>
         <body>
       <div id="search">
-        <span id="doc-title">dev.cjfravel:ariadne-spark35_2.12 0.1.1-beta API<span id="doc-version"></span></span>
+        <span id="doc-title">dev.cjfravel:ariadne-spark35_2.12 0.1.4-beta API<span id="doc-version"></span></span>
         <span class="close-results"><span class="left">&lt;</span> Back</span>
         <div id="textfilter">
           <span class="input">
@@ -67,7 +67,7 @@
       <span class="symbol">
         <a title="" href="../../../../index.html"><span class="name">root</span></a>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../../../../index.html" class="extype" name="_root_">root</a></dd></dl></div>
     </li><li name="_root_.dev" visbl="pub" class="indented1 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="dev"></a><a id="dev:dev"></a>
@@ -83,7 +83,7 @@
       <span class="symbol">
         <a title="" href="../../../index.html"><span class="name">dev</span></a>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../../../../index.html" class="extype" name="_root_">root</a></dd></dl></div>
     </li><li name="dev.cjfravel" visbl="pub" class="indented2 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="cjfravel"></a><a id="cjfravel:cjfravel"></a>
@@ -99,7 +99,7 @@
       <span class="symbol">
         <a title="" href="../../index.html"><span class="name">cjfravel</span></a>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../../../index.html" class="extype" name="dev">dev</a></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne" visbl="pub" class="indented3 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="ariadne"></a><a id="ariadne:ariadne"></a>
@@ -115,7 +115,7 @@
       <span class="symbol">
         <a title="" href="../index.html"><span class="name">ariadne</span></a>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../../index.html" class="extype" name="dev.cjfravel">cjfravel</a></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog" visbl="pub" class="indented4 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="catalog"></a><a id="catalog:catalog"></a>
@@ -131,7 +131,7 @@
       <span class="symbol">
         <a title="" href="index.html"><span class="name">catalog</span></a>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../index.html" class="extype" name="dev.cjfravel.ariadne">ariadne</a></dd></dl></div>
     </li><li class="current-entities indented4">
                         <span class="separator"></span>
@@ -188,19 +188,16 @@
       </span>
       </h4>
 
-      
-          <div id="comment" class="fullcommenttop"><div class="comment cmt"><p>Spark V2 catalog plugin that exposes Ariadne indexes as SQL tables.</p><p>All indexes under <code>spark.ariadne.storagePath</code> are automatically discovered
-and exposed under a single <code>default</code> namespace. Users reference indexes as
-<code>{catalogName}.{indexName}</code> (which resolves via the default namespace) or
+
+          <div id="comment" class="fullcommenttop"><div class="comment cmt"><p>Spark V2 catalog plugin that exposes Ariadne indexes as SQL tables.</p><p>All indexes under <code>spark.ariadne.storagePath</code> are automatically discovered and exposed under a single <code>default</code>
+namespace. Users reference indexes as <code>{catalogName}.{indexName}</code> (which resolves via the default namespace) or
 explicitly as <code>{catalogName}.default.{indexName}</code>.</p><p><b>Configuration:</b></p><pre>spark.conf.set(<span class="lit">"spark.sql.catalog.ariadne"</span>, <span class="lit">"dev.cjfravel.ariadne.catalog.AriadneCatalog"</span>)</pre><p><b>SQL usage:</b></p><pre>SHOW TABLES IN ariadne;
 DESCRIBE ariadne.customers;
 SELECT * FROM ariadne.customers WHERE id = <span class="num">123</span>;
-SELECT * FROM ariadne.customers c JOIN orders o ON c.id = o.customerid;</pre><p>This catalog is read-only. <code>createTable</code>, <code>dropTable</code>, and <code>alterTable</code>
-throw <code>UnsupportedOperationException</code>. Index lifecycle management is
-performed through the <a href="../Index.html" class="extype" name="dev.cjfravel.ariadne.Index">Index</a> API.</p><p><b>Thread safety:</b> Spark creates one catalog instance per <code>SparkSession</code>.
-The mutable <code>catalogName</code> field is set once during <code>initialize</code> and read
-thereafter. Concurrent use across threads within a single session is safe
-after initialization.
+SELECT * FROM ariadne.customers c JOIN orders o ON c.id = o.customerid;</pre><p>This catalog is read-only. <code>createTable</code>, <code>dropTable</code>, and <code>alterTable</code> throw <code>UnsupportedOperationException</code>. Index
+lifecycle management is performed through the <a href="../Index.html" class="extype" name="dev.cjfravel.ariadne.Index">Index</a> API.</p><p><b>Thread safety:</b> Spark creates one catalog instance per <code>SparkSession</code>. The mutable <code>catalogName</code> field is set
+once during <code>initialize</code> and read thereafter. Concurrent use across threads within a single session is safe after
+initialization.
 </p></div><dl class="attributes block"> <dt>See also</dt><dd><span class="cmt"><p>
   <a href="AriadneTable.html" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneTable">AriadneTable</a> for the table implementation</p></span><span class="cmt"><p>
   <a href="AriadneSparkExtension.html" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneSparkExtension">AriadneSparkExtension</a> for registering the JOIN optimization rule</p></span></dd></dl><div class="toggleContainer block">
@@ -209,7 +206,7 @@ after initialization.
           </span>
           <div class="superTypes hiddenContent"><span class="extype" name="org.apache.spark.sql.connector.catalog.SupportsNamespaces">SupportsNamespaces</span>, <span class="extype" name="org.apache.spark.sql.connector.catalog.TableCatalog">TableCatalog</span>, <span class="extype" name="org.apache.spark.sql.connector.catalog.CatalogPlugin">CatalogPlugin</span>, <span class="extype" name="scala.AnyRef">AnyRef</span>, <span class="extype" name="scala.Any">Any</span></div>
         </div></div>
-        
+
 
       <div id="mbrsel">
         <div class="toggle"></div>
@@ -224,7 +221,7 @@ after initialization.
           <div id="order">
             <span class="filtertype">Ordering</span>
             <ol>
-              
+
               <li class="alpha in"><span>Alphabetic</span></li>
               <li class="inherit out"><span>By Inheritance</span></li>
             </ol>
@@ -267,12 +264,12 @@ after initialization.
       <span class="symbol">
         <span class="name">AriadneCatalog</span><span class="params">()</span>
       </span>
-      
-      
+
+
     </li></ol>
             </div>
 
-        
+
 
         <div class="values members">
               <h3>Abstract Value Members</h3>
@@ -290,15 +287,15 @@ after initialization.
       <span class="symbol">
         <span class="name">alterNamespace</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="java.lang.String">String</span>]</span>, <span name="arg1">arg1: <span class="extype" name="scala.&lt;repeated...&gt;">&lt;repeated...&gt;</span>[<span class="extype" name="org.apache.spark.sql.connector.catalog.NamespaceChange">NamespaceChange</span>]</span>)</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>SupportsNamespaces</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException]">...</span>
     </span>)</span>
-              
+
                 <span class="name">@transient</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.catalog.TableCatalog#alterTable" visbl="pub" class="indented0 " data-isabs="true" fullComment="yes" group="Ungrouped">
       <a id="alterTable(x$1:org.apache.spark.sql.connector.catalog.Identifier,x$2:org.apache.spark.sql.connector.catalog.TableChange*):org.apache.spark.sql.connector.catalog.Table"></a><a id="alterTable(Identifier,&lt;repeated...&gt;[TableChange]):Table"></a>
@@ -314,15 +311,15 @@ after initialization.
       <span class="symbol">
         <span class="name">alterTable</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>, <span name="arg1">arg1: <span class="extype" name="scala.&lt;repeated...&gt;">&lt;repeated...&gt;</span>[<span class="extype" name="org.apache.spark.sql.connector.catalog.TableChange">TableChange</span>]</span>)</span><span class="result">: <span class="extype" name="org.apache.spark.sql.connector.catalog.Table">Table</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>TableCatalog</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[org.apache.spark.sql.catalyst.analysis.NoSuchTableException]">...</span>
     </span>)</span>
-              
+
                 <span class="name">@transient</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li></ol>
             </div>
@@ -344,7 +341,7 @@ after initialization.
       <span class="symbol">
         <span title="gt4s: $bang$eq" class="name">!=</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.Any">Any</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd></dl></div>
     </li><li name="scala.AnyRef###" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="##():Int"></a>
@@ -360,7 +357,7 @@ after initialization.
       <span class="symbol">
         <span title="gt4s: $hash$hash" class="name">##</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Int">Int</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd></dl></div>
     </li><li name="scala.AnyRef#==" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="==(x$1:Any):Boolean"></a><a id="==(Any):Boolean"></a>
@@ -376,7 +373,7 @@ after initialization.
       <span class="symbol">
         <span title="gt4s: $eq$eq" class="name">==</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.Any">Any</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#alterNamespace" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="alterNamespace(namespace:Array[String],changes:org.apache.spark.sql.connector.catalog.NamespaceChange*):Unit"></a><a id="alterNamespace(Array[String],NamespaceChange*):Unit"></a>
@@ -392,9 +389,9 @@ after initialization.
       <span class="symbol">
         <span class="name">alterNamespace</span><span class="params">(<span name="namespace">namespace: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="scala.Predef.String">String</span>]</span>, <span name="changes">changes: <span class="extype" name="org.apache.spark.sql.connector.catalog.NamespaceChange">NamespaceChange</span>*</span>)</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <p class="shortcomment cmt">Not supported — always throws.</p><div class="fullcomment"><div class="comment cmt"><p>Not supported — always throws.</p><p>Ariadne has a single <code>default</code> namespace.
-</p></div><dl class="attributes block"> <dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span> 
+</p></div><dl class="attributes block"> <dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span>
   always</p></span></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#alterTable" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="alterTable(ident:org.apache.spark.sql.connector.catalog.Identifier,changes:org.apache.spark.sql.connector.catalog.TableChange*):org.apache.spark.sql.connector.catalog.Table"></a><a id="alterTable(Identifier,TableChange*):Table"></a>
@@ -410,9 +407,9 @@ after initialization.
       <span class="symbol">
         <span class="name">alterTable</span><span class="params">(<span name="ident">ident: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>, <span name="changes">changes: <span class="extype" name="org.apache.spark.sql.connector.catalog.TableChange">TableChange</span>*</span>)</span><span class="result">: <span class="extype" name="org.apache.spark.sql.connector.catalog.Table">Table</span></span>
       </span>
-      
+
       <p class="shortcomment cmt">Not supported — always throws.</p><div class="fullcomment"><div class="comment cmt"><p>Not supported — always throws.</p><p>Use the <a href="../Index.html" class="extype" name="dev.cjfravel.ariadne.Index">dev.cjfravel.ariadne.Index</a> API to modify indexes.
-</p></div><dl class="attributes block"> <dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span> 
+</p></div><dl class="attributes block"> <dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span>
   always</p></span></dd></dl></div>
     </li><li name="scala.Any#asInstanceOf" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="asInstanceOf[T0]:T0"></a>
@@ -428,7 +425,7 @@ after initialization.
       <span class="symbol">
         <span class="name">asInstanceOf</span><span class="tparams">[<span name="T0">T0</span>]</span><span class="result">: <span class="extype" name="scala.Any.asInstanceOf.T0">T0</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>Any</dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.catalog.TableCatalog#capabilities" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="capabilities():java.util.Set[org.apache.spark.sql.connector.catalog.TableCatalogCapability]"></a><a id="capabilities():Set[TableCatalogCapability]"></a>
@@ -444,7 +441,7 @@ after initialization.
       <span class="symbol">
         <span class="name">capabilities</span><span class="params">()</span><span class="result">: <span class="extype" name="java.util.Set">Set</span>[<span class="extype" name="org.apache.spark.sql.connector.catalog.TableCatalogCapability">TableCatalogCapability</span>]</span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>TableCatalog</dd></dl></div>
     </li><li name="scala.AnyRef#clone" visbl="prt" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="clone():Object"></a><a id="clone():AnyRef"></a>
@@ -460,17 +457,17 @@ after initialization.
       <span class="symbol">
         <span class="name">clone</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.AnyRef">AnyRef</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Attributes</dt><dd>protected[<span class="extype" name="java.lang">lang</span>] </dd><dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[java.lang.CloneNotSupportedException]">...</span>
     </span>)</span>
-              
+
                 <span class="name">@native</span><span class="args">()</span>
-              
+
                 <span class="name">@HotSpotIntrinsicCandidate</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#createNamespace" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="createNamespace(namespace:Array[String],metadata:java.util.Map[String,String]):Unit"></a><a id="createNamespace(Array[String],Map[String,String]):Unit"></a>
@@ -486,9 +483,9 @@ after initialization.
       <span class="symbol">
         <span class="name">createNamespace</span><span class="params">(<span name="namespace">namespace: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="scala.Predef.String">String</span>]</span>, <span name="metadata">metadata: <span class="extype" name="java.util.Map">Map</span>[<span class="extype" name="scala.Predef.String">String</span>, <span class="extype" name="scala.Predef.String">String</span>]</span>)</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <p class="shortcomment cmt">Not supported — always throws.</p><div class="fullcomment"><div class="comment cmt"><p>Not supported — always throws.</p><p>Ariadne has a single <code>default</code> namespace.
-</p></div><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → SupportsNamespaces</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span> 
+</p></div><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → SupportsNamespaces</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span>
   always</p></span></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#createTable" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="createTable(ident:org.apache.spark.sql.connector.catalog.Identifier,schema:org.apache.spark.sql.types.StructType,partitions:Array[org.apache.spark.sql.connector.expressions.Transform],properties:java.util.Map[String,String]):org.apache.spark.sql.connector.catalog.Table"></a><a id="createTable(Identifier,StructType,Array[Transform],Map[String,String]):Table"></a>
@@ -504,9 +501,9 @@ after initialization.
       <span class="symbol">
         <span class="name">createTable</span><span class="params">(<span name="ident">ident: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>, <span name="schema">schema: <span class="extype" name="org.apache.spark.sql.types.StructType">StructType</span></span>, <span name="partitions">partitions: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="org.apache.spark.sql.connector.expressions.Transform">Transform</span>]</span>, <span name="properties">properties: <span class="extype" name="java.util.Map">Map</span>[<span class="extype" name="scala.Predef.String">String</span>, <span class="extype" name="scala.Predef.String">String</span>]</span>)</span><span class="result">: <span class="extype" name="org.apache.spark.sql.connector.catalog.Table">Table</span></span>
       </span>
-      
+
       <p class="shortcomment cmt">Not supported — always throws.</p><div class="fullcomment"><div class="comment cmt"><p>Not supported — always throws.</p><p>Use <a href="../Index$.html#apply(name:String,schema:Option[org.apache.spark.sql.types.StructType],format:Option[String],allowSchemaMismatch:Boolean,readOptions:Option[Map[String,String]])(implicitspark:org.apache.spark.sql.SparkSession):dev.cjfravel.ariadne.Index" class="extmbr" name="dev.cjfravel.ariadne.Index#apply">dev.cjfravel.ariadne.Index.apply</a> to create indexes.
-</p></div><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → TableCatalog</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span> 
+</p></div><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → TableCatalog</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span>
   always</p></span></dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.catalog.TableCatalog#createTable" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="createTable(x$1:org.apache.spark.sql.connector.catalog.Identifier,x$2:Array[org.apache.spark.sql.connector.catalog.Column],x$3:Array[org.apache.spark.sql.connector.expressions.Transform],x$4:java.util.Map[String,String]):org.apache.spark.sql.connector.catalog.Table"></a><a id="createTable(Identifier,Array[Column],Array[Transform],Map[String,String]):Table"></a>
@@ -522,18 +519,18 @@ after initialization.
       <span class="symbol">
         <span class="name">createTable</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>, <span name="arg1">arg1: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="org.apache.spark.sql.connector.catalog.Column">Column</span>]</span>, <span name="arg2">arg2: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="org.apache.spark.sql.connector.expressions.Transform">Transform</span>]</span>, <span name="arg3">arg3: <span class="extype" name="java.util.Map">Map</span>[<span class="extype" name="java.lang.String">String</span>, <span class="extype" name="java.lang.String">String</span>]</span>)</span><span class="result">: <span class="extype" name="org.apache.spark.sql.connector.catalog.Table">Table</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>TableCatalog</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[org.apache.spark.sql.catalyst.analysis.TableAlreadyExistsException]">...</span>
     </span>)</span>
-              
+
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException]">...</span>
     </span>)</span>
-              
+
         </dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#defaultNamespace" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="defaultNamespace():Array[String]"></a>
@@ -549,10 +546,9 @@ after initialization.
       <span class="symbol">
         <span class="name">defaultNamespace</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="scala.Predef.String">String</span>]</span>
       </span>
-      
-      <p class="shortcomment cmt">Returns <code>Array(&quot;default&quot;)</code> as the default namespace.</p><div class="fullcomment"><div class="comment cmt"><p>Returns <code>Array(&quot;default&quot;)</code> as the default namespace.</p><p>This follows Spark conventions (Delta, Iceberg) so that
-<code>ariadne.customers</code> resolves to <code>ariadne.default.customers</code> and <code>SHOW
-TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
+
+      <p class="shortcomment cmt">Returns <code>Array(&quot;default&quot;)</code> as the default namespace.</p><div class="fullcomment"><div class="comment cmt"><p>Returns <code>Array(&quot;default&quot;)</code> as the default namespace.</p><p>This follows Spark conventions (Delta, Iceberg) so that <code>ariadne.customers</code> resolves to <code>ariadne.default.customers</code>
+and <code>SHOW TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
 </p></div><dl class="paramcmts block"><dt>returns</dt><dd class="cmt"><p>
   single-element array containing <code>&quot;default&quot;</code></p></dd></dl><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → CatalogPlugin</dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#dropNamespace" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
@@ -569,9 +565,9 @@ TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
       <span class="symbol">
         <span class="name">dropNamespace</span><span class="params">(<span name="namespace">namespace: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="scala.Predef.String">String</span>]</span>, <span name="cascade">cascade: <span class="extype" name="scala.Boolean">Boolean</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <p class="shortcomment cmt">Not supported — always throws.</p><div class="fullcomment"><div class="comment cmt"><p>Not supported — always throws.</p><p>Ariadne has a single <code>default</code> namespace.
-</p></div><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → SupportsNamespaces</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span> 
+</p></div><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → SupportsNamespaces</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span>
   always</p></span></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#dropTable" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="dropTable(ident:org.apache.spark.sql.connector.catalog.Identifier):Boolean"></a><a id="dropTable(Identifier):Boolean"></a>
@@ -587,9 +583,9 @@ TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
       <span class="symbol">
         <span class="name">dropTable</span><span class="params">(<span name="ident">ident: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <p class="shortcomment cmt">Not supported — always throws.</p><div class="fullcomment"><div class="comment cmt"><p>Not supported — always throws.</p><p>Use <a href="../Index$.html#remove(name:String)(implicitspark:org.apache.spark.sql.SparkSession):Boolean" class="extmbr" name="dev.cjfravel.ariadne.Index#remove">dev.cjfravel.ariadne.Index.remove</a> to delete indexes.
-</p></div><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → TableCatalog</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span> 
+</p></div><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → TableCatalog</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span>
   always</p></span></dd></dl></div>
     </li><li name="scala.AnyRef#eq" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="eq(x$1:AnyRef):Boolean"></a><a id="eq(AnyRef):Boolean"></a>
@@ -605,7 +601,7 @@ TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
       <span class="symbol">
         <span class="name">eq</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.AnyRef">AnyRef</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd></dl></div>
     </li><li name="scala.AnyRef#equals" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="equals(x$1:Any):Boolean"></a><a id="equals(Any):Boolean"></a>
@@ -621,7 +617,7 @@ TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
       <span class="symbol">
         <span class="name">equals</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.Any">Any</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd></dl></div>
     </li><li name="scala.AnyRef#getClass" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="getClass():Class[_]"></a>
@@ -637,12 +633,12 @@ TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
       <span class="symbol">
         <span class="name">getClass</span><span class="params">()</span><span class="result">: <span class="extype" name="java.lang.Class">Class</span>[_]</span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd><dt>Annotations</dt><dd>
                 <span class="name">@native</span><span class="args">()</span>
-              
+
                 <span class="name">@HotSpotIntrinsicCandidate</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li><li name="scala.AnyRef#hashCode" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="hashCode():Int"></a>
@@ -658,12 +654,12 @@ TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
       <span class="symbol">
         <span class="name">hashCode</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Int">Int</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd><dt>Annotations</dt><dd>
                 <span class="name">@native</span><span class="args">()</span>
-              
+
                 <span class="name">@HotSpotIntrinsicCandidate</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#initialize" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="initialize(name:String,options:org.apache.spark.sql.util.CaseInsensitiveStringMap):Unit"></a><a id="initialize(String,CaseInsensitiveStringMap):Unit"></a>
@@ -679,7 +675,7 @@ TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
       <span class="symbol">
         <span class="name">initialize</span><span class="params">(<span name="name">name: <span class="extype" name="scala.Predef.String">String</span></span>, <span name="options">options: <span class="extype" name="org.apache.spark.sql.util.CaseInsensitiveStringMap">CaseInsensitiveStringMap</span></span>)</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <p class="shortcomment cmt">Initializes the catalog with the name assigned in the Spark configuration.</p><div class="fullcomment"><div class="comment cmt"><p>Initializes the catalog with the name assigned in the Spark configuration.</p><p>Called once by Spark when the catalog is first accessed.
 </p></div><dl class="paramcmts block"><dt class="param">name</dt><dd class="cmt"><p>
   the catalog name from <code>spark.sql.catalog.{name}</code></p></dd><dt class="param">options</dt><dd class="cmt"><p>
@@ -698,7 +694,7 @@ TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
       <span class="symbol">
         <span class="name">invalidateTable</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>)</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>TableCatalog</dd></dl></div>
     </li><li name="scala.Any#isInstanceOf" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="isInstanceOf[T0]:Boolean"></a>
@@ -714,7 +710,7 @@ TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
       <span class="symbol">
         <span class="name">isInstanceOf</span><span class="tparams">[<span name="T0">T0</span>]</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>Any</dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#listNamespaces" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="listNamespaces(namespace:Array[String]):Array[Array[String]]"></a><a id="listNamespaces(Array[String]):Array[Array[String]]"></a>
@@ -730,11 +726,11 @@ TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
       <span class="symbol">
         <span class="name">listNamespaces</span><span class="params">(<span name="namespace">namespace: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="scala.Predef.String">String</span>]</span>)</span><span class="result">: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="scala.Array">Array</span>[<span class="extype" name="scala.Predef.String">String</span>]]</span>
       </span>
-      
+
       <p class="shortcomment cmt">Lists child namespaces under the given namespace.</p><div class="fullcomment"><div class="comment cmt"><p>Lists child namespaces under the given namespace.</p><p>Since Ariadne has a flat namespace structure, this always returns empty.
 </p></div><dl class="paramcmts block"><dt class="param">namespace</dt><dd class="cmt"><p>
   the parent namespace (must be <code>default</code> or empty)</p></dd><dt>returns</dt><dd class="cmt"><p>
-  empty array (no child namespaces)</p></dd></dl><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → SupportsNamespaces</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException"><code>org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException</code></span> 
+  empty array (no child namespaces)</p></dd></dl><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → SupportsNamespaces</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException"><code>org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException</code></span>
   if the namespace is not <code>default</code></p></span></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#listNamespaces" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="listNamespaces():Array[Array[String]]"></a>
@@ -750,7 +746,7 @@ TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
       <span class="symbol">
         <span class="name">listNamespaces</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="scala.Array">Array</span>[<span class="extype" name="scala.Predef.String">String</span>]]</span>
       </span>
-      
+
       <p class="shortcomment cmt">Lists available namespaces.</p><div class="fullcomment"><div class="comment cmt"><p>Lists available namespaces. Returns a single <code>&quot;default&quot;</code> namespace.
 </p></div><dl class="paramcmts block"><dt>returns</dt><dd class="cmt"><p>
   array containing one element: <code>Array(&quot;default&quot;)</code></p></dd></dl><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → SupportsNamespaces</dd></dl></div>
@@ -768,13 +764,12 @@ TABLES IN ariadne</code> displays <code>default</code> in the namespace column.
       <span class="symbol">
         <span class="name">listTables</span><span class="params">(<span name="namespace">namespace: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="scala.Predef.String">String</span>]</span>)</span><span class="result">: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span>]</span>
       </span>
-      
-      <p class="shortcomment cmt">Lists all Ariadne indexes as table identifiers.</p><div class="fullcomment"><div class="comment cmt"><p>Lists all Ariadne indexes as table identifiers.</p><p>Delegates to <span class="extype" name="IndexCatalog.list()">IndexCatalog.list()</span> which scans <code>storagePath/indexes/</code>
-for directories containing <code>metadata.json</code>. All indexes are placed in the
-<code>default</code> namespace.
+
+      <p class="shortcomment cmt">Lists all Ariadne indexes as table identifiers.</p><div class="fullcomment"><div class="comment cmt"><p>Lists all Ariadne indexes as table identifiers.</p><p>Delegates to <span class="extype" name="IndexCatalog.list()">IndexCatalog.list()</span> which scans <code>storagePath/indexes/</code> for directories containing <code>metadata.json</code>.
+All indexes are placed in the <code>default</code> namespace.
 </p></div><dl class="paramcmts block"><dt class="param">namespace</dt><dd class="cmt"><p>
   must be <code>Array(&quot;default&quot;)</code> or empty</p></dd><dt>returns</dt><dd class="cmt"><p>
-  array of identifiers, one per index</p></dd></dl><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → TableCatalog</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException"><code>org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException</code></span> 
+  array of identifiers, one per index</p></dd></dl><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → TableCatalog</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException"><code>org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException</code></span>
   if an unrecognized namespace is provided</p></span></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#loadNamespaceMetadata" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="loadNamespaceMetadata(namespace:Array[String]):java.util.Map[String,String]"></a><a id="loadNamespaceMetadata(Array[String]):Map[String,String]"></a>
@@ -790,12 +785,11 @@ for directories containing <code>metadata.json</code>. All indexes are placed in
       <span class="symbol">
         <span class="name">loadNamespaceMetadata</span><span class="params">(<span name="namespace">namespace: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="scala.Predef.String">String</span>]</span>)</span><span class="result">: <span class="extype" name="java.util.Map">Map</span>[<span class="extype" name="scala.Predef.String">String</span>, <span class="extype" name="scala.Predef.String">String</span>]</span>
       </span>
-      
-      <p class="shortcomment cmt">Loads metadata for the given namespace.</p><div class="fullcomment"><div class="comment cmt"><p>Loads metadata for the given namespace.</p><p>Returns an empty map for the <code>default</code> namespace. Ariadne does not store
-namespace-level metadata.
+
+      <p class="shortcomment cmt">Loads metadata for the given namespace.</p><div class="fullcomment"><div class="comment cmt"><p>Loads metadata for the given namespace.</p><p>Returns an empty map for the <code>default</code> namespace. Ariadne does not store namespace-level metadata.
 </p></div><dl class="paramcmts block"><dt class="param">namespace</dt><dd class="cmt"><p>
   the namespace to load (must be <code>default</code> or empty)</p></dd><dt>returns</dt><dd class="cmt"><p>
-  empty metadata map</p></dd></dl><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → SupportsNamespaces</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException"><code>org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException</code></span> 
+  empty metadata map</p></dd></dl><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → SupportsNamespaces</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException"><code>org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException</code></span>
   if the namespace is not <code>default</code></p></span></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#loadTable" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="loadTable(ident:org.apache.spark.sql.connector.catalog.Identifier):org.apache.spark.sql.connector.catalog.Table"></a><a id="loadTable(Identifier):Table"></a>
@@ -811,13 +805,11 @@ namespace-level metadata.
       <span class="symbol">
         <span class="name">loadTable</span><span class="params">(<span name="ident">ident: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>)</span><span class="result">: <span class="extype" name="org.apache.spark.sql.connector.catalog.Table">Table</span></span>
       </span>
-      
-      <p class="shortcomment cmt">Loads an Ariadne index as a Spark V2 <a href="AriadneTable.html" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneTable">AriadneTable</a>.</p><div class="fullcomment"><div class="comment cmt"><p>Loads an Ariadne index as a Spark V2 <a href="AriadneTable.html" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneTable">AriadneTable</a>.</p><p>Reads the index's metadata to obtain the source data schema, format, and
-index configuration.
+
+      <p class="shortcomment cmt">Loads an Ariadne index as a Spark V2 <a href="AriadneTable.html" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneTable">AriadneTable</a>.</p><div class="fullcomment"><div class="comment cmt"><p>Loads an Ariadne index as a Spark V2 <a href="AriadneTable.html" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneTable">AriadneTable</a>.</p><p>Reads the index's metadata to obtain the source data schema, format, and index configuration.
 </p></div><dl class="paramcmts block"><dt class="param">ident</dt><dd class="cmt"><p>
-  table identifier (namespace must be <code>default</code> or empty, name is the
-  index name)</p></dd><dt>returns</dt><dd class="cmt"><p>
-  the AriadneTable wrapping this index</p></dd></dl><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → TableCatalog</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="org.apache.spark.sql.catalyst.analysis.NoSuchTableException"><code>org.apache.spark.sql.catalyst.analysis.NoSuchTableException</code></span> 
+  table identifier (namespace must be <code>default</code> or empty, name is the index name)</p></dd><dt>returns</dt><dd class="cmt"><p>
+  the AriadneTable wrapping this index</p></dd></dl><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → TableCatalog</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="org.apache.spark.sql.catalyst.analysis.NoSuchTableException"><code>org.apache.spark.sql.catalyst.analysis.NoSuchTableException</code></span>
   if no index with the given name exists</p></span></dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.catalog.TableCatalog#loadTable" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="loadTable(x$1:org.apache.spark.sql.connector.catalog.Identifier,x$2:Long):org.apache.spark.sql.connector.catalog.Table"></a><a id="loadTable(Identifier,Long):Table"></a>
@@ -833,13 +825,13 @@ index configuration.
       <span class="symbol">
         <span class="name">loadTable</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>, <span name="arg1">arg1: <span class="extype" name="scala.Long">Long</span></span>)</span><span class="result">: <span class="extype" name="org.apache.spark.sql.connector.catalog.Table">Table</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>TableCatalog</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[org.apache.spark.sql.catalyst.analysis.NoSuchTableException]">...</span>
     </span>)</span>
-              
+
         </dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.catalog.TableCatalog#loadTable" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="loadTable(x$1:org.apache.spark.sql.connector.catalog.Identifier,x$2:String):org.apache.spark.sql.connector.catalog.Table"></a><a id="loadTable(Identifier,String):Table"></a>
@@ -855,13 +847,13 @@ index configuration.
       <span class="symbol">
         <span class="name">loadTable</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>, <span name="arg1">arg1: <span class="extype" name="java.lang.String">String</span></span>)</span><span class="result">: <span class="extype" name="org.apache.spark.sql.connector.catalog.Table">Table</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>TableCatalog</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[org.apache.spark.sql.catalyst.analysis.NoSuchTableException]">...</span>
     </span>)</span>
-              
+
         </dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.catalog.TableCatalog#loadTable" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="loadTable(x$1:org.apache.spark.sql.connector.catalog.Identifier,x$2:java.util.Set[org.apache.spark.sql.connector.catalog.TableWritePrivilege]):org.apache.spark.sql.connector.catalog.Table"></a><a id="loadTable(Identifier,Set[TableWritePrivilege]):Table"></a>
@@ -877,13 +869,13 @@ index configuration.
       <span class="symbol">
         <span class="name">loadTable</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>, <span name="arg1">arg1: <span class="extype" name="java.util.Set">Set</span>[<span class="extype" name="org.apache.spark.sql.connector.catalog.TableWritePrivilege">TableWritePrivilege</span>]</span>)</span><span class="result">: <span class="extype" name="org.apache.spark.sql.connector.catalog.Table">Table</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>TableCatalog</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[org.apache.spark.sql.catalyst.analysis.NoSuchTableException]">...</span>
     </span>)</span>
-              
+
         </dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#name" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="name():String"></a>
@@ -899,7 +891,7 @@ index configuration.
       <span class="symbol">
         <span class="name">name</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Predef.String">String</span></span>
       </span>
-      
+
       <p class="shortcomment cmt">Returns the catalog name assigned during initialization.</p><div class="fullcomment"><div class="comment cmt"><p>Returns the catalog name assigned during initialization.
 </p></div><dl class="paramcmts block"><dt>returns</dt><dd class="cmt"><p>
   the catalog name</p></dd></dl><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → CatalogPlugin</dd></dl></div>
@@ -917,7 +909,7 @@ index configuration.
       <span class="symbol">
         <span class="name">namespaceExists</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="java.lang.String">String</span>]</span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>SupportsNamespaces</dd></dl></div>
     </li><li name="scala.AnyRef#ne" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="ne(x$1:AnyRef):Boolean"></a><a id="ne(AnyRef):Boolean"></a>
@@ -933,7 +925,7 @@ index configuration.
       <span class="symbol">
         <span class="name">ne</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.AnyRef">AnyRef</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd></dl></div>
     </li><li name="scala.AnyRef#notify" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="notify():Unit"></a>
@@ -949,12 +941,12 @@ index configuration.
       <span class="symbol">
         <span class="name">notify</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@native</span><span class="args">()</span>
-              
+
                 <span class="name">@HotSpotIntrinsicCandidate</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li><li name="scala.AnyRef#notifyAll" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="notifyAll():Unit"></a>
@@ -970,12 +962,12 @@ index configuration.
       <span class="symbol">
         <span class="name">notifyAll</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@native</span><span class="args">()</span>
-              
+
                 <span class="name">@HotSpotIntrinsicCandidate</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.catalog.TableCatalog#purgeTable" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="purgeTable(x$1:org.apache.spark.sql.connector.catalog.Identifier):Boolean"></a><a id="purgeTable(Identifier):Boolean"></a>
@@ -991,13 +983,13 @@ index configuration.
       <span class="symbol">
         <span class="name">purgeTable</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>TableCatalog</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[java.lang.UnsupportedOperationException]">...</span>
     </span>)</span>
-              
+
         </dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#renameTable" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="renameTable(oldIdent:org.apache.spark.sql.connector.catalog.Identifier,newIdent:org.apache.spark.sql.connector.catalog.Identifier):Unit"></a><a id="renameTable(Identifier,Identifier):Unit"></a>
@@ -1013,9 +1005,9 @@ index configuration.
       <span class="symbol">
         <span class="name">renameTable</span><span class="params">(<span name="oldIdent">oldIdent: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>, <span name="newIdent">newIdent: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>)</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <p class="shortcomment cmt">Not supported — always throws.</p><div class="fullcomment"><div class="comment cmt"><p>Not supported — always throws.
-</p></div><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → TableCatalog</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span> 
+</p></div><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneCatalog">AriadneCatalog</a> → TableCatalog</dd><dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="UnsupportedOperationException"><code>UnsupportedOperationException</code></span>
   always</p></span></dd></dl></div>
     </li><li name="scala.AnyRef#synchronized" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="synchronized[T0](x$1:=&gt;T0):T0"></a><a id="synchronized[T0](⇒T0):T0"></a>
@@ -1031,7 +1023,7 @@ index configuration.
       <span class="symbol">
         <span class="name">synchronized</span><span class="tparams">[<span name="T0">T0</span>]</span><span class="params">(<span name="arg0">arg0: ⇒ <span class="extype" name="java.lang.AnyRef.synchronized.T0">T0</span></span>)</span><span class="result">: <span class="extype" name="java.lang.AnyRef.synchronized.T0">T0</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneCatalog#tableExists" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="tableExists(ident:org.apache.spark.sql.connector.catalog.Identifier):Boolean"></a><a id="tableExists(Identifier):Boolean"></a>
@@ -1047,7 +1039,7 @@ index configuration.
       <span class="symbol">
         <span class="name">tableExists</span><span class="params">(<span name="ident">ident: <span class="extype" name="org.apache.spark.sql.connector.catalog.Identifier">Identifier</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <p class="shortcomment cmt">Checks whether an Ariadne index with the given name exists.</p><div class="fullcomment"><div class="comment cmt"><p>Checks whether an Ariadne index with the given name exists.
 </p></div><dl class="paramcmts block"><dt class="param">ident</dt><dd class="cmt"><p>
   table identifier (name is the index name)</p></dd><dt>returns</dt><dd class="cmt"><p>
@@ -1066,7 +1058,7 @@ index configuration.
       <span class="symbol">
         <span class="name">toString</span><span class="params">()</span><span class="result">: <span class="extype" name="java.lang.String">String</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.catalog.TableCatalog#useNullableQuerySchema" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="useNullableQuerySchema():Boolean"></a>
@@ -1082,7 +1074,7 @@ index configuration.
       <span class="symbol">
         <span class="name">useNullableQuerySchema</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>TableCatalog</dd></dl></div>
     </li><li name="scala.AnyRef#wait" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="wait(x$1:Long,x$2:Int):Unit"></a><a id="wait(Long,Int):Unit"></a>
@@ -1098,13 +1090,13 @@ index configuration.
       <span class="symbol">
         <span class="name">wait</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.Long">Long</span></span>, <span name="arg1">arg1: <span class="extype" name="scala.Int">Int</span></span>)</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[java.lang.InterruptedException]">...</span>
     </span>)</span>
-              
+
         </dd></dl></div>
     </li><li name="scala.AnyRef#wait" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="wait(x$1:Long):Unit"></a><a id="wait(Long):Unit"></a>
@@ -1120,15 +1112,15 @@ index configuration.
       <span class="symbol">
         <span class="name">wait</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.Long">Long</span></span>)</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[java.lang.InterruptedException]">...</span>
     </span>)</span>
-              
+
                 <span class="name">@native</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li><li name="scala.AnyRef#wait" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="wait():Unit"></a>
@@ -1144,19 +1136,19 @@ index configuration.
       <span class="symbol">
         <span class="name">wait</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[java.lang.InterruptedException]">...</span>
     </span>)</span>
-              
+
         </dd></dl></div>
     </li>
               </ol>
             </div>
 
-        
+
 
         <div class="values members">
               <h3>Deprecated Value Members</h3>
@@ -1174,15 +1166,15 @@ index configuration.
       <span class="symbol">
         <span class="name deprecated" title="Deprecated: ">finalize</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Attributes</dt><dd>protected[<span class="extype" name="java.lang">lang</span>] </dd><dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="symbol">classOf[java.lang.Throwable]</span>
     </span>)</span>
-              
+
                 <span class="name">@Deprecated</span>
-              
+
         </dd><dt>Deprecated</dt><dd class="cmt"></dd></dl></div>
     </li></ol>
             </div>
@@ -1200,13 +1192,13 @@ index configuration.
             </div><div class="parent" name="scala.Any">
               <h3>Inherited from <span class="extype" name="scala.Any">Any</span></h3>
             </div>
-        
+
         </div>
 
         <div id="groupedMembers">
         <div class="group" name="Ungrouped">
               <h3>Ungrouped</h3>
-              
+
             </div>
         </div>
 

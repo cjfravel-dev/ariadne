@@ -52,7 +52,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
    *   exist
    */
   protected def index: Option[DataFrame] = {
-    migrateExplodedFieldColumns()
+    ensureStorageReady()
     delta(indexFilePath).map(_.toDF)
   }
 

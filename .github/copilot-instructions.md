@@ -85,7 +85,9 @@ A column can have exactly one index type: regular, bloom, computed, temporal, ex
 
 ### Metadata Versioning
 
-`IndexMetadata.apply(jsonString)` performs sequential null-checks to migrate old metadata files forward (v1→v2→…→v9). When adding a new field to `IndexMetadata`, add a corresponding null-check migration block in `IndexMetadata.apply`.
+`IndexMetadata.apply(jsonString)` performs sequential null-checks to normalize additive metadata fields. Physical
+storage compatibility is tracked separately by `storage_format_version` and migrated through
+`IndexBuildOperations.ensureStorageReady`; never advance it before physical verification succeeds.
 
 ### Logging Convention
 

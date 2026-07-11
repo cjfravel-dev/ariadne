@@ -155,6 +155,8 @@ class AriadneV1Scan(indexName: String, sourceSchema: StructType, metadata: Index
   }
 
   private def locateMatchingFiles()(implicit spark: SparkSession): Set[String] = {
+    val index = Index(indexName)
+    index.ensureStorageReady()
     val fileListName = IndexPathUtils.fileListName(indexName)
     if (!FileList.exists(fileListName)) {
       logger.warn(s"AriadneV1Scan: no file list found for index '$indexName'")
@@ -175,7 +177,6 @@ class AriadneV1Scan(indexName: String, sourceSchema: StructType, metadata: Index
       if (filterMap.isEmpty) {
         allFiles
       } else {
-        val index = Index(indexName)
         val located = index.locateFiles(filterMap)
         logger.warn(s"AriadneV1Scan: locateFiles pruned ${allFiles.size} → ${located.size} file(s)")
         located

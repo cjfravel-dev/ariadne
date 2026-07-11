@@ -1,4 +1,7 @@
 package dev.cjfravel.ariadne
+import java.nio.charset.StandardCharsets
+
+import com.google.gson.JsonParser
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.functions._
@@ -204,6 +207,23 @@ class BugFixTests extends SparkTests {
       .format("delta")
       .mode("overwrite")
       .save(indexPath.toString)
+    val metadataPath = new Path(indexPath.getParent, "metadata.json")
+    val filesystem = metadataPath.getFileSystem(spark.sparkContext.hadoopConfiguration)
+    val metadataInput = filesystem.open(metadataPath)
+    val metadataJson =
+      try {
+        JsonParser.parseString(new String(metadataInput.readAllBytes(), StandardCharsets.UTF_8)).getAsJsonObject
+      } finally {
+        metadataInput.close()
+      }
+    metadataJson.remove("metadata_version")
+    metadataJson.remove("storage_format_version")
+    val metadataOutput = filesystem.create(metadataPath, true)
+    try {
+      metadataOutput.write(metadataJson.toString.getBytes(StandardCharsets.UTF_8))
+    } finally {
+      metadataOutput.close()
+    }
 
     // Verify the Delta table has "users" column (old style)
     val beforeSchema =

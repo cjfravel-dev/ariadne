@@ -3,9 +3,9 @@
         <head>
           <meta http-equiv="X-UA-Compatible" content="IE=edge" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-          <title>dev.cjfravel:ariadne-spark35_2.12 0.1.4-beta API  - dev.cjfravel.ariadne.exceptions.AriadneException</title>
-          <meta name="description" content="dev.cjfravel ariadne - spark35 2.12 0.1.4 - beta API - dev.cjfravel.ariadne.exceptions.AriadneException" />
-          <meta name="keywords" content="dev.cjfravel ariadne spark35 2.12 0.1.4 beta API dev.cjfravel.ariadne.exceptions.AriadneException" />
+          <title>dev.cjfravel:ariadne-spark35_2.12 0.1.4-beta API  - dev.cjfravel.ariadne.exceptions.UnsupportedMetadataVersionException</title>
+          <meta name="description" content="dev.cjfravel ariadne - spark35 2.12 0.1.4 - beta API - dev.cjfravel.ariadne.exceptions.UnsupportedMetadataVersionException" />
+          <meta name="keywords" content="dev.cjfravel ariadne spark35 2.12 0.1.4 beta API dev.cjfravel.ariadne.exceptions.UnsupportedMetadataVersionException" />
           <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
 
 
@@ -135,8 +135,8 @@
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../index.html" class="extype" name="dev.cjfravel.ariadne">ariadne</a></dd></dl></div>
     </li><li class="current-entities indented4">
                         <span class="separator"></span>
-                        <a class="class" href="" title="Base exception class for all Ariadne library errors."></a>
-                        <a href="" title="Base exception class for all Ariadne library errors.">AriadneException</a>
+                        <a class="class" href="AriadneException.html" title="Base exception class for all Ariadne library errors."></a>
+                        <a href="AriadneException.html" title="Base exception class for all Ariadne library errors.">AriadneException</a>
                       </li><li class="current-entities indented4">
                         <span class="separator"></span>
                         <a class="class" href="ColumnNotFoundException.html" title="Thrown when a specified column is not found in the DataFrame schema or index configuration."></a>
@@ -191,8 +191,8 @@
                         <a href="StorageMigrationException.html" title="Thrown when a persisted index cannot be migrated safely to the current storage format.">StorageMigrationException</a>
                       </li><li class="current-entities indented4">
                         <span class="separator"></span>
-                        <a class="class" href="UnsupportedMetadataVersionException.html" title="Thrown when an index declares a metadata schema newer than this Ariadne build supports."></a>
-                        <a href="UnsupportedMetadataVersionException.html" title="Thrown when an index declares a metadata schema newer than this Ariadne build supports.">UnsupportedMetadataVersionException</a>
+                        <a class="class" href="" title="Thrown when an index declares a metadata schema newer than this Ariadne build supports."></a>
+                        <a href="" title="Thrown when an index declares a metadata schema newer than this Ariadne build supports.">UnsupportedMetadataVersionException</a>
                       </li><li class="current-entities indented4">
                         <span class="separator"></span>
                         <a class="class" href="UnsupportedStorageFormatVersionException.html" title="Thrown when an index declares a storage format newer than this Ariadne build supports."></a>
@@ -206,8 +206,8 @@
       <div id="definition">
         <div class="big-circle class">c</div>
         <p id="owner"><a href="../../../index.html" class="extype" name="dev">dev</a>.<a href="../../index.html" class="extype" name="dev.cjfravel">cjfravel</a>.<a href="../index.html" class="extype" name="dev.cjfravel.ariadne">ariadne</a>.<a href="index.html" class="extype" name="dev.cjfravel.ariadne.exceptions">exceptions</a></p>
-        <h1>AriadneException<span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html" title="Permalink">
+        <h1>UnsupportedMetadataVersionException<span class="permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span></h1>
@@ -220,29 +220,18 @@
         <span class="kind">class</span>
       </span>
       <span class="symbol">
-        <span class="name">AriadneException</span><span class="result"> extends <span class="extype" name="scala.RuntimeException">RuntimeException</span></span>
+        <span class="name">UnsupportedMetadataVersionException</span><span class="result"> extends <a href="StorageMigrationException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.StorageMigrationException">StorageMigrationException</a></span>
       </span>
       </h4>
 
 
-          <div id="comment" class="fullcommenttop"><div class="comment cmt"><p>Base exception class for all Ariadne library errors.</p><p>Extends <code>RuntimeException</code> following Scala conventions for unchecked exceptions. All domain-specific exceptions in
-the Ariadne library extend this class, enabling callers to catch any Ariadne error with a single handler if desired.</p><p><b>Thread safety:</b> Instances are immutable after construction and safe to share across threads.</p><pre><span class="kw">try</span> {
-  index.update(<span class="lit">"abfss://data@mystorage.dfs.core.windows.net/"</span>)
-} <span class="kw">catch</span> {
-  <span class="kw">case</span> e: AriadneException <span class="kw">=&gt;</span>
-    <span class="cmt">// handles any Ariadne-specific error</span>
-    logger.error(s<span class="lit">"Ariadne operation failed: ${e.getMessage}"</span>, e)
-}</pre></div><div class="toggleContainer block">
+          <div id="comment" class="fullcommenttop"><div class="comment cmt"><p>Thrown when an index declares a metadata schema newer than this Ariadne build supports.</p><p>Upgrade Ariadne before opening the index so unknown metadata semantics are not discarded or misinterpreted.
+</p></div><div class="toggleContainer block">
           <span class="toggle">
             Linear Supertypes
           </span>
-          <div class="superTypes hiddenContent"><span class="extype" name="java.lang.RuntimeException">RuntimeException</span>, <span class="extype" name="java.lang.Exception">Exception</span>, <span class="extype" name="java.lang.Throwable">Throwable</span>, <span class="extype" name="java.io.Serializable">Serializable</span>, <span class="extype" name="scala.AnyRef">AnyRef</span>, <span class="extype" name="scala.Any">Any</span></div>
-        </div><div class="toggleContainer block">
-            <span class="toggle">
-              Known Subclasses
-            </span>
-            <div class="subClasses hiddenContent"><a href="ColumnNotFoundException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.ColumnNotFoundException">ColumnNotFoundException</a>, <a href="FileListNotFoundException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.FileListNotFoundException">FileListNotFoundException</a>, <a href="FormatMismatchException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.FormatMismatchException">FormatMismatchException</a>, <a href="IndexLockException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.IndexLockException">IndexLockException</a>, <a href="IndexNotFoundException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.IndexNotFoundException">IndexNotFoundException</a>, <a href="IndexNotFoundInNewSchemaException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.IndexNotFoundInNewSchemaException">IndexNotFoundInNewSchemaException</a>, <a href="MetadataMissingOrCorruptException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.MetadataMissingOrCorruptException">MetadataMissingOrCorruptException</a>, <a href="MissingFormatException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.MissingFormatException">MissingFormatException</a>, <a href="MissingSchemaException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.MissingSchemaException">MissingSchemaException</a>, <a href="SchemaMismatchException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.SchemaMismatchException">SchemaMismatchException</a>, <a href="SchemaNotProvidedException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.SchemaNotProvidedException">SchemaNotProvidedException</a>, <a href="SchemaParseException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.SchemaParseException">SchemaParseException</a>, <a href="StorageMigrationException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.StorageMigrationException">StorageMigrationException</a>, <a href="UnsupportedMetadataVersionException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.UnsupportedMetadataVersionException">UnsupportedMetadataVersionException</a>, <a href="UnsupportedStorageFormatVersionException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.UnsupportedStorageFormatVersionException">UnsupportedStorageFormatVersionException</a></div>
-          </div></div>
+          <div class="superTypes hiddenContent"><a href="StorageMigrationException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.StorageMigrationException">StorageMigrationException</a>, <a href="AriadneException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.AriadneException">AriadneException</a>, <span class="extype" name="java.lang.RuntimeException">RuntimeException</span>, <span class="extype" name="java.lang.Exception">Exception</span>, <span class="extype" name="java.lang.Throwable">Throwable</span>, <span class="extype" name="java.io.Serializable">Serializable</span>, <span class="extype" name="scala.AnyRef">AnyRef</span>, <span class="extype" name="scala.Any">Any</span></div>
+        </div></div>
 
 
       <div id="mbrsel">
@@ -267,7 +256,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
                   <span class="filtertype">Inherited<br />
                   </span>
                   <ol id="linearization">
-                    <li class="in" name="dev.cjfravel.ariadne.exceptions.AriadneException"><span>AriadneException</span></li><li class="in" name="java.lang.RuntimeException"><span>RuntimeException</span></li><li class="in" name="java.lang.Exception"><span>Exception</span></li><li class="in" name="java.lang.Throwable"><span>Throwable</span></li><li class="in" name="java.io.Serializable"><span>Serializable</span></li><li class="in" name="scala.AnyRef"><span>AnyRef</span></li><li class="in" name="scala.Any"><span>Any</span></li>
+                    <li class="in" name="dev.cjfravel.ariadne.exceptions.UnsupportedMetadataVersionException"><span>UnsupportedMetadataVersionException</span></li><li class="in" name="dev.cjfravel.ariadne.exceptions.StorageMigrationException"><span>StorageMigrationException</span></li><li class="in" name="dev.cjfravel.ariadne.exceptions.AriadneException"><span>AriadneException</span></li><li class="in" name="java.lang.RuntimeException"><span>RuntimeException</span></li><li class="in" name="java.lang.Exception"><span>Exception</span></li><li class="in" name="java.lang.Throwable"><span>Throwable</span></li><li class="in" name="java.io.Serializable"><span>Serializable</span></li><li class="in" name="scala.AnyRef"><span>AnyRef</span></li><li class="in" name="scala.Any"><span>Any</span></li>
                   </ol>
                 </div><div class="ancestors">
               <span class="filtertype"></span>
@@ -287,10 +276,10 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
         <div id="allMembers">
         <div id="constructors" class="members">
               <h3>Instance Constructors</h3>
-              <ol><li name="dev.cjfravel.ariadne.exceptions.AriadneException#&lt;init&gt;" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
-      <a id="&lt;init&gt;(message:String,cause:Throwable):dev.cjfravel.ariadne.exceptions.AriadneException"></a><a id="&lt;init&gt;:AriadneException"></a>
+              <ol><li name="dev.cjfravel.ariadne.exceptions.UnsupportedMetadataVersionException#&lt;init&gt;" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
+      <a id="&lt;init&gt;(found:Int,supported:Int):dev.cjfravel.ariadne.exceptions.UnsupportedMetadataVersionException"></a><a id="&lt;init&gt;:UnsupportedMetadataVersionException"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#&lt;init&gt;(message:String,cause:Throwable):dev.cjfravel.ariadne.exceptions.AriadneException" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#&lt;init&gt;(found:Int,supported:Int):dev.cjfravel.ariadne.exceptions.UnsupportedMetadataVersionException" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -299,12 +288,12 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
         <span class="kind">new</span>
       </span>
       <span class="symbol">
-        <span class="name">AriadneException</span><span class="params">(<span name="message">message: <span class="extype" name="scala.Predef.String">String</span></span>, <span name="cause">cause: <span class="extype" name="scala.Throwable">Throwable</span> = <span class="symbol">null</span></span>)</span>
+        <span class="name">UnsupportedMetadataVersionException</span><span class="params">(<span name="found">found: <span class="extype" name="scala.Int">Int</span></span>, <span name="supported">supported: <span class="extype" name="scala.Int">Int</span></span>)</span>
       </span>
 
-      <p class="shortcomment cmt"></p><div class="fullcomment"><div class="comment cmt"></div><dl class="paramcmts block"><dt class="param">message</dt><dd class="cmt"><p>
-  descriptive error message</p></dd><dt class="param">cause</dt><dd class="cmt"><p>
-  optional underlying cause of the error</p></dd></dl></div>
+      <p class="shortcomment cmt"></p><div class="fullcomment"><div class="comment cmt"></div><dl class="paramcmts block"><dt class="param">found</dt><dd class="cmt"><p>
+  metadata version declared by the index</p></dd><dt class="param">supported</dt><dd class="cmt"><p>
+  newest metadata version supported by this build</p></dd></dl></div>
     </li></ol>
             </div>
 
@@ -318,7 +307,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
                 <li name="scala.AnyRef#!=" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="!=(x$1:Any):Boolean"></a><a id="!=(Any):Boolean"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#!=(x$1:Any):Boolean" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#!=(x$1:Any):Boolean" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -334,7 +323,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef###" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="##():Int"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html###():Int" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html###():Int" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -350,7 +339,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef#==" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="==(x$1:Any):Boolean"></a><a id="==(Any):Boolean"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#==(x$1:Any):Boolean" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#==(x$1:Any):Boolean" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -366,7 +355,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="java.lang.Throwable#addSuppressed" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="addSuppressed(x$1:Throwable):Unit"></a><a id="addSuppressed(Throwable):Unit"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#addSuppressed(x$1:Throwable):Unit" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#addSuppressed(x$1:Throwable):Unit" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -382,7 +371,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.Any#asInstanceOf" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="asInstanceOf[T0]:T0"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#asInstanceOf[T0]:T0" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#asInstanceOf[T0]:T0" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -398,7 +387,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef#clone" visbl="prt" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="clone():Object"></a><a id="clone():AnyRef"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#clone():Object" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#clone():Object" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -424,7 +413,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef#eq" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="eq(x$1:AnyRef):Boolean"></a><a id="eq(AnyRef):Boolean"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#eq(x$1:AnyRef):Boolean" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#eq(x$1:AnyRef):Boolean" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -440,7 +429,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef#equals" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="equals(x$1:Any):Boolean"></a><a id="equals(Any):Boolean"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#equals(x$1:Any):Boolean" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#equals(x$1:Any):Boolean" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -456,7 +445,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="java.lang.Throwable#fillInStackTrace" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="fillInStackTrace():Throwable"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#fillInStackTrace():Throwable" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#fillInStackTrace():Throwable" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -472,7 +461,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="java.lang.Throwable#getCause" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="getCause():Throwable"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#getCause():Throwable" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#getCause():Throwable" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -488,7 +477,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef#getClass" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="getClass():Class[_]"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#getClass():Class[_]" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#getClass():Class[_]" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -509,7 +498,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="java.lang.Throwable#getLocalizedMessage" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="getLocalizedMessage():String"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#getLocalizedMessage():String" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#getLocalizedMessage():String" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -525,7 +514,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="java.lang.Throwable#getMessage" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="getMessage():String"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#getMessage():String" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#getMessage():String" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -541,7 +530,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="java.lang.Throwable#getStackTrace" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="getStackTrace():Array[StackTraceElement]"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#getStackTrace():Array[StackTraceElement]" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#getStackTrace():Array[StackTraceElement]" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -557,7 +546,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="java.lang.Throwable#getSuppressed" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="getSuppressed():Array[Throwable]"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#getSuppressed():Array[Throwable]" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#getSuppressed():Array[Throwable]" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -573,7 +562,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef#hashCode" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="hashCode():Int"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#hashCode():Int" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#hashCode():Int" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -594,7 +583,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="java.lang.Throwable#initCause" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="initCause(x$1:Throwable):Throwable"></a><a id="initCause(Throwable):Throwable"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#initCause(x$1:Throwable):Throwable" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#initCause(x$1:Throwable):Throwable" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -610,7 +599,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.Any#isInstanceOf" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="isInstanceOf[T0]:Boolean"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#isInstanceOf[T0]:Boolean" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#isInstanceOf[T0]:Boolean" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -626,7 +615,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef#ne" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="ne(x$1:AnyRef):Boolean"></a><a id="ne(AnyRef):Boolean"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#ne(x$1:AnyRef):Boolean" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#ne(x$1:AnyRef):Boolean" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -642,7 +631,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef#notify" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="notify():Unit"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#notify():Unit" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#notify():Unit" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -663,7 +652,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef#notifyAll" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="notifyAll():Unit"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#notifyAll():Unit" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#notifyAll():Unit" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -684,7 +673,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="java.lang.Throwable#printStackTrace" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="printStackTrace(x$1:java.io.PrintWriter):Unit"></a><a id="printStackTrace(PrintWriter):Unit"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#printStackTrace(x$1:java.io.PrintWriter):Unit" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#printStackTrace(x$1:java.io.PrintWriter):Unit" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -700,7 +689,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="java.lang.Throwable#printStackTrace" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="printStackTrace(x$1:java.io.PrintStream):Unit"></a><a id="printStackTrace(PrintStream):Unit"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#printStackTrace(x$1:java.io.PrintStream):Unit" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#printStackTrace(x$1:java.io.PrintStream):Unit" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -716,7 +705,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="java.lang.Throwable#printStackTrace" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="printStackTrace():Unit"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#printStackTrace():Unit" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#printStackTrace():Unit" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -732,7 +721,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="java.lang.Throwable#setStackTrace" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="setStackTrace(x$1:Array[StackTraceElement]):Unit"></a><a id="setStackTrace(Array[StackTraceElement]):Unit"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#setStackTrace(x$1:Array[StackTraceElement]):Unit" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#setStackTrace(x$1:Array[StackTraceElement]):Unit" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -748,7 +737,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef#synchronized" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="synchronized[T0](x$1:=&gt;T0):T0"></a><a id="synchronized[T0](⇒T0):T0"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#synchronized[T0](x$1:=&gt;T0):T0" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#synchronized[T0](x$1:=&gt;T0):T0" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -764,7 +753,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="java.lang.Throwable#toString" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="toString():String"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#toString():String" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#toString():String" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -780,7 +769,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef#wait" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="wait(x$1:Long,x$2:Int):Unit"></a><a id="wait(Long,Int):Unit"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#wait(x$1:Long,x$2:Int):Unit" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#wait(x$1:Long,x$2:Int):Unit" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -802,7 +791,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef#wait" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="wait(x$1:Long):Unit"></a><a id="wait(Long):Unit"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#wait(x$1:Long):Unit" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#wait(x$1:Long):Unit" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -826,7 +815,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
     </li><li name="scala.AnyRef#wait" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="wait():Unit"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#wait():Unit" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#wait():Unit" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -856,7 +845,7 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
               <ol><li name="scala.AnyRef#finalize" visbl="prt" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="finalize():Unit"></a>
       <span class="permalink">
-      <a href="../../../../dev/cjfravel/ariadne/exceptions/AriadneException.html#finalize():Unit" title="Permalink">
+      <a href="../../../../dev/cjfravel/ariadne/exceptions/UnsupportedMetadataVersionException.html#finalize():Unit" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -882,7 +871,11 @@ the Ariadne library extend this class, enabling callers to catch any Ariadne err
         </div>
 
         <div id="inheritedMembers">
-        <div class="parent" name="java.lang.RuntimeException">
+        <div class="parent" name="dev.cjfravel.ariadne.exceptions.StorageMigrationException">
+              <h3>Inherited from <a href="StorageMigrationException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.StorageMigrationException">StorageMigrationException</a></h3>
+            </div><div class="parent" name="dev.cjfravel.ariadne.exceptions.AriadneException">
+              <h3>Inherited from <a href="AriadneException.html" class="extype" name="dev.cjfravel.ariadne.exceptions.AriadneException">AriadneException</a></h3>
+            </div><div class="parent" name="java.lang.RuntimeException">
               <h3>Inherited from <span class="extype" name="java.lang.RuntimeException">RuntimeException</span></h3>
             </div><div class="parent" name="java.lang.Exception">
               <h3>Inherited from <span class="extype" name="java.lang.Exception">Exception</span></h3>

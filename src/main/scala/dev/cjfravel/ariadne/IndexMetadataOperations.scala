@@ -1,12 +1,13 @@
 package dev.cjfravel.ariadne
 
 import java.nio.charset.StandardCharsets
+import java.util.UUID
 
 import scala.io.Source
 
 import com.google.gson.Gson
 import dev.cjfravel.ariadne.exceptions.MetadataMissingOrCorruptException
-import org.apache.hadoop.fs.Path
+import org.apache.hadoop.fs.{FileContext, Options, Path}
 import org.apache.logging.log4j.{LogManager, Logger}
 
 /**
@@ -111,8 +112,10 @@ trait IndexMetadataOperations extends AriadneContextUser {
   /**
    * Writes metadata to the `metadata.json` file and updates the in-memory cache.
    *
-   * Creates the parent directory if it does not exist. The write is ''not'' atomic — a crash mid-write may leave a
-   * corrupt file that triggers [[dev.cjfravel.ariadne.exceptions.MetadataMissingOrCorruptException]] on the next read.
+   * Creates the parent directory if it does not exist. JSON is written and validated at a unique sibling path, then
+   * replaced through Hadoop's overwrite rename operation. The replacement is atomic on filesystems with atomic rename
+   * semantics (such as HDFS); object-store connectors may implement rename as copy/delete and cannot provide the same
+   * guarantee.
    *
    * @param metadata
    *   the metadata instance to serialize and persist
@@ -126,17 +129,25 @@ trait IndexMetadataOperations extends AriadneContextUser {
     if (!exists(directoryPath)) fs.mkdirs(directoryPath)
 
     val jsonString = new Gson().toJson(metadata)
+    val temporaryPath = new Path(directoryPath, s".metadata-${UUID.randomUUID()}.tmp")
     var outputStream: org.apache.hadoop.fs.FSDataOutputStream = null
     try {
-      outputStream = fs.create(metadataFilePath)
+      outputStream = fs.create(temporaryPath, false)
       outputStream.write(jsonString.getBytes(StandardCharsets.UTF_8))
-      outputStream.flush()
+      outputStream.hflush()
+      outputStream.close()
+      outputStream = null
+      IndexMetadata(jsonString)
+      FileContext
+        .getFileContext(fs.getUri, spark.sparkContext.hadoopConfiguration)
+        .rename(temporaryPath, metadataFilePath, Options.Rename.OVERWRITE)
     } catch {
       case e: Exception =>
         logger.warn(s"Failed to write metadata to ${metadataFilePath.toString}: ${e.getMessage}")
         throw e
     } finally {
       if (outputStream != null) outputStream.close()
+      if (exists(temporaryPath)) delete(temporaryPath)
     }
     _metadata = metadata // Update in-memory cache
     logger.warn(s"Wrote metadata to ${metadataFilePath.toString}")

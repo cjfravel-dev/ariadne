@@ -3,12 +3,12 @@
         <head>
           <meta http-equiv="X-UA-Compatible" content="IE=edge" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-          <title>dev.cjfravel:ariadne-spark35_2.12 0.1.1-beta API  - dev.cjfravel.ariadne.catalog.AriadneV1Scan</title>
-          <meta name="description" content="dev.cjfravel ariadne - spark35 2.12 0.1.1 - beta API - dev.cjfravel.ariadne.catalog.AriadneV1Scan" />
-          <meta name="keywords" content="dev.cjfravel ariadne spark35 2.12 0.1.1 beta API dev.cjfravel.ariadne.catalog.AriadneV1Scan" />
+          <title>dev.cjfravel:ariadne-spark35_2.12 0.1.4-beta API  - dev.cjfravel.ariadne.catalog.AriadneV1Scan</title>
+          <meta name="description" content="dev.cjfravel ariadne - spark35 2.12 0.1.4 - beta API - dev.cjfravel.ariadne.catalog.AriadneV1Scan" />
+          <meta name="keywords" content="dev.cjfravel ariadne spark35 2.12 0.1.4 beta API dev.cjfravel.ariadne.catalog.AriadneV1Scan" />
           <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
-          
-      
+
+
       <link href="../../../../lib/index.css" media="screen" type="text/css" rel="stylesheet" />
       <link href="../../../../lib/template.css" media="screen" type="text/css" rel="stylesheet" />
       <link href="../../../../lib/diagrams.css" media="screen" type="text/css" rel="stylesheet" id="diagrams-css" />
@@ -19,16 +19,16 @@
       <script type="text/javascript" src="../../../../index.js"></script>
       <script type="text/javascript" src="../../../../lib/scheduler.js"></script>
       <script type="text/javascript" src="../../../../lib/template.js"></script>
-      
+
       <script type="text/javascript">
         /* this variable can be used by the JS to determine the path to the root document */
         var toRoot = '../../../../';
       </script>
-    
+
         </head>
         <body>
       <div id="search">
-        <span id="doc-title">dev.cjfravel:ariadne-spark35_2.12 0.1.1-beta API<span id="doc-version"></span></span>
+        <span id="doc-title">dev.cjfravel:ariadne-spark35_2.12 0.1.4-beta API<span id="doc-version"></span></span>
         <span class="close-results"><span class="left">&lt;</span> Back</span>
         <div id="textfilter">
           <span class="input">
@@ -67,7 +67,7 @@
       <span class="symbol">
         <a title="" href="../../../../index.html"><span class="name">root</span></a>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../../../../index.html" class="extype" name="_root_">root</a></dd></dl></div>
     </li><li name="_root_.dev" visbl="pub" class="indented1 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="dev"></a><a id="dev:dev"></a>
@@ -83,7 +83,7 @@
       <span class="symbol">
         <a title="" href="../../../index.html"><span class="name">dev</span></a>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../../../../index.html" class="extype" name="_root_">root</a></dd></dl></div>
     </li><li name="dev.cjfravel" visbl="pub" class="indented2 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="cjfravel"></a><a id="cjfravel:cjfravel"></a>
@@ -99,7 +99,7 @@
       <span class="symbol">
         <a title="" href="../../index.html"><span class="name">cjfravel</span></a>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../../../index.html" class="extype" name="dev">dev</a></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne" visbl="pub" class="indented3 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="ariadne"></a><a id="ariadne:ariadne"></a>
@@ -115,7 +115,7 @@
       <span class="symbol">
         <a title="" href="../index.html"><span class="name">ariadne</span></a>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../../index.html" class="extype" name="dev.cjfravel">cjfravel</a></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog" visbl="pub" class="indented4 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="catalog"></a><a id="catalog:catalog"></a>
@@ -131,7 +131,7 @@
       <span class="symbol">
         <a title="" href="index.html"><span class="name">catalog</span></a>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../index.html" class="extype" name="dev.cjfravel.ariadne">ariadne</a></dd></dl></div>
     </li><li class="current-entities indented4">
                         <span class="separator"></span>
@@ -188,23 +188,19 @@
       </span>
       </h4>
 
-      
-          <div id="comment" class="fullcommenttop"><div class="comment cmt"><p>V1-based scan that delegates file reading to Spark's built-in readers.</p><p>Uses <code>V1Scan</code> to create a <code>BaseRelation</code> that reads source data files using
-<code>spark.read</code> with the appropriate format (CSV, Parquet, JSON). This avoids
-reimplementing file readers and gives full Spark optimization (predicate
-pushdown to Parquet, column pruning, etc.).</p><p>When WHERE filters were pushed through <a href="AriadneScanBuilder.html" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneScanBuilder">AriadneScanBuilder</a>, the file list
-is pruned via <a href="../IndexQueryOperations.html#locateFiles(indexes:Map[String,Array[Any]]):Set[String]" class="extmbr" name="dev.cjfravel.ariadne.IndexQueryOperations#locateFiles">dev.cjfravel.ariadne.IndexQueryOperations.locateFiles</a>
-before reading.</p><p><b>Driver memory note:</b> <code>locateMatchingFiles</code> collects the file list to
-the driver. This is bounded by the number of indexed files (not row count),
-but extremely large file lists could pressure driver memory.</p><p><b>Thread safety:</b> Instances are created per scan and are not shared
-across threads.
+
+          <div id="comment" class="fullcommenttop"><div class="comment cmt"><p>V1-based scan that delegates file reading to Spark's built-in readers.</p><p>Uses <code>V1Scan</code> to create a <code>BaseRelation</code> that reads source data files using <code>spark.read</code> with the appropriate format
+(CSV, Parquet, JSON). This avoids reimplementing file readers and gives full Spark optimization (predicate pushdown
+to Parquet, column pruning, etc.).</p><p>When WHERE filters were pushed through <a href="AriadneScanBuilder.html" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneScanBuilder">AriadneScanBuilder</a>, the file list is pruned via
+<a href="../IndexQueryOperations.html#locateFiles(indexes:Map[String,Array[Any]]):Set[String]" class="extmbr" name="dev.cjfravel.ariadne.IndexQueryOperations#locateFiles">dev.cjfravel.ariadne.IndexQueryOperations.locateFiles</a> before reading.</p><p><b>Driver memory note:</b> <code>locateMatchingFiles</code> collects the file list to the driver. This is bounded by the number
+of indexed files (not row count), but extremely large file lists could pressure driver memory.</p><p><b>Thread safety:</b> Instances are created per scan and are not shared across threads.
 </p></div><div class="toggleContainer block">
           <span class="toggle">
             Linear Supertypes
           </span>
           <div class="superTypes hiddenContent"><span class="extype" name="org.apache.spark.sql.connector.read.V1Scan">V1Scan</span>, <span class="extype" name="org.apache.spark.sql.connector.read.Scan">Scan</span>, <span class="extype" name="scala.AnyRef">AnyRef</span>, <span class="extype" name="scala.Any">Any</span></div>
         </div></div>
-        
+
 
       <div id="mbrsel">
         <div class="toggle"></div>
@@ -219,7 +215,7 @@ across threads.
           <div id="order">
             <span class="filtertype">Ordering</span>
             <ol>
-              
+
               <li class="alpha in"><span>Alphabetic</span></li>
               <li class="inherit out"><span>By Inheritance</span></li>
             </ol>
@@ -262,7 +258,7 @@ across threads.
       <span class="symbol">
         <span class="name">AriadneV1Scan</span><span class="params">(<span name="indexName">indexName: <span class="extype" name="scala.Predef.String">String</span></span>, <span name="sourceSchema">sourceSchema: <span class="extype" name="org.apache.spark.sql.types.StructType">StructType</span></span>, <span name="metadata">metadata: <a href="../IndexMetadata.html" class="extype" name="dev.cjfravel.ariadne.IndexMetadata">IndexMetadata</a></span>, <span name="pushedFilters">pushedFilters: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="org.apache.spark.sql.sources.Filter">Filter</span>]</span>)</span>
       </span>
-      
+
       <p class="shortcomment cmt"></p><div class="fullcomment"><div class="comment cmt"></div><dl class="paramcmts block"><dt class="param">indexName</dt><dd class="cmt"><p>
   the Ariadne index name</p></dd><dt class="param">sourceSchema</dt><dd class="cmt"><p>
   the schema of the source data files</p></dd><dt class="param">metadata</dt><dd class="cmt"><p>
@@ -271,9 +267,9 @@ across threads.
     </li></ol>
             </div>
 
-        
 
-        
+
+
 
         <div class="values members">
               <h3>Value Members</h3>
@@ -292,7 +288,7 @@ across threads.
       <span class="symbol">
         <span title="gt4s: $bang$eq" class="name">!=</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.Any">Any</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd></dl></div>
     </li><li name="scala.AnyRef###" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="##():Int"></a>
@@ -308,7 +304,7 @@ across threads.
       <span class="symbol">
         <span title="gt4s: $hash$hash" class="name">##</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Int">Int</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd></dl></div>
     </li><li name="scala.AnyRef#==" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="==(x$1:Any):Boolean"></a><a id="==(Any):Boolean"></a>
@@ -324,7 +320,7 @@ across threads.
       <span class="symbol">
         <span title="gt4s: $eq$eq" class="name">==</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.Any">Any</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd></dl></div>
     </li><li name="scala.Any#asInstanceOf" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="asInstanceOf[T0]:T0"></a>
@@ -340,7 +336,7 @@ across threads.
       <span class="symbol">
         <span class="name">asInstanceOf</span><span class="tparams">[<span name="T0">T0</span>]</span><span class="result">: <span class="extype" name="scala.Any.asInstanceOf.T0">T0</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>Any</dd></dl></div>
     </li><li name="scala.AnyRef#clone" visbl="prt" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="clone():Object"></a><a id="clone():AnyRef"></a>
@@ -356,17 +352,17 @@ across threads.
       <span class="symbol">
         <span class="name">clone</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.AnyRef">AnyRef</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Attributes</dt><dd>protected[<span class="extype" name="java.lang">lang</span>] </dd><dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[java.lang.CloneNotSupportedException]">...</span>
     </span>)</span>
-              
+
                 <span class="name">@native</span><span class="args">()</span>
-              
+
                 <span class="name">@HotSpotIntrinsicCandidate</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.read.Scan#columnarSupportMode" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="columnarSupportMode():org.apache.spark.sql.connector.read.Scan.ColumnarSupportMode"></a><a id="columnarSupportMode():ColumnarSupportMode"></a>
@@ -382,7 +378,7 @@ across threads.
       <span class="symbol">
         <span class="name">columnarSupportMode</span><span class="params">()</span><span class="result">: <span class="extype" name="org.apache.spark.sql.connector.read.Scan.ColumnarSupportMode">ColumnarSupportMode</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>Scan</dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.read.Scan#description" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="description():String"></a>
@@ -398,7 +394,7 @@ across threads.
       <span class="symbol">
         <span class="name">description</span><span class="params">()</span><span class="result">: <span class="extype" name="java.lang.String">String</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>Scan</dd></dl></div>
     </li><li name="scala.AnyRef#eq" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="eq(x$1:AnyRef):Boolean"></a><a id="eq(AnyRef):Boolean"></a>
@@ -414,7 +410,7 @@ across threads.
       <span class="symbol">
         <span class="name">eq</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.AnyRef">AnyRef</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd></dl></div>
     </li><li name="scala.AnyRef#equals" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="equals(x$1:Any):Boolean"></a><a id="equals(Any):Boolean"></a>
@@ -430,7 +426,7 @@ across threads.
       <span class="symbol">
         <span class="name">equals</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.Any">Any</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd></dl></div>
     </li><li name="scala.AnyRef#getClass" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="getClass():Class[_]"></a>
@@ -446,12 +442,12 @@ across threads.
       <span class="symbol">
         <span class="name">getClass</span><span class="params">()</span><span class="result">: <span class="extype" name="java.lang.Class">Class</span>[_]</span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd><dt>Annotations</dt><dd>
                 <span class="name">@native</span><span class="args">()</span>
-              
+
                 <span class="name">@HotSpotIntrinsicCandidate</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li><li name="scala.AnyRef#hashCode" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="hashCode():Int"></a>
@@ -467,12 +463,12 @@ across threads.
       <span class="symbol">
         <span class="name">hashCode</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Int">Int</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd><dt>Annotations</dt><dd>
                 <span class="name">@native</span><span class="args">()</span>
-              
+
                 <span class="name">@HotSpotIntrinsicCandidate</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li><li name="scala.Any#isInstanceOf" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="isInstanceOf[T0]:Boolean"></a>
@@ -488,7 +484,7 @@ across threads.
       <span class="symbol">
         <span class="name">isInstanceOf</span><span class="tparams">[<span name="T0">T0</span>]</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>Any</dd></dl></div>
     </li><li name="scala.AnyRef#ne" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="ne(x$1:AnyRef):Boolean"></a><a id="ne(AnyRef):Boolean"></a>
@@ -504,7 +500,7 @@ across threads.
       <span class="symbol">
         <span class="name">ne</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.AnyRef">AnyRef</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd></dl></div>
     </li><li name="scala.AnyRef#notify" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="notify():Unit"></a>
@@ -520,12 +516,12 @@ across threads.
       <span class="symbol">
         <span class="name">notify</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@native</span><span class="args">()</span>
-              
+
                 <span class="name">@HotSpotIntrinsicCandidate</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li><li name="scala.AnyRef#notifyAll" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="notifyAll():Unit"></a>
@@ -541,12 +537,12 @@ across threads.
       <span class="symbol">
         <span class="name">notifyAll</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@native</span><span class="args">()</span>
-              
+
                 <span class="name">@HotSpotIntrinsicCandidate</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneV1Scan#readSchema" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="readSchema():org.apache.spark.sql.types.StructType"></a><a id="readSchema():StructType"></a>
@@ -562,7 +558,7 @@ across threads.
       <span class="symbol">
         <span class="name">readSchema</span><span class="params">()</span><span class="result">: <span class="extype" name="org.apache.spark.sql.types.StructType">StructType</span></span>
       </span>
-      
+
       <p class="shortcomment cmt">Returns the schema of the source data files.</p><div class="fullcomment"><div class="comment cmt"><p>Returns the schema of the source data files.
 </p></div><dl class="paramcmts block"><dt>returns</dt><dd class="cmt"><p>
   the source data schema stored in index metadata</p></dd></dl><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneV1Scan">AriadneV1Scan</a> → Scan</dd></dl></div>
@@ -580,7 +576,7 @@ across threads.
       <span class="symbol">
         <span class="name">reportDriverMetrics</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="org.apache.spark.sql.connector.metric.CustomTaskMetric">CustomTaskMetric</span>]</span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>Scan</dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.read.Scan#supportedCustomMetrics" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="supportedCustomMetrics():Array[org.apache.spark.sql.connector.metric.CustomMetric]"></a><a id="supportedCustomMetrics():Array[CustomMetric]"></a>
@@ -596,7 +592,7 @@ across threads.
       <span class="symbol">
         <span class="name">supportedCustomMetrics</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Array">Array</span>[<span class="extype" name="org.apache.spark.sql.connector.metric.CustomMetric">CustomMetric</span>]</span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>Scan</dd></dl></div>
     </li><li name="scala.AnyRef#synchronized" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="synchronized[T0](x$1:=&gt;T0):T0"></a><a id="synchronized[T0](⇒T0):T0"></a>
@@ -612,7 +608,7 @@ across threads.
       <span class="symbol">
         <span class="name">synchronized</span><span class="tparams">[<span name="T0">T0</span>]</span><span class="params">(<span name="arg0">arg0: ⇒ <span class="extype" name="java.lang.AnyRef.synchronized.T0">T0</span></span>)</span><span class="result">: <span class="extype" name="java.lang.AnyRef.synchronized.T0">T0</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.read.Scan#toBatch" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="toBatch():org.apache.spark.sql.connector.read.Batch"></a><a id="toBatch():Batch"></a>
@@ -628,7 +624,7 @@ across threads.
       <span class="symbol">
         <span class="name">toBatch</span><span class="params">()</span><span class="result">: <span class="extype" name="org.apache.spark.sql.connector.read.Batch">Batch</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>Scan</dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.read.Scan#toContinuousStream" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="toContinuousStream(x$1:String):org.apache.spark.sql.connector.read.streaming.ContinuousStream"></a><a id="toContinuousStream(String):ContinuousStream"></a>
@@ -644,7 +640,7 @@ across threads.
       <span class="symbol">
         <span class="name">toContinuousStream</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="java.lang.String">String</span></span>)</span><span class="result">: <span class="extype" name="org.apache.spark.sql.connector.read.streaming.ContinuousStream">ContinuousStream</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>Scan</dd></dl></div>
     </li><li name="org.apache.spark.sql.connector.read.Scan#toMicroBatchStream" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="toMicroBatchStream(x$1:String):org.apache.spark.sql.connector.read.streaming.MicroBatchStream"></a><a id="toMicroBatchStream(String):MicroBatchStream"></a>
@@ -660,7 +656,7 @@ across threads.
       <span class="symbol">
         <span class="name">toMicroBatchStream</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="java.lang.String">String</span></span>)</span><span class="result">: <span class="extype" name="org.apache.spark.sql.connector.read.streaming.MicroBatchStream">MicroBatchStream</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>Scan</dd></dl></div>
     </li><li name="scala.AnyRef#toString" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="toString():String"></a>
@@ -676,7 +672,7 @@ across threads.
       <span class="symbol">
         <span class="name">toString</span><span class="params">()</span><span class="result">: <span class="extype" name="java.lang.String">String</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef → Any</dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog.AriadneV1Scan#toV1TableScan" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="toV1TableScan[T&lt;:org.apache.spark.sql.sources.BaseRelationwithorg.apache.spark.sql.sources.TableScan](sqlCtx:org.apache.spark.sql.SQLContext):T"></a><a id="toV1TableScan[T&lt;:BaseRelationwithTableScan](SQLContext):T"></a>
@@ -692,9 +688,8 @@ across threads.
       <span class="symbol">
         <span class="name">toV1TableScan</span><span class="tparams">[<span name="T">T &lt;: <span class="extype" name="org.apache.spark.sql.sources.BaseRelation">BaseRelation</span> with <span class="extype" name="org.apache.spark.sql.sources.TableScan">TableScan</span></span>]</span><span class="params">(<span name="sqlCtx">sqlCtx: <span class="extype" name="org.apache.spark.sql.SQLContext">SQLContext</span></span>)</span><span class="result">: <span class="extype" name="dev.cjfravel.ariadne.catalog.AriadneV1Scan.toV1TableScan.T">T</span></span>
       </span>
-      
-      <p class="shortcomment cmt">Creates a V1 BaseRelation that reads the source data files.</p><div class="fullcomment"><div class="comment cmt"><p>Creates a V1 BaseRelation that reads the source data files.</p><p>If filters were pushed, uses <code>locateFiles()</code> to prune the file list.
-Otherwise reads all indexed files.
+
+      <p class="shortcomment cmt">Creates a V1 BaseRelation that reads the source data files.</p><div class="fullcomment"><div class="comment cmt"><p>Creates a V1 BaseRelation that reads the source data files.</p><p>If filters were pushed, uses <code>locateFiles()</code> to prune the file list. Otherwise reads all indexed files.
 </p></div><dl class="paramcmts block"><dt class="param">sqlCtx</dt><dd class="cmt"><p>
   the SQLContext provided by Spark</p></dd><dt>returns</dt><dd class="cmt"><p>
   a BaseRelation backed by Ariadne's source data files</p></dd></dl><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneV1Scan">AriadneV1Scan</a> → V1Scan</dd></dl></div>
@@ -712,13 +707,13 @@ Otherwise reads all indexed files.
       <span class="symbol">
         <span class="name">wait</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.Long">Long</span></span>, <span name="arg1">arg1: <span class="extype" name="scala.Int">Int</span></span>)</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[java.lang.InterruptedException]">...</span>
     </span>)</span>
-              
+
         </dd></dl></div>
     </li><li name="scala.AnyRef#wait" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="wait(x$1:Long):Unit"></a><a id="wait(Long):Unit"></a>
@@ -734,15 +729,15 @@ Otherwise reads all indexed files.
       <span class="symbol">
         <span class="name">wait</span><span class="params">(<span name="arg0">arg0: <span class="extype" name="scala.Long">Long</span></span>)</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[java.lang.InterruptedException]">...</span>
     </span>)</span>
-              
+
                 <span class="name">@native</span><span class="args">()</span>
-              
+
         </dd></dl></div>
     </li><li name="scala.AnyRef#wait" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="wait():Unit"></a>
@@ -758,19 +753,19 @@ Otherwise reads all indexed files.
       <span class="symbol">
         <span class="name">wait</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="defval" name="classOf[java.lang.InterruptedException]">...</span>
     </span>)</span>
-              
+
         </dd></dl></div>
     </li>
               </ol>
             </div>
 
-        
+
 
         <div class="values members">
               <h3>Deprecated Value Members</h3>
@@ -788,15 +783,15 @@ Otherwise reads all indexed files.
       <span class="symbol">
         <span class="name deprecated" title="Deprecated: ">finalize</span><span class="params">()</span><span class="result">: <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-      
+
       <div class="fullcomment"><dl class="attributes block"> <dt>Attributes</dt><dd>protected[<span class="extype" name="java.lang">lang</span>] </dd><dt>Definition Classes</dt><dd>AnyRef</dd><dt>Annotations</dt><dd>
                 <span class="name">@throws</span><span class="args">(<span>
-      
+
       <span class="symbol">classOf[java.lang.Throwable]</span>
     </span>)</span>
-              
+
                 <span class="name">@Deprecated</span>
-              
+
         </dd><dt>Deprecated</dt><dd class="cmt"></dd></dl></div>
     </li></ol>
             </div>
@@ -812,13 +807,13 @@ Otherwise reads all indexed files.
             </div><div class="parent" name="scala.Any">
               <h3>Inherited from <span class="extype" name="scala.Any">Any</span></h3>
             </div>
-        
+
         </div>
 
         <div id="groupedMembers">
         <div class="group" name="Ungrouped">
               <h3>Ungrouped</h3>
-              
+
             </div>
         </div>
 

@@ -95,6 +95,10 @@ case class ExplodedFieldMapping(var array_column: String, var field_path: String
  * @param batches_since_compact
  *   Number of update batches processed since the last auto-compaction, persisted across Spark jobs so that
  *   `autoCompactThreshold` works correctly even when updates happen in separate runs (v10+, nullable for Gson)
+ * @param metadata_version
+ *   Explicit additive metadata schema version, or null for indexes created before explicit versioning
+ * @param storage_format_version
+ *   Explicit whole-index physical storage version, or null for unversioned alpha37+ indexes
  *
  * @note
  *   The field names use underscore notation to match JSON serialization format. All fields use `var` and Java
@@ -114,7 +118,9 @@ case class IndexMetadata(
     var range_indexes: util.List[RangeIndexConfig],
     var auto_bloom_indexes: util.List[String],
     var total_indexed_file_size: java.lang.Long,
-    var batches_since_compact: java.lang.Integer)
+    var batches_since_compact: java.lang.Integer,
+    var metadata_version: java.lang.Integer,
+    var storage_format_version: java.lang.Integer)
 
 /**
  * Factory object for creating IndexMetadata instances from JSON.

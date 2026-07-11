@@ -1,10 +1,17 @@
 package dev.cjfravel.ariadne
 
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.{Executors, TimeUnit}
+
 import scala.collection.JavaConverters._
 
+import dev.cjfravel.ariadne.exceptions._
+import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types.LongType
 
 /**
  * Trait providing index building and maintenance operations for [[Index]] instances.
@@ -92,10 +99,255 @@ trait IndexBuildOperations extends BloomFilterOperations {
    */
   protected def stagingFilePath: Path = new Path(storagePath, "staging")
 
+  private def migrationDelta(path: Path, tableName: String): Option[DeltaTable] =
+    if (!exists(path)) {
+      None
+    } else if (!DeltaTable.isDeltaTable(spark, path.toString)) {
+      throw new StorageMigrationException(s"$tableName for index '$name' is not a valid Delta table at $path")
+    } else {
+      Some(DeltaTable.forPath(spark, path.toString))
+    }
+
+  private def declaredStorageVersion: Int =
+    Option(metadata.storage_format_version).map(_.intValue()).getOrElse(StorageFormat.Alpha37StorageVersion)
+
+  private def validateDeclaredVersions(): Unit = {
+    Option(metadata.metadata_version).foreach { version =>
+      if (version > StorageFormat.CurrentMetadataVersion) {
+        throw new UnsupportedMetadataVersionException(version, StorageFormat.CurrentMetadataVersion)
+      }
+    }
+    val storageVersion = declaredStorageVersion
+    if (storageVersion < StorageFormat.Alpha37StorageVersion) {
+      throw new StorageMigrationException(
+        s"Index '$name' declares invalid storage format version $storageVersion; " +
+          s"the compatibility floor is ${StorageFormat.Alpha37StorageVersion}")
+    }
+    if (storageVersion > StorageFormat.CurrentStorageVersion) {
+      throw new UnsupportedStorageFormatVersionException(storageVersion, StorageFormat.CurrentStorageVersion)
+    }
+  }
+
   /**
-   * Tracks whether the exploded field column migration has already been checked.
+   * Ensures the index uses the current physical storage format.
+   *
+   * Current indexes return without acquiring a lock. Unversioned or older indexes acquire the update lock, refresh
+   * metadata to close the detection/acquisition race, and run ordered idempotent migrations before the operation
+   * continues.
    */
-  @transient private var _explodedMigrationChecked: Boolean = false
+  private[ariadne] def ensureStorageReady(): Unit = {
+    validateDeclaredVersions()
+    if (
+      metadata.storage_format_version == null ||
+      declaredStorageVersion < StorageFormat.CurrentStorageVersion ||
+      metadata.metadata_version == null ||
+      metadata.metadata_version != StorageFormat.CurrentMetadataVersion
+    ) {
+      val lock = IndexLock(updateLockPath, name)
+      val correlationId = UUID.randomUUID().toString
+      lock.acquire(correlationId)
+      try {
+        ensureStorageReadyUnderLock(lock, correlationId, refresh = true)
+      } finally {
+        lock.release(correlationId)
+      }
+    }
+  }
+
+  /**
+   * Runs migration preflight while the caller holds the update lock.
+   *
+   * @param refresh
+   *   whether to reload metadata after lock acquisition
+   */
+  protected def ensureStorageReadyUnderLock(lock: IndexLock, correlationId: String, refresh: Boolean): Unit =
+    withMigrationHeartbeat(lock, correlationId) { checkHeartbeat =>
+      if (refresh) refreshMetadata()
+      validateDeclaredVersions()
+      checkHeartbeat()
+
+      val initialStorageVersion = declaredStorageVersion
+      val fileSizeMigrationNeeded =
+        initialStorageVersion < StorageFormat.FileSizeStorageVersion || needsFileSizeMigration
+      val explodedMigrationNeeded =
+        initialStorageVersion < StorageFormat.CurrentStorageVersion || needsExplodedFieldMigration
+
+      if (fileSizeMigrationNeeded) migrateFileSizeColumns()
+      checkHeartbeat()
+      verifyFileSizeColumns()
+      if (explodedMigrationNeeded) migrateExplodedFieldColumns()
+      checkHeartbeat()
+      verifyExplodedFieldColumns()
+
+      val versionChanged =
+        metadata.metadata_version == null ||
+          metadata.metadata_version != StorageFormat.CurrentMetadataVersion ||
+          metadata.storage_format_version == null ||
+          metadata.storage_format_version != StorageFormat.CurrentStorageVersion
+      if (versionChanged || fileSizeMigrationNeeded || explodedMigrationNeeded) {
+        val previousMetadataVersion = metadata.metadata_version
+        val previousStorageVersion = metadata.storage_format_version
+        try {
+          metadata.metadata_version = StorageFormat.CurrentMetadataVersion
+          metadata.storage_format_version = StorageFormat.CurrentStorageVersion
+          writeMetadata(metadata)
+        } catch {
+          case e: Exception =>
+            metadata.metadata_version = previousMetadataVersion
+            metadata.storage_format_version = previousStorageVersion
+            throw e
+        }
+        logger.warn(
+          s"Storage migration preflight completed for index '$name': " +
+            s"metadata=${StorageFormat.CurrentMetadataVersion}, storage=${StorageFormat.CurrentStorageVersion}")
+      }
+    }
+
+  private[ariadne] def withMigrationHeartbeat(lock: IndexLock, correlationId: String)(
+      body: (() => Unit) => Unit): Unit = {
+    val heartbeatFailure = new AtomicReference[Throwable]()
+    val scheduler =
+      Executors.newSingleThreadScheduledExecutor { runnable =>
+        val thread = new Thread(runnable, s"ariadne-storage-migration-$name")
+        thread.setDaemon(true)
+        thread
+      }
+    val intervalSeconds = math.max(1L, lockTimeout / 3L)
+    scheduler.scheduleAtFixedRate(
+      new Runnable {
+        override def run(): Unit =
+          try {
+            lock.refreshOrThrow(correlationId)
+          } catch {
+            case e: Throwable =>
+              logger.warn(s"Storage migration lock heartbeat failed for index '$name': ${e.getMessage}", e)
+              heartbeatFailure.compareAndSet(null, e)
+          }
+      },
+      0L,
+      intervalSeconds,
+      TimeUnit.SECONDS)
+
+    def checkHeartbeat(): Unit =
+      Option(heartbeatFailure.get()).foreach { failure =>
+        throw new StorageMigrationException(s"Storage migration lock heartbeat failed for index '$name'", failure)
+      }
+
+    try {
+      body(() => checkHeartbeat())
+      checkHeartbeat()
+    } finally {
+      scheduler.shutdown()
+      try {
+        if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+          scheduler.shutdownNow()
+        }
+      } catch {
+        case _: InterruptedException =>
+          scheduler.shutdownNow()
+          Thread.currentThread().interrupt()
+      }
+    }
+  }
+
+  private def needsFileSizeMigration: Boolean =
+    Seq(indexFilePath -> "main table", stagingFilePath -> "staging table").exists { case (path, tableName) =>
+      migrationDelta(path, tableName).exists { table =>
+        !table.toDF.columns.contains("file_size") || table.toDF.where(col("file_size").isNull).limit(1).count() > 0
+      }
+    }
+
+  private def migrateFileSizeColumns(): Unit = {
+    Seq(indexFilePath -> "main table", stagingFilePath -> "staging table").foreach { case (path, tableName) =>
+      migrationDelta(path, tableName).foreach { table =>
+        if (!table.toDF.columns.contains("file_size")) {
+          logger.warn(s"Adding file_size to $tableName for index '$name'")
+          val escapedPath = path.toString.replace("`", "``")
+          spark.sql(s"ALTER TABLE delta.`$escapedPath` ADD COLUMNS (file_size BIGINT)")
+        }
+      }
+
+      migrationDelta(path, tableName).foreach { table =>
+        val nullSizeFiles =
+          table.toDF
+            .where(col("file_size").isNull)
+            .select("filename")
+            .toLocalIterator()
+            .asScala
+            .map(_.getString(0))
+            .toSet
+        if (nullSizeFiles.nonEmpty) {
+          val sizes = getFileSizes(nullSizeFiles)
+          val missingSizes = nullSizeFiles -- sizes.keySet
+          if (missingSizes.nonEmpty) {
+            throw new StorageMigrationException(
+              s"Cannot migrate file_size for index '$name': ${missingSizes.size} source file(s) " +
+                s"are missing or unreadable, including '${missingSizes.head}'")
+          }
+          val sizesBroadcast = spark.sparkContext.broadcast(sizes)
+          try {
+            val sizeUdf = udf((filename: String) => sizesBroadcast.value.getOrElse(filename, 0L))
+            import spark.implicits._
+            val updates =
+              nullSizeFiles.toSeq
+                .toDF("filename")
+                .withColumn("file_size", sizeUdf(col("filename")))
+            table
+              .as("target")
+              .merge(updates.as("source"), "target.filename = source.filename")
+              .whenMatched()
+              .update(Map("file_size" -> col("source.file_size")))
+              .execute()
+          } finally {
+            safeDestroyBroadcast(sizesBroadcast)
+          }
+        }
+      }
+    }
+
+    migrationDelta(indexFilePath, "main table").foreach { table =>
+      val result = table.toDF.agg(sum("file_size")).head()
+      metadata.total_indexed_file_size = if (result.isNullAt(0)) 0L else result.getLong(0)
+    }
+  }
+
+  private def verifyFileSizeColumns(): Unit =
+    Seq(indexFilePath -> "main table", stagingFilePath -> "staging table").foreach { case (path, tableName) =>
+      migrationDelta(path, tableName).foreach { table =>
+        val df = table.toDF
+        if (!df.columns.contains("file_size") || df.schema("file_size").dataType != LongType) {
+          throw new StorageMigrationException(s"$tableName for index '$name' does not have BIGINT file_size")
+        }
+        if (df.where(col("file_size").isNull).limit(1).count() > 0) {
+          throw new StorageMigrationException(s"$tableName for index '$name' still contains null file_size values")
+        }
+      }
+    }
+
+  private def needsExplodedFieldMigration: Boolean = {
+    val mappings = metadata.exploded_field_indexes.asScala.toSeq
+    if (mappings.isEmpty) {
+      false
+    } else {
+      val tableNeedsMigration =
+        Seq(indexFilePath -> "main table", stagingFilePath -> "staging table").exists { case (path, tableName) =>
+          migrationDelta(path, tableName).exists { table =>
+            val columns = table.toDF.columns.toSet
+            mappings.exists(mapping =>
+              columns.contains(mapping.array_column) &&
+                !columns.contains(mapping.as_column) &&
+                !metadata.indexes.contains(mapping.array_column) &&
+                mapping.array_column != mapping.as_column)
+          }
+        }
+      val largeIndexNeedsMigration =
+        mappings.exists(mapping =>
+          mapping.array_column != mapping.as_column &&
+            !metadata.indexes.contains(mapping.array_column) &&
+            exists(new Path(largeIndexesFilePath, mapping.array_column)))
+      tableNeedsMigration || largeIndexNeedsMigration
+    }
+  }
 
   /**
    * Migrates pre-0.1.1 indexes that stored exploded field columns under `array_column` names to the current `as_column`
@@ -106,58 +358,121 @@ trait IndexBuildOperations extends BloomFilterOperations {
    * pattern is found, each table is rewritten with renamed columns, and any large-index directories named by
    * `array_column` are similarly migrated.
    *
-   * This method is idempotent and fast when no migration is needed (single schema check). It is called automatically on
-   * the first index read and forced at the start of update while the update lock is held.
-   *
-   * @param force
-   *   when true, checks persisted schemas even if this instance previously completed a migration check
+   * This method is idempotent and is invoked only by storage migration preflight while the update lock is held.
    */
-  protected def migrateExplodedFieldColumns(force: Boolean = false): Unit =
-    if (force || !_explodedMigrationChecked) {
-      val mappings = metadata.exploded_field_indexes.asScala.toSeq
-      if (mappings.nonEmpty) {
-        val startTime = System.currentTimeMillis()
+  protected def migrateExplodedFieldColumns(): Unit = {
+    val mappings = metadata.exploded_field_indexes.asScala.toSeq
+    val ambiguousArrays =
+      mappings
+        .groupBy(_.array_column)
+        .collect {
+          case (arrayColumn, values) if values.size > 1 =>
+            arrayColumn
+        }
+        .toSet
 
-        def migrateTable(path: Path, tableName: String): Unit =
-          delta(path).foreach { dt =>
-            val schema = dt.toDF.schema.fieldNames.toSet
-            val columnsToRename =
-              mappings.filter(m => schema.contains(m.array_column) && !schema.contains(m.as_column))
-            if (columnsToRename.nonEmpty) {
-              logger.warn(
-                s"Migrating exploded field columns in $tableName for index '$name': " +
-                  columnsToRename
-                    .map(m => s"${m.array_column} -> ${m.as_column}")
-                    .mkString(", "))
-              var df = dt.toDF
-              columnsToRename.foreach { m => df = df.withColumnRenamed(m.array_column, m.as_column) }
-              df.write
-                .format("delta")
-                .option("overwriteSchema", "true")
-                .mode("overwrite")
-                .save(path.toString)
-            }
-          }
-
-        migrateTable(indexFilePath, "main table")
-        migrateTable(stagingFilePath, "staging table")
-
+    def migrateTable(path: Path, tableName: String): Unit =
+      migrationDelta(path, tableName).foreach { table =>
+        val schema = table.toDF.schema.fieldNames.toSet
+        val columnsToRename =
+          mappings.filter(m =>
+            schema.contains(m.array_column) &&
+              !schema.contains(m.as_column) &&
+              !metadata.indexes.contains(m.array_column) &&
+              m.array_column != m.as_column)
+        if (columnsToRename.exists(m => ambiguousArrays.contains(m.array_column))) {
+          throw new StorageMigrationException(
+            s"$tableName for index '$name' has an ambiguous legacy exploded column mapping")
+        }
         mappings.foreach { mapping =>
-          val oldPath = new Path(largeIndexesFilePath, mapping.array_column)
-          val newPath = new Path(largeIndexesFilePath, mapping.as_column)
-          if (exists(oldPath) && !exists(newPath)) {
-            logger.warn(s"Renaming large index directory: ${mapping.array_column} -> ${mapping.as_column}")
-            if (!fs.rename(oldPath, newPath)) {
-              throw new java.io.IOException(s"Failed to rename legacy large index directory $oldPath to $newPath")
-            }
+          if (
+            mapping.array_column != mapping.as_column &&
+            schema.contains(mapping.array_column) &&
+            schema.contains(mapping.as_column) &&
+            !metadata.indexes.contains(mapping.array_column)
+          ) {
+            throw new StorageMigrationException(
+              s"$tableName for index '$name' contains both legacy '${mapping.array_column}' " +
+                s"and current '${mapping.as_column}' columns without a regular '${mapping.array_column}' index")
+          }
+          if (
+            mapping.array_column != mapping.as_column &&
+            schema.contains(mapping.array_column) &&
+            !schema.contains(mapping.as_column) &&
+            metadata.indexes.contains(mapping.array_column)
+          ) {
+            throw new StorageMigrationException(
+              s"$tableName for index '$name' has regular '${mapping.array_column}' data but is missing " +
+                s"exploded alias '${mapping.as_column}'; run a column backfill before migration")
           }
         }
-
-        logger.warn(
-          s"Exploded field migration completed for index '$name' in ${System.currentTimeMillis() - startTime}ms")
+        if (columnsToRename.nonEmpty) {
+          logger.warn(
+            s"Migrating exploded field columns in $tableName for index '$name': " +
+              columnsToRename.map(m => s"${m.array_column} -> ${m.as_column}").mkString(", "))
+          val migrated =
+            columnsToRename.foldLeft(table.toDF) { case (df, mapping) =>
+              df.withColumnRenamed(mapping.array_column, mapping.as_column)
+            }
+          migrated.write
+            .format("delta")
+            .option("overwriteSchema", "true")
+            .mode("overwrite")
+            .save(path.toString)
+        }
       }
-      _explodedMigrationChecked = true
+
+    migrateTable(indexFilePath, "main table")
+    migrateTable(stagingFilePath, "staging table")
+
+    mappings.foreach { mapping =>
+      val oldPath = new Path(largeIndexesFilePath, mapping.array_column)
+      val newPath = new Path(largeIndexesFilePath, mapping.as_column)
+      if (
+        exists(oldPath) &&
+        mapping.array_column != mapping.as_column &&
+        !metadata.indexes.contains(mapping.array_column)
+      ) {
+        if (exists(newPath)) {
+          throw new StorageMigrationException(
+            s"Index '$name' contains both legacy and current large index paths for '${mapping.as_column}'")
+        }
+        logger.warn(s"Renaming large index directory: ${mapping.array_column} -> ${mapping.as_column}")
+        if (!fs.rename(oldPath, newPath)) {
+          throw new StorageMigrationException(s"Failed to rename legacy large index directory $oldPath to $newPath")
+        }
+      }
     }
+  }
+
+  private def verifyExplodedFieldColumns(): Unit = {
+    val mappings = metadata.exploded_field_indexes.asScala.toSeq
+    Seq(indexFilePath -> "main table", stagingFilePath -> "staging table").foreach { case (path, tableName) =>
+      migrationDelta(path, tableName).foreach { table =>
+        val columns = table.toDF.columns.toSet
+        mappings.foreach { mapping =>
+          if (
+            mapping.array_column != mapping.as_column &&
+            columns.contains(mapping.array_column) &&
+            !metadata.indexes.contains(mapping.array_column)
+          ) {
+            throw new StorageMigrationException(
+              s"$tableName for index '$name' still contains legacy exploded column '${mapping.array_column}'")
+          }
+        }
+      }
+    }
+    mappings.foreach { mapping =>
+      if (
+        mapping.array_column != mapping.as_column &&
+        !metadata.indexes.contains(mapping.array_column) &&
+        exists(new Path(largeIndexesFilePath, mapping.array_column))
+      ) {
+        throw new StorageMigrationException(
+          s"Index '$name' still contains legacy large index path '${mapping.array_column}'")
+      }
+    }
+  }
 
   /**
    * Returns the set of all storage column names across regular, computed, exploded-field, and temporal index types.

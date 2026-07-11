@@ -304,6 +304,32 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: Spar
   }
 
   /**
+   * Refreshes the lock or fails when the caller no longer owns it.
+   *
+   * Storage migration heartbeats use this strict variant so losing the lock cannot be mistaken for a successful
+   * refresh.
+   *
+   * @param correlationId
+   *   correlation ID that must currently own the lock
+   * @throws IndexLockException
+   *   if the lock is missing or belongs to another correlation ID
+   */
+  private[ariadne] def refreshOrThrow(correlationId: String): Unit = {
+    require(correlationId != null && correlationId.trim.nonEmpty, "correlationId must not be null or blank")
+    readLock() match {
+      case Some(lockInfo) if lockInfo.correlationId == correlationId =>
+        writeLockFile(lockInfo.copy(lastRefreshedAt = Instant.now().toString), overwrite = true)
+        logger.warn(s"Lock refreshed for index '$indexName' (correlationId='$correlationId')")
+      case Some(lockInfo) =>
+        throw new IndexLockException(
+          s"Cannot refresh lock for index '$indexName': correlationId mismatch " +
+            s"(expected='$correlationId', actual='${lockInfo.correlationId}')")
+      case None =>
+        throw new IndexLockException(s"Cannot refresh lock for index '$indexName': lock file does not exist")
+    }
+  }
+
+  /**
    * Determines whether the lock is stale based on `lastRefreshedAt`.
    *
    * A lock is stale when the time elapsed since its last refresh exceeds the configured `lockTimeout`. If the timestamp
