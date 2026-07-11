@@ -11,6 +11,7 @@ fi
 # Files that must reference the current version
 FILES=(
     "README.md"
+    "CHANGELOG.md"
     "docs/users/getting-started.html"
 )
 

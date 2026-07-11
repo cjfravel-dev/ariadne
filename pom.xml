@@ -234,6 +234,19 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>test-version-references-script</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/readme-has-version-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
 
