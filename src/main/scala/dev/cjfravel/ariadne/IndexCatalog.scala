@@ -2,7 +2,7 @@ package dev.cjfravel.ariadne
 
 import scala.collection.JavaConverters._
 
-import dev.cjfravel.ariadne.exceptions.{FileListNotFoundException, IndexNotFoundException}
+import dev.cjfravel.ariadne.exceptions.{FileListNotFoundException, IndexNotFoundException, StorageMigrationException}
 import org.apache.hadoop.fs.Path
 import org.apache.logging.log4j.LogManager
 import org.apache.spark.sql.types._
@@ -210,6 +210,7 @@ object IndexCatalog {
       try {
         Some(buildSummary(name))
       } catch {
+        case e: StorageMigrationException => throw e
         case e: Exception =>
           logger.warn(s"IndexCatalog: skipping index '$name' — ${e.getMessage}")
           None
@@ -425,6 +426,7 @@ object IndexCatalog {
    */
   private def buildSummary(name: String)(implicit spark: SparkSession): IndexSummary = {
     val index = Index(name)
+    index.ensureStorageReady()
     val md = index.metadata
 
     val regularIndexes = md.indexes.asScala.toSet

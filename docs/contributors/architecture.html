@@ -273,6 +273,22 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
       </table>
     </div>
 
+    <h3>Physical storage versions</h3>
+    <p><code>storage_format_version</code> versions the complete persisted index layout independently from additive metadata fields. Indexes created before explicit versioning are treated as storage v1 after baseline validation. Migration preflight acquires the update lock, applies each step idempotently, verifies the physical result, and writes the new version only after all steps succeed.</p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Storage version</th><th>Invariant</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>v1</td><td>Alpha37 compatibility baseline; exploded columns may use <code>array_column</code> and <code>file_size</code> is not required.</td></tr>
+          <tr><td>v2</td><td>Main and staging Delta tables contain non-null <code>file_size BIGINT</code>.</td></tr>
+          <tr><td>v3 (current)</td><td>Exploded columns and large-index paths use canonical <code>as_column</code> names.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Plain <code>Index(name)</code> construction remains read-only. Operational entry points run preflight; versions newer than the current build raise a typed compatibility exception instead of returning incomplete results.</p>
+
     <h2 id="concurrency">Thread safety</h2>
 
     <h3>Index instance thread safety</h3>

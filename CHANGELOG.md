@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Explicit `metadata_version` and `storage_format_version` markers with lock-safe, ordered, idempotent migration
+  preflight for the alpha37 compatibility floor. Queries, catalog scans, metadata mutations, updates, deletes,
+  compaction, and vacuum migrate `file_size` and exploded-field storage before use; future versions fail explicitly.
+
 ### Fixed
 
 - Multi-column temporal joins now calculate every temporal rank against the original rows before filtering, preventing

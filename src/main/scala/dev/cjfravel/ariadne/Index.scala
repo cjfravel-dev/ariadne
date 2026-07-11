@@ -48,8 +48,8 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
   /** Lock path for file list operations. */
   private def fileListLockPath: Path = new Path(storagePath, ".filelist.lock")
 
-  /** Lock path for index update operations. */
-  private def updateLockPath: Path = new Path(storagePath, ".update.lock")
+  /** Lock path for index update and storage migration operations. */
+  protected def updateLockPath: Path = new Path(storagePath, ".update.lock")
 
   /**
    * Selects specific columns for optimized reading.
@@ -231,6 +231,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    */
   def addIndex(index: String): Unit = {
     require(index != null && index.trim.nonEmpty, "index column name must not be null or blank")
+    ensureStorageReady()
     logger.warn(s"Adding regular index on column '$index' for index '$name'")
 
     if (!metadata.indexes.contains(index)) {
@@ -294,6 +295,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
     require(column != null && column.trim.nonEmpty, "bloom index column name must not be null or blank")
     // Validate FPR range
     require(fpr > 0 && fpr < 1, s"FPR must be between 0 and 1, got: $fpr")
+    ensureStorageReady()
     logger.warn(s"Adding bloom index on column '$column' for index '$name'")
 
     if (!metadata.bloom_indexes.asScala.exists(_.column == column)) {
@@ -358,6 +360,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
     require(arrayColumn != null && arrayColumn.trim.nonEmpty, "arrayColumn must not be null or blank")
     require(fieldPath != null && fieldPath.trim.nonEmpty, "fieldPath must not be null or blank")
     require(asColumn != null && asColumn.trim.nonEmpty, "asColumn must not be null or blank")
+    ensureStorageReady()
     logger.warn(s"Adding exploded field index '$asColumn' on column '$arrayColumn' for index '$name'")
 
     if (!metadata.exploded_field_indexes.asScala.exists(_.as_column == asColumn)) {
@@ -453,6 +456,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
   def addComputedIndex(name: String, sql_expression: String): Unit = {
     require(name != null && name.trim.nonEmpty, "computed index name must not be null or blank")
     require(sql_expression != null && sql_expression.trim.nonEmpty, "sql_expression must not be null or blank")
+    ensureStorageReady()
     logger.warn(s"Adding computed index '$name' for index '${this.name}'")
 
     if (!metadata.computed_indexes.containsKey(name)) {
@@ -513,6 +517,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
   def addTemporalIndex(column: String, timestampColumn: String): Unit = {
     require(column != null && column.trim.nonEmpty, "temporal index column must not be null or blank")
     require(timestampColumn != null && timestampColumn.trim.nonEmpty, "timestampColumn must not be null or blank")
+    ensureStorageReady()
     logger.warn(s"Adding temporal index on column '$column' for index '$name'")
 
     if (!metadata.temporal_indexes.asScala.exists(_.column == column)) {
@@ -576,6 +581,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    */
   def addRangeIndex(column: String): Unit = {
     require(column != null && column.trim.nonEmpty, "range index column must not be null or blank")
+    ensureStorageReady()
     logger.warn(s"Adding range index on column '$column' for index '$name'")
 
     if (!metadata.range_indexes.asScala.exists(_.column == column)) {
@@ -642,6 +648,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
     try {
+      ensureStorageReadyUnderLock(lock, correlationId, refresh = true)
       import spark.implicits._
       val toDelete = filenames.toDF("filename")
 
@@ -743,64 +750,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
     try {
-      // Normalize every persisted table before file-size backfill or staging consolidation.
-      migrateExplodedFieldColumns(force = true)
-
-      // Ensure legacy indexes have the file_size column before backfilling.
-      // Indexes created before ariadne introduced file_size (alpha-45) have no
-      // file_size column in their Delta schema at all. Delta MERGE schema
-      // evolution only adds new columns for star (updateAll/insertAll) actions,
-      // not for a named `update(Map("file_size" -> ...))`, so the column must
-      // be added explicitly first. This is a metadata-only change that sets
-      // file_size to null for all existing rows; the merge below populates it.
-      delta(indexFilePath).foreach { dt =>
-        if (!dt.toDF.columns.contains("file_size")) {
-          logger.warn(s"Index '$name' predates file_size tracking; adding file_size column to its schema")
-          spark.sql(s"ALTER TABLE delta.`${indexFilePath.toString}` ADD COLUMNS (file_size BIGINT)")
-        }
-      }
-
-      // Backfill file_size for index rows that don't have it yet. The Delta
-      // table is re-fetched here so the snapshot reflects any schema change
-      // applied above.
-      delta(indexFilePath).foreach { dt =>
-        val nullSizeFiles =
-          dt.toDF
-            .where(col("file_size").isNull)
-            .select("filename")
-            .collect()
-            .map(_.getString(0))
-            .toSet
-        if (nullSizeFiles.nonEmpty) {
-          logger.warn(s"Backfilling file sizes for ${nullSizeFiles.size} files")
-          val sizes = getFileSizes(nullSizeFiles)
-          val sizesBroadcast = spark.sparkContext.broadcast(sizes)
-          try {
-            val sizeUdf = udf((filename: String) => sizesBroadcast.value.getOrElse(filename, 0L))
-
-            import spark.implicits._
-            val updateDf =
-              nullSizeFiles.toSeq
-                .toDF("filename")
-                .withColumn("file_size", sizeUdf(col("filename")))
-
-            dt.as("target")
-              .merge(updateDf.as("source"), "target.filename = source.filename")
-              .whenMatched()
-              .update(Map("file_size" -> col("source.file_size")))
-              .execute()
-
-            // Update total from the full index table
-            val totalResult = dt.toDF.agg(sum("file_size")).head()
-            metadata.total_indexed_file_size =
-              if (totalResult.isNullAt(0)) 0L else totalResult.getLong(0)
-            writeMetadata(metadata)
-          } finally {
-            safeDestroyBroadcast(sizesBroadcast)
-          }
-          logger.warn(s"Backfilled file sizes for ${nullSizeFiles.size} files")
-        }
-      }
+      ensureStorageReadyUnderLock(lock, correlationId, refresh = true)
 
       // Backfill existing files for new columns first, so the index schema
       // is complete before processing new files
@@ -870,6 +820,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
     try {
+      ensureStorageReadyUnderLock(lock, correlationId, refresh = true)
       compactDeltaTables()
       batchesSinceCompact = 0
       metadata.batches_since_compact = 0
@@ -906,6 +857,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
     val correlationId = UUID.randomUUID().toString
     lock.acquire(correlationId)
     try {
+      ensureStorageReadyUnderLock(lock, correlationId, refresh = true)
       vacuumDeltaTables(retentionHours)
       logger.warn(s"Vacuum complete for index '$name' in ${System.currentTimeMillis() - startTime}ms")
     } catch {
@@ -1298,7 +1250,7 @@ object Index {
     val metadataExists = index.metadataExists
     logger.warn(s"Index '$name': ${if (metadataExists) "reconnecting" else "creating new"}")
     var metadataChanged = !metadataExists
-    val metadata =
+    var metadata =
       if (metadataExists) {
         index.metadata
       } else {
@@ -1314,8 +1266,15 @@ object Index {
           new util.ArrayList[RangeIndexConfig](),
           new util.ArrayList[String](),
           -1L,
-          0)
+          0,
+          StorageFormat.CurrentMetadataVersion,
+          StorageFormat.CurrentStorageVersion)
       }
+
+    if (metadataExists && (schema.nonEmpty || format.nonEmpty || readOptions.nonEmpty)) {
+      index.ensureStorageReady()
+      metadata = index.metadata
+    }
 
     schema match {
       case Some(s) =>
