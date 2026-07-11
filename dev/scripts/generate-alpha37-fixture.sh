@@ -29,5 +29,14 @@ rm -rf "$DESTINATION"
 mkdir -p "$DESTINATION"
 cp -a "$OUTPUT/." "$DESTINATION/"
 find "$DESTINATION" -type f -name '.*.crc' -delete
+cat >"$DESTINATION/PROVENANCE.txt" <<EOF
+Generated from Ariadne tag $TAG at commit $(git -C "$WORKTREE" rev-parse --short HEAD).
+
+Generator: dev/scripts/generate-alpha37-fixture.sh
+Runtime: Java 11, Scala 2.12.17, Spark 3.4.1, Delta Lake 2.4.0.
+Source URI: file:///tmp/ariadne-alpha37-source.json
+
+The fixture is immutable test input. Regenerate it only through the pinned script.
+EOF
 
 echo "Generated alpha37 fixture from $(git -C "$WORKTREE" rev-parse HEAD)"
