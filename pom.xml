@@ -123,6 +123,16 @@
         </profile>
     </profiles>
 
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.google.errorprone</groupId>
+                <artifactId>error_prone_annotations</artifactId>
+                <version>2.41.0</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <!-- Spark Core and SQL for DataFrame API -->
         <dependency>
@@ -159,7 +169,6 @@
             <artifactId>guava</artifactId>
             <version>33.5.0-jre</version>
         </dependency>
-
         <!-- Log4J (version tracks the Spark line's log4j via the active profile so the
              log4j-api we compile against matches the log4j-core Spark provides at runtime). -->
         <dependency>
@@ -186,6 +195,26 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.6.3</version>
+                <executions>
+                    <execution>
+                        <id>enforce-dependency-convergence</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <dependencyConvergence />
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- Adds the Spark-major-version-specific source root (${spark.compat} is set per
                  profile: spark3 or spark4) so Ariadne can bridge to Spark internals whose package
                  moved between Spark 3.x and 4.x (e.g. Dataset.ofRows). -->
@@ -330,6 +359,19 @@
                             <executable>bash</executable>
                             <arguments>
                                 <argument>dev/scripts/driver-collection-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>test-dependency-policy-script</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/dependency-policy-tests.sh</argument>
                             </arguments>
                         </configuration>
                     </execution>

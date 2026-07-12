@@ -1,0 +1,36 @@
+version: 2
+updates:
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    groups:
+      spark-delta:
+        patterns:
+          - "org.apache.spark:*"
+          - "io.delta:*"
+      shaded-runtime:
+        patterns:
+          - "com.google.code.gson:gson"
+          - "com.google.guava:guava"
+          - "com.google.errorprone:error_prone_annotations"
+      test-libraries:
+        dependency-type: "development"
+        patterns:
+          - "org.scalatest:*"
+          - "org.scalatestplus:*"
+      maven-plugins:
+        patterns:
+          - "org.apache.maven.plugins:*"
+          - "org.codehaus.mojo:*"
+    ignore:
+      - dependency-name: "org.apache.spark:*"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "io.delta:*"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "org.scala-lang:*"
+      - dependency-name: "com.fasterxml.jackson.*:*"

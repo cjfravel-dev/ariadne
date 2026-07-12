@@ -17,6 +17,8 @@ All notable changes to this project are documented here. The format is based on
   shaded JAR contents for both supported Spark artifacts without invoking publication.
 - A tested persisted-index support matrix now documents alpha37+ release cohorts, migration checkpoints, failure
   behavior, and when operators must upgrade, retry, restore, or rebuild.
+- Maven now enforces dependency convergence for both Spark profiles, while grouped weekly Dependabot updates keep
+  Spark/Delta, shaded runtime dependencies, tests, and build plugins reviewable without crossing Spark or Scala majors.
 - Explicit `metadata_version` and `storage_format_version` markers with lock-safe, ordered, idempotent migration
   preflight for the alpha37 compatibility floor. Queries, catalog scans, metadata mutations, updates, deletes,
   compaction, and vacuum migrate `file_size` and exploded-field storage before use; future versions fail explicitly.
