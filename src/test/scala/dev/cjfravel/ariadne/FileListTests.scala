@@ -3,6 +3,7 @@ package dev.cjfravel.ariadne
 import java.sql.Timestamp
 
 import io.delta.tables.DeltaTable
+import org.apache.spark.sql.functions.col
 
 /**
  * Tests for [[FileList]] covering file addition (single and batch), existence checks, and removal from the tracked file
@@ -45,7 +46,7 @@ class FileListTests extends SparkTests {
       .updateExpr(Map("addedAt" -> "CAST('2000-01-01 00:00:00' AS TIMESTAMP)"))
     val refreshedFilelist = FileList("mixed_add")
     val originalTimestamp =
-      refreshedFilelist.files.where(s"filename = '$existing'").select("addedAt").head().getAs[Timestamp](0)
+      refreshedFilelist.files.where(col("filename") === existing).select("addedAt").head().getAs[Timestamp](0)
     assert(originalTimestamp === expectedTimestamp)
 
     refreshedFilelist.addFile(existing, added)
