@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Automated coordinated Maven Central releases: a published GitHub Release signs and validates the
+  Spark 3.5 and Spark 4.1 artifacts independently, then publishes only after both deployments pass
+  Central validation.
 - Contributor Covenant 2.1 governance, citation metadata, structured issue forms with private security routing, and a
   PR contract requiring RED/GREEN and persisted-compatibility evidence.
 - Repository-readiness contracts now enforce exact coordinated release metadata, canonical generated Scaladoc, and

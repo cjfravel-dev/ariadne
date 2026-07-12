@@ -28,6 +28,7 @@ for file in \
     dev/scripts/build-api-docs.sh \
     dev/scripts/clean-api-docs-output.sh \
     dev/scripts/package-contents-tests.sh \
+    dev/scripts/release-pipeline-tests.sh \
     .github/ISSUE_TEMPLATE/bug.yml \
     .github/ISSUE_TEMPLATE/feature.yml \
     .github/ISSUE_TEMPLATE/config.yml \

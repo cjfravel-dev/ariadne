@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Releasing — Ariadne</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" type="image/png" href="../assets/icon.png">
+</head>
+<body data-section="contributors" data-page="releasing">
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="../index.html">
+      <img class="brand-icon" src="../assets/icon.png" alt="" aria-hidden="true">
+      <img class="brand-name-img" src="../assets/name-white.png" alt="Ariadne">
+    </a>
+    <nav class="primary-nav">
+      <a href="../index.html" data-section="home">Home</a>
+      <a href="../users/getting-started.html" data-section="users">User Guide</a>
+      <a href="index.html" data-section="contributors">Contributors</a>
+      <a href="../api/dev/cjfravel/ariadne/Index.html" data-section="api">API</a>
+      <a class="gh" href="https://github.com/cjfravel-dev/ariadne">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="sidebar">
+    <h5>Contributors</h5>
+    <ul>
+      <li><a href="index.html" data-page="index">Contributing</a></li>
+      <li><a href="architecture.html" data-page="architecture">Architecture</a></li>
+      <li><a href="releasing.html" data-page="releasing">Releasing</a></li>
+      <li><a href="security.html" data-page="security">Security Policy</a></li>
+      <li><a href="cla.html" data-page="cla">CLA</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <div class="page-header">
+      <span class="eyebrow">Maintainers</span>
+      <h1>Releasing Ariadne</h1>
+      <p class="lede">One GitHub Release publishes the coordinated Spark 3.5 and Spark 4.1 artifacts.</p>
+    </div>
+
+    <h2>Prepare one coordinated version</h2>
+    <ol>
+      <li>Update the POM, README, getting-started guide, changelog, and citation metadata.</li>
+      <li>Regenerate the canonical Spark 3.5 API documentation.</li>
+      <li>Merge the release pull request after both profile checks and CodeQL pass.</li>
+    </ol>
+
+    <h2>Publish the GitHub Release</h2>
+    <p>Create a tag exactly equal to the Maven project version, without a <code>v</code> prefix, then publish the GitHub Release. The protected workflow signs and uploads each profile as a user-managed Central deployment. It publishes nothing until both deployments reach the validated state.</p>
+
+    <h2>Coordinated publication</h2>
+    <p>After both profiles validate, the workflow requests publication for both deployments, waits for both to reach <code>PUBLISHED</code>, confirms both Maven Central coordinates resolve, and downloads each artifact through a clean Maven repository.</p>
+
+    <h2>Safe defaults and failure handling</h2>
+    <ul>
+      <li>Local <code>mvn deploy</code> remains user-managed and droppable.</li>
+      <li>A failed Spark 3.5 or Spark 4.1 stage publishes neither artifact.</li>
+      <li>The workflow drops any validated deployment left by a staging failure.</li>
+      <li>Published Central versions are immutable; corrections require a new version.</li>
+      <li>Rotate the Central token and PGP key before their environment-recorded expiration dates.</li>
+    </ul>
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <span>Ariadne — find the thread through your data lake.</span>
+    <span class="footer-links"><a href="../index.html">Home</a><a href="https://github.com/cjfravel-dev/ariadne">GitHub</a></span>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>
