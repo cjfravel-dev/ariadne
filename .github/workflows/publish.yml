@@ -67,7 +67,9 @@ jobs:
           base="https://repo1.maven.org/maven2/dev/cjfravel"
           for artifact in ariadne-spark35_2.12 ariadne-spark41_2.13; do
             url="$base/$artifact/$version/$artifact-$version.pom"
-            if curl --fail --silent --show-error --location --output /dev/null "$url"; then
+            if curl --fail --silent --show-error --location \
+              --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 30 \
+              --output /dev/null "$url"; then
               echo "$artifact:$version is already published." >&2
               exit 1
             fi
@@ -208,8 +210,8 @@ jobs:
           for attempt in $(seq 1 360); do
             state35=UNKNOWN
             state41=UNKNOWN
-            state35=$(status "$DEPLOYMENT_35" | jq -r .deploymentState) || true
-            state41=$(status "$DEPLOYMENT_41" | jq -r .deploymentState) || true
+            state35=$(status "$DEPLOYMENT_35" | jq -r .deploymentState) || state35=UNKNOWN
+            state41=$(status "$DEPLOYMENT_41" | jq -r .deploymentState) || state41=UNKNOWN
             if [[ "$state35" == "FAILED" || "$state41" == "FAILED" ]]; then
               echo "Central publication failed: Spark 3.5=$state35, Spark 4.1=$state41" >&2
               exit 1
@@ -271,3 +273,35 @@ jobs:
             echo "- \`dev.cjfravel:ariadne-spark35_2.12:$RELEASE_TAG\`"
             echo "- \`dev.cjfravel:ariadne-spark41_2.13:$RELEASE_TAG\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Final cleanup after a release failure
+        if: failure()
+        env:
+          DEPLOYMENT_35: ${{ steps.stage35.outputs.deployment_id }}
+          DEPLOYMENT_41: ${{ steps.stage41.outputs.deployment_id }}
+        run: |
+          set -euo pipefail
+          auth=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_TOKEN" | base64 -w0)
+          authorization_header=$(printf 'Authorization: %s %s' Bearer "$auth")
+          cleanup_failed=0
+
+          status() {
+            curl --fail --silent --show-error --retry 5 --retry-all-errors \
+              --request POST \
+              --header "$authorization_header" \
+              "https://central.sonatype.com/api/v1/publisher/status?id=$1"
+          }
+
+          for deployment_id in "$DEPLOYMENT_35" "$DEPLOYMENT_41"; do
+            [[ -n "$deployment_id" ]] || continue
+            state=UNKNOWN
+            state=$(status "$deployment_id" | jq -r .deploymentState) || state=UNKNOWN
+            if [[ "$state" == "VALIDATED" || "$state" == "FAILED" ]]; then
+              curl --fail --silent --show-error --retry 5 --retry-all-errors \
+                --request DELETE \
+                --header "$authorization_header" \
+                "https://central.sonatype.com/api/v1/publisher/deployment/$deployment_id" ||
+                cleanup_failed=1
+            fi
+          done
+          exit "$cleanup_failed"

@@ -142,6 +142,9 @@ esac
 distributionUrlName="${distributionUrl##*/}"
 distributionUrlNameMain="${distributionUrlName%.*}"
 distributionUrlNameMain="${distributionUrlNameMain%-bin}"
+if [ -z "${MAVEN_USER_HOME-}" ] && [ -z "${HOME-}" ]; then
+  die "HOME is unset and MAVEN_USER_HOME is not set"
+fi
 MAVEN_USER_HOME="${MAVEN_USER_HOME:-${HOME}/.m2}"
 MAVEN_HOME="${MAVEN_USER_HOME}/wrapper/dists/${distributionUrlNameMain-}/$(hash_string "$distributionUrl")"
 

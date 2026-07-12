@@ -44,6 +44,7 @@ assert_file .github/workflows/publish.yml
 assert_file docs/contributors/releasing.html
 assert_file .mvn/wrapper/maven-wrapper.properties
 assert_file mvnw
+assert_contains mvnw "HOME is unset and MAVEN_USER_HOME is not set"
 
 assert_contains .github/workflows/publish.yml "types: [published]"
 assert_contains .github/workflows/publish.yml "environment: maven-central"
@@ -56,6 +57,8 @@ assert_contains .github/workflows/publish.yml "-Dcentral.waitUntil=validated"
 assert_contains .github/workflows/publish.yml "set +e"
 assert_contains .github/workflows/publish.yml "state35=UNKNOWN"
 assert_contains .github/workflows/publish.yml "state41=UNKNOWN"
+assert_contains .github/workflows/publish.yml "|| state35=UNKNOWN"
+assert_contains .github/workflows/publish.yml "|| state41=UNKNOWN"
 assert_contains .github/workflows/publish.yml "cleanup_failed=0"
 assert_contains .github/workflows/publish.yml "publish_failed=0"
 assert_contains .github/workflows/publish.yml 'if [[ "$state35" == "VALIDATED" ]]'
@@ -63,6 +66,8 @@ assert_contains .github/workflows/publish.yml 'if [[ "$state41" == "VALIDATED" ]
 assert_contains .github/workflows/publish.yml "publisher/deployment/"
 assert_contains .github/workflows/publish.yml "authorization_header="
 assert_contains .github/workflows/publish.yml '--header "$authorization_header"'
+assert_contains .github/workflows/publish.yml "Final cleanup after a release failure"
+assert_contains .github/workflows/publish.yml "--retry-max-time 30"
 assert_contains .github/workflows/publish.yml "ariadne-spark35_2.12"
 assert_contains .github/workflows/publish.yml "ariadne-spark41_2.13"
 assert_not_contains .github/workflows/publish.yml "gpg-passphrase:"
