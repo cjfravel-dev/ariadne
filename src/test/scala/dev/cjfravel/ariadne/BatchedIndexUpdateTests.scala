@@ -202,6 +202,32 @@ class BatchedIndexUpdateTests extends SparkTests with Matchers {
     }
   }
 
+  test("should keep batches whose distinct total equals the limit") {
+    val originalLimit = spark.conf.getOption("spark.ariadne.largeIndexLimit")
+    val tempFiles = Seq(createTestFile(101, 2), createTestFile(102, 2))
+    spark.conf.set("spark.ariadne.largeIndexLimit", "4")
+
+    try {
+      val index = Index("exact_limit_batch_test", testSchema, "csv", Map("header" -> "true"))
+      index.addFile(tempFiles.map(_._2): _*)
+      index.addIndex("Id")
+
+      index.update
+
+      index.metadata.batches_since_compact.intValue() shouldBe 1
+    } finally {
+      originalLimit match {
+        case Some(value) => spark.conf.set("spark.ariadne.largeIndexLimit", value)
+        case None => spark.conf.unset("spark.ariadne.largeIndexLimit")
+      }
+      tempFiles.foreach { case (tempPath, _) =>
+        org.apache.hadoop.fs.FileSystem
+          .get(spark.sparkContext.hadoopConfiguration)
+          .delete(new org.apache.hadoop.fs.Path(tempPath), true)
+      }
+    }
+  }
+
   test("should handle mixed file sizes with optimal batching") {
     // Create a realistic scenario with mixed file sizes
     val tempFiles =

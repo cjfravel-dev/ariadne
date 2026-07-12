@@ -22,21 +22,23 @@ import org.apache.spark.sql.types.LongType
  *
  * Update pipeline (data flow):
  *   1. [[analyzeFiles]] — Pre-flight scan that computes per-file distinct value counts for all indexed columns. This
- *      information drives batching decisions. 2. [[createOptimalBatches]] — Groups files into batches so that the sum
- *      of `maxDistinctCount` per batch stays below `largeIndexLimit`. Files that individually exceed the limit are
- *      isolated into single-file batches. 3. Per-batch processing (in `updateSingleBatch`):
+ *      information drives batching decisions.
+ *   2. [[createOptimalBatches]] — Groups files into batches so that the sum of `maxDistinctCount` per batch stays at or
+ *      below `largeIndexLimit`. Files that individually exceed the limit are isolated into single-file batches.
+ *   3. Per-batch processing (in `updateSingleBatch`):
  *      - Read source files, apply computed indexes, add filename column
  *      - Build regular indexes (array aggregation per file)
  *      - Build exploded field, bloom filter, temporal, and range indexes
  *      - Build auto-bloom filters for columns exceeding `largeIndexLimit`
  *      - [[appendToStaging]] (small columns to staging Delta table)
- *      - [[appendToLargeIndex]] (large columns to per-column Delta tables) 4. Periodic consolidation — Every
- *        `stagingConsolidationThreshold` batches, [[consolidateStaging]] merges staging into the main index via Delta
- *        MERGE (upsert on filename). Auto-compaction may follow via [[maybeAutoCompact]]. 5. Final consolidation —
- *        After all batches complete, any remaining staged data is consolidated and the staging table is deleted.
+ *      - [[appendToLargeIndex]] (large columns to per-column Delta tables)
+ *   4. Periodic consolidation — Every `stagingConsolidationThreshold` batches, [[consolidateStaging]] merges staging
+ *      into the main index via Delta MERGE (upsert on filename). Auto-compaction may follow via [[maybeAutoCompact]].
+ *   5. Final consolidation — After all batches complete, any remaining staged data is consolidated and the staging
+ *      table is deleted.
  *
  * Batching strategy: Files are sorted by `maxDistinctCount` (largest first) and packed sequentially into batches. This
- * greedy approach keeps each batch under the large index limit while maximizing batch sizes for efficiency.
+ * greedy approach keeps each batch at or below the large index limit while maximizing batch sizes for efficiency.
  *
  * Staging: Each batch is appended to a transient staging Delta table. Periodic consolidation merges staged rows into
  * the main index, providing fault tolerance (partially processed updates can be recovered).
@@ -605,7 +607,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
     }
 
   /**
-   * Groups files into batches whose aggregate `maxDistinctCount` stays below `largeIndexLimit`.
+   * Groups files into batches whose aggregate `maxDistinctCount` stays at or below `largeIndexLimit`.
    *
    * The algorithm sorts files by `maxDistinctCount` (largest first) and packs them sequentially into batches. When
    * adding a file would push the batch total past the limit, a new batch is started. Files that individually exceed the
@@ -627,7 +629,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
 
         // Separate files that individually exceed the limit (will be processed individually)
         val (largeFiles, regularFiles) =
-          fileAnalyses.partition(_.maxDistinctCount >= largeIndexLimit)
+          fileAnalyses.partition(_.maxDistinctCount > largeIndexLimit)
 
         if (largeFiles.nonEmpty) {
           logger.warn(
@@ -648,7 +650,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
           val fileMaxDistinct = fileAnalysis.maxDistinctCount
 
           // Check if adding this file would exceed the limit
-          if (currentBatchTotal + fileMaxDistinct >= largeIndexLimit) {
+          if (currentBatchTotal + fileMaxDistinct > largeIndexLimit) {
             // Start a new batch if current batch is not empty
             if (currentBatch.nonEmpty) {
               batches += currentBatch.toSet

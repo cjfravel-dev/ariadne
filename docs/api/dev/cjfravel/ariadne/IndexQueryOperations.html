@@ -1033,7 +1033,7 @@ to Spark executors.
         <span class="name">createOptimalBatches</span><span class="params">(<span name="fileAnalyses">fileAnalyses: <span class="extype" name="scala.Seq">Seq</span>[<a href="Index.html#FileAnalysisextendsProductwithSerializable" class="extmbr" name="dev.cjfravel.ariadne.IndexBuildOperations.FileAnalysis">Index.FileAnalysis</a>]</span>)</span><span class="result">: <span class="extype" name="scala.Seq">Seq</span>[<span class="extype" name="scala.Predef.Set">Set</span>[<span class="extype" name="scala.Predef.String">String</span>]]</span>
       </span>
 
-      <p class="shortcomment cmt">Groups files into batches whose aggregate <code>maxDistinctCount</code> stays below <code>largeIndexLimit</code>.</p><div class="fullcomment"><div class="comment cmt"><p>Groups files into batches whose aggregate <code>maxDistinctCount</code> stays below <code>largeIndexLimit</code>.</p><p>The algorithm sorts files by <code>maxDistinctCount</code> (largest first) and packs them sequentially into batches. When
+      <p class="shortcomment cmt">Groups files into batches whose aggregate <code>maxDistinctCount</code> stays at or below <code>largeIndexLimit</code>.</p><div class="fullcomment"><div class="comment cmt"><p>Groups files into batches whose aggregate <code>maxDistinctCount</code> stays at or below <code>largeIndexLimit</code>.</p><p>The algorithm sorts files by <code>maxDistinctCount</code> (largest first) and packs them sequentially into batches. When
 adding a file would push the batch total past the limit, a new batch is started. Files that individually exceed the
 limit are placed into single-file batches to guarantee progress.
 </p></div><dl class="paramcmts block"><dt class="param">fileAnalyses</dt><dd class="cmt"><p>
