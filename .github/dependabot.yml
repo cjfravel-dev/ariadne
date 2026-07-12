@@ -31,3 +31,7 @@ updates:
       - dependency-name: "org.scala-lang:*"
       - dependency-name: "org.apache.logging.log4j:*"
       - dependency-name: "com.fasterxml.jackson.*:*"
+      # Newer Scala 2.13-only plugin versions cannot satisfy the Synapse Scala 2.12 build.
+      - dependency-name: "org.antipathy:mvn-scalafmt_2.13"
+      # Versions after 2.0.6 require Java 17; Synapse runs Java 11.
+      - dependency-name: "org.scoverage:scoverage-maven-plugin"
