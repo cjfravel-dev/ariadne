@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.{Executors, TimeUnit}
 
 import scala.collection.JavaConverters._
+import scala.util.control.NonFatal
 
 import dev.cjfravel.ariadne.exceptions._
 import io.delta.tables.DeltaTable
@@ -318,6 +319,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
                     (filename, null: java.lang.Long, "file not found")
                   case e: java.io.IOException =>
                     (filename, null: java.lang.Long, s"I/O error: ${e.getMessage}")
+                  case NonFatal(e) =>
+                    val message = Option(e.getMessage).getOrElse("no message")
+                    (filename, null: java.lang.Long, s"${e.getClass.getSimpleName}: $message")
                 }
               }
             }

@@ -1,5 +1,6 @@
 package dev.cjfravel.ariadne
 
+import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Paths, StandardCopyOption}
 
@@ -8,11 +9,24 @@ import scala.collection.JavaConverters._
 import com.google.gson.{Gson, JsonObject, JsonParser}
 import dev.cjfravel.ariadne.exceptions.{AriadneException, IndexLockException, StorageMigrationException}
 import io.delta.tables.DeltaTable
-import org.apache.hadoop.fs.Path
+import org.apache.hadoop.fs.{FileStatus, Path, RawLocalFileSystem}
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 import org.scalatest.matchers.should.Matchers
+
+/**
+ * Test-only filesystem that deterministically fails source-size lookups without using an IOException.
+ *
+ * Instances are created by Hadoop through a no-argument constructor and are safe for concurrent test lookups because
+ * they contain no mutable state.
+ */
+class FailingFileStatusFileSystem extends RawLocalFileSystem {
+  override def getUri: URI = URI.create("failing:///")
+
+  override def getFileStatus(path: Path): FileStatus =
+    throw new IllegalStateException(s"Injected file-status failure for $path")
+}
 
 /**
  * Tests explicit storage-format versioning and alpha37+ physical migration preflight.
@@ -521,5 +535,35 @@ class StorageMigrationTests extends SparkTests with Matchers {
     }
 
     readMetadataJson(indexName).get("storage_format_version") shouldBe null
+  }
+
+  test("malformed source paths fail file-size migration with a controlled error") {
+    val schema = StructType(Seq(StructField("Id", IntegerType, nullable = false)))
+    val indexName = "malformed_file_size_source"
+    Index(indexName, schema, "parquet")
+    val sparkSession = spark
+    import sparkSession.implicits._
+    val hadoopConfiguration = spark.sparkContext.hadoopConfiguration
+    hadoopConfiguration.setClass(
+      "fs.failing.impl",
+      classOf[FailingFileStatusFileSystem],
+      classOf[org.apache.hadoop.fs.FileSystem])
+    try {
+      Seq(("failing:///source.parquet", Seq(1)))
+        .toDF("filename", "Id")
+        .write
+        .format("delta")
+        .mode("overwrite")
+        .save(new Path(new Path(IndexPathUtils.storagePath, indexName), "index").toString)
+      makeUnversioned(indexName)
+
+      intercept[StorageMigrationException] {
+        Index(indexName).locateFiles(Map("Id" -> Array[Any](1)))
+      }
+
+      readMetadataJson(indexName).get("storage_format_version") shouldBe null
+    } finally {
+      hadoopConfiguration.unset("fs.failing.impl")
+    }
   }
 }

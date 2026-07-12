@@ -51,7 +51,11 @@ class FileListTests extends SparkTests {
 
     refreshedFilelist.addFile(existing, added)
 
-    val timestamps = refreshedFilelist.files.collect().map(row => row.getString(0) -> row.getAs[Timestamp](1)).toMap
+    val timestamps =
+      refreshedFilelist.files
+        .collect()
+        .map(row => row.getAs[String]("filename") -> row.getAs[Timestamp]("addedAt"))
+        .toMap
     assert(timestamps.keySet === Set(existing, added))
     assert(timestamps(existing) === originalTimestamp)
   }
