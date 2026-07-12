@@ -85,14 +85,14 @@ try {
           <tr><td><code>MissingSchemaException</code></td><td>Schema field is null in metadata (corrupted file).</td></tr>
           <tr><td><code>SchemaParseException</code></td><td>Stored schema string can't be parsed.</td></tr>
           <tr><td><code>FileListNotFoundException</code></td><td>Removing a file list that doesn't exist.</td></tr>
-          <tr><td><code>UnsupportedStorageFormatVersionException</code></td><td>The index was written by a newer Ariadne storage format.</td></tr>
-          <tr><td><code>UnsupportedMetadataVersionException</code></td><td>The metadata uses fields defined by a newer Ariadne version.</td></tr>
+          <tr><td><code>UnsupportedStorageFormatVersionException</code></td><td>The index declares a newer <code>storage_format_version</code> than this Ariadne build supports.</td></tr>
+          <tr><td><code>UnsupportedMetadataVersionException</code></td><td>The index declares a newer <code>metadata_version</code> than this Ariadne build supports.</td></tr>
         </tbody>
       </table>
     </div>
 
     <h2 id="compatibility">Persisted-index compatibility</h2>
-    <p>This Ariadne build supports indexes created by <code>0.0.1-alpha-37</code> through <code>0.1.4-beta</code>. Operational methods migrate supported older layouts under the update lock; plain <code>Index(name)</code> construction remains read-only. Indexes written by later releases may require a newer library.</p>
+    <p>This Ariadne build supports indexes created by <code>0.0.1-alpha-37</code> through <code>0.1.4-beta</code>. Queries and other operational methods migrate supported older layouts under the update lock; plain <code>Index(name)</code> construction remains read-only. Indexes written by later releases may require a newer library.</p>
     <div class="table-scroll">
       <table>
         <thead>
