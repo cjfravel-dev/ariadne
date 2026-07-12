@@ -70,6 +70,8 @@ assert_contains .github/workflows/publish.yml "Final cleanup after a release fai
 assert_contains .github/workflows/publish.yml "--retry-max-time 30"
 assert_contains .github/workflows/publish.yml "ariadne-spark35_2.12"
 assert_contains .github/workflows/publish.yml "ariadne-spark41_2.13"
+assert_contains .github/workflows/publish.yml 'cd "$RUNNER_TEMP"'
+assert_contains .github/workflows/publish.yml '"$GITHUB_WORKSPACE/mvnw"'
 assert_not_contains .github/workflows/publish.yml "gpg-passphrase:"
 assert_not_contains .github/workflows/publish.yml "gpg.pinentryMode"
 

@@ -255,8 +255,9 @@ jobs:
       - name: Resolve both artifacts from clean repositories
         run: |
           set -euo pipefail
+          cd "$RUNNER_TEMP"
           for artifact in ariadne-spark35_2.12 ariadne-spark41_2.13; do
-            ./mvnw -B \
+            "$GITHUB_WORKSPACE/mvnw" -B \
               -Dmaven.repo.local="$RUNNER_TEMP/$artifact" \
               dependency:get \
               -Dtransitive=false \
