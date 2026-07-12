@@ -99,7 +99,7 @@ try {
           <tr><th>Failure</th><th>Recovery</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>UnsupportedStorageFormatVersionException</code> or <code>UnsupportedMetadataVersionException</code></td><td>Upgrade Ariadne to a version that supports the declared <code>storage_format_version</code> or metadata version. Do not downgrade or edit version markers manually.</td></tr>
+          <tr><td><code>UnsupportedStorageFormatVersionException</code> or <code>UnsupportedMetadataVersionException</code></td><td>Upgrade Ariadne to a version that supports the declared <code>storage_format_version</code> or <code>metadata_version</code>. Do not downgrade or edit version markers manually.</td></tr>
           <tr><td>Index predates <code>0.0.1-alpha-37</code></td><td>Remove and rebuild the index from source data with the current library.</td></tr>
           <tr><td>Migration fails physical verification</td><td>Correct the reported missing source, filesystem, or schema problem and retry. The version is not advanced on failure.</td></tr>
           <tr><td>Metadata is corrupt or a previously indexed column was removed</td><td>Restore a known-good index directory or remove and rebuild from source.</td></tr>
