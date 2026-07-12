@@ -276,6 +276,19 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>test-example-dockerfile-script</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/example-dockerfile-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
 

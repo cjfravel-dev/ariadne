@@ -36,6 +36,8 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- The examples image pins both base images by digest and verifies Spark SHA-512 plus Delta JAR SHA-256 checksums before
+  extraction or use.
 - Release version checks now cover the changelog and include a shell regression test in the Maven test phase.
 - CI now uses current Node 24-based GitHub action majors, scopes pull-request write permission to the coverage job, and
   skips coverage publishing steps for fork pull requests with read-only tokens.
