@@ -627,7 +627,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
 
         // Separate files that individually exceed the limit (will be processed individually)
         val (largeFiles, regularFiles) =
-          fileAnalyses.partition(_.maxDistinctCount >= largeIndexLimit)
+          fileAnalyses.partition(_.maxDistinctCount > largeIndexLimit)
 
         if (largeFiles.nonEmpty) {
           logger.warn(
@@ -648,7 +648,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
           val fileMaxDistinct = fileAnalysis.maxDistinctCount
 
           // Check if adding this file would exceed the limit
-          if (currentBatchTotal + fileMaxDistinct >= largeIndexLimit) {
+          if (currentBatchTotal + fileMaxDistinct > largeIndexLimit) {
             // Start a new batch if current batch is not empty
             if (currentBatch.nonEmpty) {
               batches += currentBatch.toSet

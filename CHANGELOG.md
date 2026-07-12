@@ -19,6 +19,8 @@ All notable changes to this project are documented here. The format is based on
 - Interrupted updates now recover stale staging even when no new files are pending. New staging rows carry batch/time
   ordering metadata; consolidation selects the latest complete row deterministically, while legacy rows use a stable
   completeness/hash fallback.
+- Intelligent batching now keeps files together when their aggregate distinct count equals `largeIndexLimit`, avoiding
+  unnecessary staging writes and consolidation cycles.
 - Multi-column temporal joins now calculate every temporal rank against the original rows before filtering, preventing
   stale rows from being promoted by an earlier temporal deduplication pass.
 - Index updates now migrate legacy exploded-field column names in both main and staging tables under the update lock
