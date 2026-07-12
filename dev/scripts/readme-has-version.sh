@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-VERSION=$(grep -oPm1 "(?<=<version>)[^<]+" pom.xml)
+VERSION=$(grep -oPm1 "(?<=<version>)[^<]+" pom.xml || true)
 
 if [[ -z "$VERSION" ]]; then
     echo "Version not found in pom.xml"
@@ -43,8 +43,13 @@ require_fixed_line CITATION.cff "version: $VERSION"
 
 for profile in spark35 spark41; do
     profile_xml=$(awk "/<id>$profile<\\/id>/,/<\\/profile>/" pom.xml)
-    spark_suffix=$(grep -oPm1 "(?<=<spark.suffix>)[^<]+" <<<"$profile_xml")
-    scala_binary_version=$(grep -oPm1 "(?<=<scala.binary.version>)[^<]+" <<<"$profile_xml")
+    spark_suffix=$(grep -oPm1 "(?<=<spark.suffix>)[^<]+" <<<"$profile_xml" || true)
+    scala_binary_version=$(grep -oPm1 "(?<=<scala.binary.version>)[^<]+" <<<"$profile_xml" || true)
+    if [[ -z "$spark_suffix" || -z "$scala_binary_version" ]]; then
+        echo "Unable to determine artifact coordinates for $profile"
+        STATUS=1
+        continue
+    fi
     artifact_id="ariadne-spark${spark_suffix}_${scala_binary_version}"
 
     require_compact_sequence README.md \

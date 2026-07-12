@@ -25,6 +25,7 @@ for file in \
     CODE_OF_CONDUCT.md \
     CITATION.cff \
     dev/scripts/api-docs-drift-tests.sh \
+    dev/scripts/build-api-docs.sh \
     dev/scripts/clean-api-docs-output.sh \
     dev/scripts/package-contents-tests.sh \
     .github/ISSUE_TEMPLATE/bug.yml \

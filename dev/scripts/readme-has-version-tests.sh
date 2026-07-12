@@ -74,3 +74,19 @@ if (cd "$TEST_ROOT" && bash dev/scripts/readme-has-version.sh >/dev/null); then
   echo "Version check accepted an artifact paired with a stale version"
   exit 1
 fi
+
+cp "$TEST_ROOT/pom.xml" "$TEST_ROOT/pom.valid.xml"
+sed -i '/<version>1.2.3<\/version>/d' "$TEST_ROOT/pom.xml"
+OUTPUT=$(cd "$TEST_ROOT" && bash dev/scripts/readme-has-version.sh 2>&1 || true)
+if ! grep -Fq "Version not found in pom.xml" <<<"$OUTPUT"; then
+  echo "Version check did not report a controlled missing-version error"
+  exit 1
+fi
+
+cp "$TEST_ROOT/pom.valid.xml" "$TEST_ROOT/pom.xml"
+sed -i '/<spark.suffix>35<\/spark.suffix>/d' "$TEST_ROOT/pom.xml"
+OUTPUT=$(cd "$TEST_ROOT" && bash dev/scripts/readme-has-version.sh 2>&1 || true)
+if ! grep -Fq "Unable to determine artifact coordinates for spark35" <<<"$OUTPUT"; then
+  echo "Version check did not report a controlled malformed-profile error"
+  exit 1
+fi
