@@ -12,8 +12,9 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-echo "==> Generating Scaladoc via scala-maven-plugin..."
-mvn -q scala:doc
+echo "==> Generating Scaladoc from the complete Spark 3.5 source set..."
+bash dev/scripts/clean-api-docs-output.sh
+mvn -q package -DskipTests -Dgpg.skip=true
 
 if [[ ! -d target/site/scaladocs ]]; then
   echo "ERROR: target/site/scaladocs not produced" >&2

@@ -289,6 +289,50 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>test-api-docs-drift</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <skip>false</skip>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/api-docs-drift-tests.sh</argument>
+                                <argument>${spark.compat}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>clean-api-docs-output</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <skip>false</skip>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/clean-api-docs-output.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>test-package-contents</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <skip>false</skip>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/package-contents-tests.sh</argument>
+                                <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
 
