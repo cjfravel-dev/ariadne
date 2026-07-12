@@ -27,6 +27,19 @@ assert_not_contains() {
     fi
 }
 
+assert_plugin_version() {
+    local artifact_id="$1"
+    local expected_version="$2"
+    local plugin_xml
+    plugin_xml=$(awk \
+        "/<artifactId>$artifact_id<\\/artifactId>/,/<\\/plugin>/" \
+        pom.xml)
+    if ! grep -Fq "<version>$expected_version</version>" <<<"$plugin_xml"; then
+        echo "pom.xml does not configure $artifact_id at version $expected_version"
+        exit 1
+    fi
+}
+
 assert_file .github/workflows/publish.yml
 assert_file docs/contributors/releasing.html
 assert_file .mvn/wrapper/maven-wrapper.properties
@@ -57,7 +70,7 @@ assert_not_contains .github/workflows/publish.yml "gpg.pinentryMode"
 assert_contains pom.xml "<central.autoPublish>false</central.autoPublish>"
 assert_contains pom.xml "<central.waitUntil>validated</central.waitUntil>"
 assert_contains pom.xml "<project.build.outputTimestamp>"
-assert_contains pom.xml "<version>0.11.0</version>"
+assert_plugin_version central-publishing-maven-plugin 0.11.0
 assert_not_contains pom.xml "<autoPublish>true</autoPublish>"
 
 assert_contains docs/contributors/releasing.html "both deployments reach the validated state"
