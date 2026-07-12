@@ -290,6 +290,19 @@
                         </configuration>
                     </execution>
                     <execution>
+                        <id>test-migration-support-policy</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/migration-support-policy-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>test-api-docs-drift</id>
                         <phase>verify</phase>
                         <goals>
