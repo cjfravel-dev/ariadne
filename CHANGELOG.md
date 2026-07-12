@@ -33,6 +33,8 @@ All notable changes to this project are documented here. The format is based on
 ### Changed
 
 - Release version checks now cover the changelog and include a shell regression test in the Maven test phase.
+- CI now uses current Node 24-based GitHub action majors, scopes pull-request write permission to the coverage job, and
+  skips coverage publishing steps for fork pull requests with read-only tokens.
 - Spark tests now use the four cores available on public GitHub-hosted Linux runners while reducing tiny fixture
   shuffles and Delta snapshot reconstruction to one partition. Spark 3.5 coverage CI runs one instrumented lifecycle
   followed by `verify -DskipTests`, eliminating a duplicate 24-minute suite execution while retaining formatting,
