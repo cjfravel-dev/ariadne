@@ -39,6 +39,8 @@ class StagingRecoveryTests extends SparkTests with Matchers {
         "parquet")
 
     an[IllegalArgumentException] should be thrownBy index.addIndex("_ariadne_staged_at")
+    an[IllegalArgumentException] should be thrownBy index.addBloomIndex("_ariadne_staged_at")
+    an[IllegalArgumentException] should be thrownBy index.addRangeIndex("_ariadne_staged_at")
   }
 
   test("stale staging recovery refreshes the update lock") {

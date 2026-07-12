@@ -128,7 +128,10 @@ trait IndexBuildOperations extends BloomFilterOperations {
       metadata.indexes.asScala.toSet ++
         metadata.computed_indexes.keySet().asScala ++
         metadata.exploded_field_indexes.asScala.map(_.as_column) ++
-        metadata.temporal_indexes.asScala.map(_.column)
+        metadata.temporal_indexes.asScala.map(_.column) ++
+        metadata.bloom_indexes.asScala.map(_.column) ++
+        metadata.range_indexes.asScala.map(_.column) ++
+        metadata.auto_bloom_indexes.asScala
     val reservedColumns = configuredStorageColumns.intersect(ReservedStagingColumnNames)
     if (reservedColumns.nonEmpty) {
       throw new StorageMigrationException(
