@@ -11,9 +11,19 @@ assert_contains() {
     fi
 }
 
-assert_contains pom.xml '<artifactId>maven-enforcer-plugin</artifactId>'
-assert_contains pom.xml '<dependencyConvergence'
-assert_contains pom.xml '<phase>validate</phase>'
+assert_text() {
+    local text="$1"
+    local expected="$2"
+    if ! grep -Fq -- "$expected" <<<"$text"; then
+        echo "Maven Enforcer configuration is missing dependency policy: $expected"
+        exit 1
+    fi
+}
+
+ENFORCER_PLUGIN=$(sed -n '/<artifactId>maven-enforcer-plugin<\/artifactId>/,/<\/plugin>/p' pom.xml)
+assert_text "$ENFORCER_PLUGIN" '<artifactId>maven-enforcer-plugin</artifactId>'
+assert_text "$ENFORCER_PLUGIN" '<dependencyConvergence'
+assert_text "$ENFORCER_PLUGIN" '<phase>validate</phase>'
 assert_contains pom.xml 'dev/scripts/dependency-policy-tests.sh'
 assert_contains .github/dependabot.yml 'package-ecosystem: "maven"'
 assert_contains .github/dependabot.yml 'spark-delta'
