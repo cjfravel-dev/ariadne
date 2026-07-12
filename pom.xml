@@ -51,7 +51,8 @@
     <!-- One profile per supported Spark/Delta line. Each profile pins the Scala
          binary version (used throughout the artifactId and dependency coordinates),
          the Spark/Delta versions, and the Scala compiler flags for that Scala series.
-         spark35 is the default; build the others with, e.g., `mvn -Pspark41`. -->
+         spark35 auto-activates on its required Java 11 runtime; select it explicitly
+         on other JDKs. Build Spark 4.1 with `mvn -Pspark41` on Java 21. -->
     <profiles>
         <profile>
             <id>spark35</id>
