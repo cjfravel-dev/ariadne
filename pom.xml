@@ -263,6 +263,19 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>test-repository-readiness-script</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/repository-readiness-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
 

@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Contributor Covenant 2.1 governance, citation metadata, structured issue forms with private security routing, and a
+  PR contract requiring RED/GREEN and persisted-compatibility evidence.
 - Explicit `metadata_version` and `storage_format_version` markers with lock-safe, ordered, idempotent migration
   preflight for the alpha37 compatibility floor. Queries, catalog scans, metadata mutations, updates, deletes,
   compaction, and vacuum migrate `file_size` and exploded-field storage before use; future versions fail explicitly.

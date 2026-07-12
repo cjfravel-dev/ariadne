@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use Ariadne in published work, please cite the project using this metadata."
+title: Ariadne
+type: software
+authors:
+  - family-names: Fravel
+    given-names: CJ
+repository-code: "https://github.com/cjfravel-dev/ariadne"
+url: "https://cjfravel-dev.github.io/ariadne/"
+license-url: "https://github.com/cjfravel-dev/ariadne/blob/main/LICENSE.md"
+version: 0.1.4-beta
+date-released: 2026-07-08
+abstract: "A Spark library that builds Delta-backed file-level indexes for efficient data lake joins."

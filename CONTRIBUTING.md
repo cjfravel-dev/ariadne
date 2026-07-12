@@ -10,5 +10,6 @@ Direct links:
 - [Architecture](https://cjfravel-dev.github.io/ariadne/contributors/architecture.html) — internals, trait stack, data flows
 - [Contributor License Agreement](https://cjfravel-dev.github.io/ariadne/contributors/cla.html)
 - [Security policy](https://cjfravel-dev.github.io/ariadne/contributors/security.html)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 
 The source HTML lives in [`docs/contributors/`](docs/contributors/).

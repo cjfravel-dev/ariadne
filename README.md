@@ -72,7 +72,9 @@ Then open <http://localhost:8888>.
 
 ## Contributing
 
-See the [contributor guide](https://cjfravel-dev.github.io/ariadne/contributors/index.html). All contributions are subject to the [Contributor License Agreement](https://cjfravel-dev.github.io/ariadne/contributors/cla.html).
+See the [contributor guide](https://cjfravel-dev.github.io/ariadne/contributors/index.html) and [Code of Conduct](CODE_OF_CONDUCT.md). All contributions are subject to the [Contributor License Agreement](https://cjfravel-dev.github.io/ariadne/contributors/cla.html).
+
+Citation metadata is available in [`CITATION.cff`](CITATION.cff).
 
 ## Security
 
