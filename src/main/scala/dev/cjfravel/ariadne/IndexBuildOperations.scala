@@ -337,12 +337,14 @@ trait IndexBuildOperations extends BloomFilterOperations {
               s"Cannot migrate file_size for index '$name': source file '${failures.head.getString(0)}' " +
                 s"is missing or unreadable (${failures.head.getString(1)})")
           }
+          checkHeartbeat()
           table
             .as("target")
             .merge(sizeResults.select("filename", "file_size").as("source"), "target.filename = source.filename")
             .whenMatched()
             .update(Map("file_size" -> col("source.file_size")))
             .execute()
+          checkHeartbeat()
         } finally {
           sizeResults.unpersist()
         }
