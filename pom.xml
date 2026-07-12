@@ -245,9 +245,19 @@
                 <configuration>
                     <scalaVersion>${scala.version}</scalaVersion>
                     <minimumCoverage>80</minimumCoverage>
+                    <minimumCoverageBranchTotal>73</minimumCoverageBranchTotal>
                     <failOnMinimumCoverage>true</failOnMinimumCoverage>
                     <highlighting>true</highlighting>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>check-coverage</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
 
             <plugin>
@@ -372,6 +382,19 @@
                             <executable>bash</executable>
                             <arguments>
                                 <argument>dev/scripts/dependency-policy-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>test-coverage-policy-script</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/coverage-policy-tests.sh</argument>
                             </arguments>
                         </configuration>
                     </execution>
