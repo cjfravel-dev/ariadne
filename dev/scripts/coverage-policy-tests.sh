@@ -42,8 +42,8 @@ if ! grep -Fq '<scoverage.skip>true</scoverage.skip>' <<<"$SPARK41_PROFILE"; the
     exit 1
 fi
 
-if ! grep -Fq '<jdk>[17,18)</jdk>' <<<"$SPARK35_PROFILE"; then
-    echo "Spark 3.5 must activate on the required Java 17 runtime alongside CI coverage"
+if ! grep -Fq '<jdk>[11,12)</jdk>' <<<"$SPARK35_PROFILE"; then
+    echo "Spark 3.5 must activate on the required Java 11 runtime alongside CI coverage"
     exit 1
 fi
 

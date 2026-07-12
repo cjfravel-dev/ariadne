@@ -111,7 +111,7 @@ All Spark tests mix in `SparkTests`, which creates a local `SparkSession` with a
 
 ### Java Version
 
-Java 17 is required for the Spark 3.5 line; Java 21 is required for Spark 4.1. Scala 2.12.18 / Spark 3.5 / Delta 3.2 align with Azure Synapse, while Scala 2.13.17 / Spark 4.1 / Delta 4.1 align with Fabric Runtime 2.0. Do not upgrade these runtime families independently.
+Java 11 is required for the Spark 3.5 line; Java 21 is required for Spark 4.1. Scala 2.12.17 / Spark 3.5 / Delta 3.2 align with the deployed Azure Synapse runtime, while Scala 2.13.17 / Spark 4.1 / Delta 4.1 align with Fabric Runtime 2.0. Do not upgrade these runtime families independently.
 
 ### Scaladoc Requirements
 

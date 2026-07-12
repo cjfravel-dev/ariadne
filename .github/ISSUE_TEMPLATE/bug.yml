@@ -27,7 +27,7 @@ body:
     id: runtime-versions
     attributes:
       label: Delta, Scala, and Java versions
-      placeholder: "Delta 3.2.1, Scala 2.12.18, Java 17"
+      placeholder: "Delta 3.2.1, Scala 2.12.17, Java 11"
     validations:
       required: true
   - type: dropdown
