@@ -251,6 +251,9 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
     <h3>Index repartitioning for very large joins</h3>
     <p>The <code>explode</code> step on index array columns can produce massive intermediate DataFrames that cause <code>FetchFailedException</code> on shuffles. The optional <code>indexRepartitionCount</code> setting repartitions the index DataFrame both before <code>explode</code> in <code>locateFilesFromDataFrame</code> and after <code>readFiles</code> in <code>joinDf</code>. It's not enabled by default because the extra shuffle hurts small joins.</p>
 
+    <h3>Deterministic staging recovery</h3>
+    <p>Each staged batch records an internal timestamp and batch ID. Consolidation ranks duplicate filenames by newest batch, row completeness, batch ID, and a stable payload hash, then removes the internal columns before merging into the main index. Legacy staging tables without ordering columns use completeness and payload hash only. <code>update</code> always consolidates stale staging under the update lock, even when no new files or column backfills are pending.</p>
+
     <h2 id="metadata-versions">Metadata versioning</h2>
     <p><code>IndexMetadata.apply(jsonString)</code> migrates old metadata files forward via sequential null-checks. When adding a new field, add a corresponding null-check migration step. Current migration history:</p>
 

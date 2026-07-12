@@ -10,6 +10,7 @@ import dev.cjfravel.ariadne.exceptions._
 import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.LongType
 
@@ -51,6 +52,17 @@ import org.apache.spark.sql.types.LongType
  */
 trait IndexBuildOperations extends BloomFilterOperations {
   self: Index =>
+
+  private val StagingTimestampColumn = "_ariadne_staged_at"
+  private val StagingBatchIdColumn = "_ariadne_batch_id"
+  private val StagingRankColumn = "_ariadne_staging_rank"
+  private val StagingCompletenessColumn = "_ariadne_staging_completeness"
+  private val StagingHashColumn = "_ariadne_staging_hash"
+  private val ReservedStagingColumnNames =
+    Set(StagingTimestampColumn, StagingBatchIdColumn, StagingRankColumn, StagingCompletenessColumn, StagingHashColumn)
+
+  protected def requireNonReservedStagingColumn(column: String): Unit =
+    require(!ReservedStagingColumnNames.contains(column), s"Column '$column' is reserved for Ariadne staging metadata")
 
   /**
    * Computes file sizes in bytes for the given files using the Hadoop FileSystem.
@@ -112,6 +124,19 @@ trait IndexBuildOperations extends BloomFilterOperations {
     Option(metadata.storage_format_version).map(_.intValue()).getOrElse(StorageFormat.Alpha37StorageVersion)
 
   private def validateDeclaredVersions(): Unit = {
+    val configuredStorageColumns =
+      metadata.indexes.asScala.toSet ++
+        metadata.computed_indexes.keySet().asScala ++
+        metadata.exploded_field_indexes.asScala.map(_.as_column) ++
+        metadata.temporal_indexes.asScala.map(_.column) ++
+        metadata.bloom_indexes.asScala.map(_.column) ++
+        metadata.range_indexes.asScala.map(_.column) ++
+        metadata.auto_bloom_indexes.asScala
+    val reservedColumns = configuredStorageColumns.intersect(ReservedStagingColumnNames)
+    if (reservedColumns.nonEmpty) {
+      throw new StorageMigrationException(
+        s"Index '$name' uses reserved staging column(s): ${reservedColumns.toSeq.sorted.mkString(", ")}")
+    }
     Option(metadata.metadata_version).foreach { version =>
       if (version > StorageFormat.CurrentMetadataVersion) {
         throw new UnsupportedMetadataVersionException(version, StorageFormat.CurrentMetadataVersion)
@@ -825,10 +850,14 @@ trait IndexBuildOperations extends BloomFilterOperations {
         df
       }
 
-    val rowCount = smallGroupedDf.count()
+    val stagedDf =
+      smallGroupedDf
+        .withColumn(StagingTimestampColumn, current_timestamp())
+        .withColumn(StagingBatchIdColumn, lit(UUID.randomUUID().toString))
+    val rowCount = stagedDf.count()
     logger.warn(s"Appending $rowCount rows to staging at $stagingFilePath")
 
-    smallGroupedDf.write
+    stagedDf.write
       .format("delta")
       .option("mergeSchema", "true")
       .mode("append")
@@ -1157,11 +1186,11 @@ trait IndexBuildOperations extends BloomFilterOperations {
 
       val allStorageColumns =
         storageColumns ++ bloomStorageColumns ++ rangeStorageColumns ++ autoBloomStorageColumns
-      val stagingDf =
+      val rawStagingDf =
         spark.read
           .format("delta")
           .load(stagingFilePath.toString)
-          .dropDuplicates("filename")
+      val stagingDf = selectStagingRows(rawStagingDf)
       val stagingRowCount = stagingDf.count()
       logger.warn(s"Merging $stagingRowCount staged rows into main index")
 
@@ -1205,5 +1234,44 @@ trait IndexBuildOperations extends BloomFilterOperations {
             e)
       }
     }
+
+  private def selectStagingRows(stagingDf: DataFrame): DataFrame = {
+    val payloadColumns =
+      stagingDf.columns.filterNot(column => column == StagingTimestampColumn || column == StagingBatchIdColumn)
+    val completenessExpressions =
+      payloadColumns.filterNot(_ == "filename").map(column => when(col(column).isNotNull, 1).otherwise(0))
+    val completeness =
+      completenessExpressions.reduceOption(_ + _).getOrElse(lit(0))
+    val canonicalHash =
+      sha2(to_json(struct(payloadColumns.sorted.map(col): _*)), 256)
+    val timestampOrder =
+      if (stagingDf.columns.contains(StagingTimestampColumn)) {
+        col(StagingTimestampColumn).desc_nulls_last
+      } else {
+        lit(0).desc
+      }
+    val batchOrder =
+      if (stagingDf.columns.contains(StagingBatchIdColumn)) {
+        col(StagingBatchIdColumn).desc_nulls_last
+      } else {
+        lit("").desc
+      }
+    val rankWindow =
+      Window
+        .partitionBy("filename")
+        .orderBy(timestampOrder, col(StagingCompletenessColumn).desc, batchOrder, col(StagingHashColumn).desc)
+
+    stagingDf
+      .withColumn(StagingCompletenessColumn, completeness)
+      .withColumn(StagingHashColumn, canonicalHash)
+      .withColumn(StagingRankColumn, row_number().over(rankWindow))
+      .where(col(StagingRankColumn) === 1)
+      .drop(
+        StagingTimestampColumn,
+        StagingBatchIdColumn,
+        StagingRankColumn,
+        StagingCompletenessColumn,
+        StagingHashColumn)
+  }
 
 }

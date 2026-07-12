@@ -231,6 +231,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    */
   def addIndex(index: String): Unit = {
     require(index != null && index.trim.nonEmpty, "index column name must not be null or blank")
+    requireNonReservedStagingColumn(index)
     ensureStorageReady()
     logger.warn(s"Adding regular index on column '$index' for index '$name'")
 
@@ -293,6 +294,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    */
   def addBloomIndex(column: String, fpr: Double = 0.01): Unit = {
     require(column != null && column.trim.nonEmpty, "bloom index column name must not be null or blank")
+    requireNonReservedStagingColumn(column)
     // Validate FPR range
     require(fpr > 0 && fpr < 1, s"FPR must be between 0 and 1, got: $fpr")
     ensureStorageReady()
@@ -360,6 +362,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
     require(arrayColumn != null && arrayColumn.trim.nonEmpty, "arrayColumn must not be null or blank")
     require(fieldPath != null && fieldPath.trim.nonEmpty, "fieldPath must not be null or blank")
     require(asColumn != null && asColumn.trim.nonEmpty, "asColumn must not be null or blank")
+    requireNonReservedStagingColumn(asColumn)
     ensureStorageReady()
     logger.warn(s"Adding exploded field index '$asColumn' on column '$arrayColumn' for index '$name'")
 
@@ -456,6 +459,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
   def addComputedIndex(name: String, sql_expression: String): Unit = {
     require(name != null && name.trim.nonEmpty, "computed index name must not be null or blank")
     require(sql_expression != null && sql_expression.trim.nonEmpty, "sql_expression must not be null or blank")
+    requireNonReservedStagingColumn(name)
     ensureStorageReady()
     logger.warn(s"Adding computed index '$name' for index '${this.name}'")
 
@@ -517,6 +521,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
   def addTemporalIndex(column: String, timestampColumn: String): Unit = {
     require(column != null && column.trim.nonEmpty, "temporal index column must not be null or blank")
     require(timestampColumn != null && timestampColumn.trim.nonEmpty, "timestampColumn must not be null or blank")
+    requireNonReservedStagingColumn(column)
     ensureStorageReady()
     logger.warn(s"Adding temporal index on column '$column' for index '$name'")
 
@@ -581,6 +586,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    */
   def addRangeIndex(column: String): Unit = {
     require(column != null && column.trim.nonEmpty, "range index column must not be null or blank")
+    requireNonReservedStagingColumn(column)
     ensureStorageReady()
     logger.warn(s"Adding range index on column '$column' for index '$name'")
 
@@ -751,6 +757,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
     lock.acquire(correlationId)
     try {
       ensureStorageReadyUnderLock(lock, correlationId, refresh = true)
+      recoverStagingUnderLock(lock, correlationId)
 
       // Backfill existing files for new columns first, so the index schema
       // is complete before processing new files
@@ -800,6 +807,23 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
       lock.release(correlationId)
     }
   }
+
+  /**
+   * Consolidates stale staging while maintaining strict update-lock ownership.
+   *
+   * @param lock
+   *   update lock currently held by the caller
+   * @param correlationId
+   *   correlation ID owning the update lock
+   */
+  private[ariadne] def recoverStagingUnderLock(lock: IndexLock, correlationId: String): Unit =
+    if (exists(stagingFilePath)) {
+      withMigrationHeartbeat(lock, correlationId) { checkHeartbeat =>
+        logger.warn(s"Recovering stale staging data before updating index '$name'")
+        consolidateStaging()
+        checkHeartbeat()
+      }
+    }
 
   /**
    * Compacts all Delta tables belonging to this index using OPTIMIZE. Acquires the update lock to prevent concurrent
