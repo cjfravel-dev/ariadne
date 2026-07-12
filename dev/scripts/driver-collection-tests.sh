@@ -6,7 +6,7 @@ FILE_LIST=src/main/scala/dev/cjfravel/ariadne/FileList.scala
 INDEX_BUILD=src/main/scala/dev/cjfravel/ariadne/IndexBuildOperations.scala
 MIGRATION_METHOD=$(sed -n '/private def migrateFileSizeColumns/,/private def verifyFileSizeColumns/p' "$INDEX_BUILD")
 
-if grep -Fq '.collect().toSet' "$FILE_LIST"; then
+if grep -Fq '.collect' "$FILE_LIST"; then
     echo "FileList duplicate detection must not collect all tracked filenames"
     exit 1
 fi
@@ -16,7 +16,7 @@ if ! grep -Fq '.mapPartitions' <<<"$MIGRATION_METHOD"; then
     exit 1
 fi
 
-if grep -Fq '.toLocalIterator()' <<<"$MIGRATION_METHOD"; then
+if grep -Fq '.toLocalIterator' <<<"$MIGRATION_METHOD"; then
     echo "file_size migration must not stream Spark partitions through driver memory"
     exit 1
 fi
