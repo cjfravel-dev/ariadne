@@ -14,7 +14,7 @@ cd "$(git rev-parse --show-toplevel)"
 
 echo "==> Generating Scaladoc from the complete Spark 3.5 source set..."
 bash dev/scripts/clean-api-docs-output.sh
-mvn -q package -DskipTests -Dgpg.skip=true
+mvn -q package -Pspark35 -DskipTests -Dgpg.skip=true
 
 if [[ ! -d target/site/scaladocs ]]; then
   echo "ERROR: target/site/scaladocs not produced" >&2
