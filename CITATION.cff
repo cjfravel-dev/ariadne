@@ -8,6 +8,6 @@ authors:
 repository-code: "https://github.com/cjfravel-dev/ariadne"
 url: "https://cjfravel-dev.github.io/ariadne/"
 license-url: "https://github.com/cjfravel-dev/ariadne/blob/main/LICENSE.md"
-version: 0.1.4-beta
-date-released: 2026-07-08
+version: 0.1.5-beta
+date-released: 2026-07-12
 abstract: "A Spark library that builds Delta-backed file-level indexes for efficient data lake joins."
