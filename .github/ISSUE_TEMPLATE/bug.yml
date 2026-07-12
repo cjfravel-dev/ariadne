@@ -1,0 +1,72 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Ariadne
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security vulnerabilities belong in a private report:
+        https://github.com/cjfravel-dev/ariadne/security/advisories/new
+  - type: input
+    id: ariadne-version
+    attributes:
+      label: Ariadne version
+      placeholder: "0.1.4-beta"
+    validations:
+      required: true
+  - type: input
+    id: spark-version
+    attributes:
+      label: Spark version
+      placeholder: "3.5.5"
+    validations:
+      required: true
+  - type: input
+    id: runtime-versions
+    attributes:
+      label: Delta, Scala, and Java versions
+      placeholder: "Delta 3.2.1, Scala 2.12.17, Java 11"
+    validations:
+      required: true
+  - type: dropdown
+    id: storage-backend
+    attributes:
+      label: Storage backend
+      options:
+        - Local filesystem
+        - HDFS
+        - ADLS / ABFS
+        - Amazon S3 / S3A
+        - Google Cloud Storage
+        - Other Hadoop-compatible filesystem
+    validations:
+      required: true
+  - type: input
+    id: index-version
+    attributes:
+      label: Index storage generation
+      description: Include the Ariadne version that originally created the index, if known.
+      placeholder: "0.0.1-alpha-37"
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include the smallest runnable Spark code and input shape that reproduce the issue.
+      render: scala
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include relevant exception messages and operational logs.
+    validations:
+      required: true

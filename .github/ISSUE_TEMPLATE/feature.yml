@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose an Ariadne capability or improvement
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the data-lake or operational limitation to solve.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe the API and persisted behavior you expect.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility considerations
+      description: Note Spark lines, storage backends, or persisted-index changes.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
