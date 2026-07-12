@@ -321,6 +321,19 @@
                         </configuration>
                     </execution>
                     <execution>
+                        <id>test-driver-collections</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/driver-collection-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>test-api-docs-drift</id>
                         <phase>verify</phase>
                         <goals>

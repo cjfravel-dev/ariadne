@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.{Executors, TimeUnit}
 
 import scala.collection.JavaConverters._
+import scala.util.control.NonFatal
 
 import dev.cjfravel.ariadne.exceptions._
 import io.delta.tables.DeltaTable
@@ -13,6 +14,8 @@ import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.LongType
+import org.apache.spark.storage.StorageLevel
+import org.apache.spark.util.SerializableConfiguration
 
 /**
  * Trait providing index building and maintenance operations for [[Index]] instances.
@@ -199,7 +202,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
       val explodedMigrationNeeded =
         initialStorageVersion < StorageFormat.CurrentStorageVersion || needsExplodedFieldMigration
 
-      if (fileSizeMigrationNeeded) migrateFileSizeColumns()
+      if (fileSizeMigrationNeeded) migrateFileSizeColumns(checkHeartbeat)
       checkHeartbeat()
       verifyFileSizeColumns()
       if (explodedMigrationNeeded) migrateExplodedFieldColumns()
@@ -284,7 +287,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
       }
     }
 
-  private def migrateFileSizeColumns(): Unit = {
+  private def migrateFileSizeColumns(checkHeartbeat: () => Unit): Unit = {
     Seq(indexFilePath -> "main table", stagingFilePath -> "staging table").foreach { case (path, tableName) =>
       migrationDelta(path, tableName).foreach { table =>
         if (!table.toDF.columns.contains("file_size")) {
@@ -295,39 +298,59 @@ trait IndexBuildOperations extends BloomFilterOperations {
       }
 
       migrationDelta(path, tableName).foreach { table =>
-        val nullSizeFiles =
+        import spark.implicits._
+        val pendingFiles =
           table.toDF
             .where(col("file_size").isNull)
             .select("filename")
-            .toLocalIterator()
-            .asScala
-            .map(_.getString(0))
-            .toSet
-        if (nullSizeFiles.nonEmpty) {
-          val sizes = getFileSizes(nullSizeFiles)
-          val missingSizes = nullSizeFiles -- sizes.keySet
-          if (missingSizes.nonEmpty) {
+            .distinct()
+        val serializableConfiguration = new SerializableConfiguration(spark.sparkContext.hadoopConfiguration)
+        val sizeResults =
+          pendingFiles
+            .as[String]
+            .mapPartitions { filenames =>
+              filenames.map { filename =>
+                try {
+                  val path = new Path(filename)
+                  val length = path.getFileSystem(serializableConfiguration.value).getFileStatus(path).getLen
+                  (filename, java.lang.Long.valueOf(length), null: String)
+                } catch {
+                  case _: java.io.FileNotFoundException =>
+                    (filename, null: java.lang.Long, "file not found")
+                  case e: java.io.IOException =>
+                    (filename, null: java.lang.Long, s"I/O error: ${e.getMessage}")
+                  case NonFatal(e) =>
+                    val message = Option(e.getMessage).getOrElse("no message")
+                    (filename, null: java.lang.Long, s"${e.getClass.getSimpleName}: $message")
+                }
+              }
+            }
+            .toDF("filename", "file_size", "error")
+            .persist(StorageLevel.DISK_ONLY)
+        try {
+          checkHeartbeat()
+          val failures =
+            sizeResults
+              .where(col("error").isNotNull)
+              .select("filename", "error")
+              .limit(1)
+              .collect()
+          checkHeartbeat()
+          if (failures.nonEmpty) {
             throw new StorageMigrationException(
-              s"Cannot migrate file_size for index '$name': ${missingSizes.size} source file(s) " +
-                s"are missing or unreadable, including '${missingSizes.head}'")
+              s"Cannot migrate file_size for index '$name': source file '${failures.head.getString(0)}' " +
+                s"is missing or unreadable (${failures.head.getString(1)})")
           }
-          val sizesBroadcast = spark.sparkContext.broadcast(sizes)
-          try {
-            val sizeUdf = udf((filename: String) => sizesBroadcast.value.getOrElse(filename, 0L))
-            import spark.implicits._
-            val updates =
-              nullSizeFiles.toSeq
-                .toDF("filename")
-                .withColumn("file_size", sizeUdf(col("filename")))
-            table
-              .as("target")
-              .merge(updates.as("source"), "target.filename = source.filename")
-              .whenMatched()
-              .update(Map("file_size" -> col("source.file_size")))
-              .execute()
-          } finally {
-            safeDestroyBroadcast(sizesBroadcast)
-          }
+          checkHeartbeat()
+          table
+            .as("target")
+            .merge(sizeResults.select("filename", "file_size").as("source"), "target.filename = source.filename")
+            .whenMatched()
+            .update(Map("file_size" -> col("source.file_size")))
+            .execute()
+          checkHeartbeat()
+        } finally {
+          sizeResults.unpersist()
         }
       }
     }
