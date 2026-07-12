@@ -285,14 +285,32 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
           <tr><th>Storage version</th><th>Invariant</th></tr>
         </thead>
         <tbody>
-          <tr><td>v1</td><td>Alpha37 compatibility baseline; exploded columns may use <code>array_column</code> and <code>file_size</code> is not required.</td></tr>
-          <tr><td>v2</td><td>Main and staging Delta tables contain non-null <code>file_size BIGINT</code>.</td></tr>
-          <tr><td>v3 (current)</td><td>Exploded columns and large-index paths use canonical <code>as_column</code> names.</td></tr>
+          <tr data-storage-version="1"><td>v1</td><td>Alpha37 compatibility baseline; exploded columns may use <code>array_column</code> and <code>file_size</code> is not required.</td></tr>
+          <tr data-storage-version="2"><td>v2</td><td>Main and staging Delta tables contain non-null <code>file_size BIGINT</code>.</td></tr>
+          <tr data-storage-version="3"><td>v3 (current)</td><td>Exploded columns and large-index paths use canonical <code>as_column</code> names.</td></tr>
         </tbody>
       </table>
     </div>
     <p>Plain <code>Index(name)</code> construction remains read-only. Operational entry points run preflight; versions newer than the current build raise a typed compatibility exception instead of returning incomplete results.</p>
     <p>The compatibility floor is covered by a physical fixture under <code>src/test/resources/fixtures/alpha37/</code>, generated from tag <code>0.0.1-alpha-37</code> with <code>dev/scripts/generate-alpha37-fixture.sh</code>. Normal tests use only the committed fixture and require no network access.</p>
+
+    <h3>Supported release cohorts</h3>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Persisted by</th><th>Support</th><th>Operational preflight</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>0.0.1-alpha-37</code> through <code>0.0.1-alpha44</code></td><td>Supported</td><td>Validates the unversioned v1 baseline, backfills file sizes, normalizes exploded aliases, verifies the result, then records v3.</td></tr>
+          <tr><td><code>0.1.0-beta</code> through <code>0.1.4-beta</code></td><td>Supported</td><td>Structurally validates the unversioned layout, applies only missing steps, verifies the result, then records v3.</td></tr>
+          <tr><td>Explicit storage v1 or v2</td><td>Supported</td><td>Resumes the ordered, idempotent migration from the declared checkpoint.</td></tr>
+          <tr><td>Explicit storage v3</td><td>Current</td><td>Uses the declared current layout without repeating historical schema inspection.</td></tr>
+          <tr><td>Earlier than <code>0.0.1-alpha-37</code></td><td>Unsupported</td><td>Rebuild from source data with a current Ariadne version.</td></tr>
+          <tr><td>Version newer than v3</td><td>Requires a newer library</td><td>Fails before physical or metadata writes; never downgrades an index in place.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>This build supports persisted indexes from <strong>0.0.1-alpha-37 through 0.1.4-beta</strong>. Storage v2 and v3 are migration checkpoints, not promises that every historical release wrote an explicit version. All releases before the version framework wrote unversioned metadata and are classified by the validated physical layout. Future releases may introduce newer formats that require a newer Ariadne build.</p>
 
     <h2 id="concurrency">Thread safety</h2>
 

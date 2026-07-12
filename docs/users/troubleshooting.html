@@ -39,6 +39,7 @@
     <h5>On this page</h5>
     <ul>
       <li><a href="#exception-ref">Exception reference</a></li>
+      <li><a href="#compatibility">Index compatibility</a></li>
       <li><a href="#fetch-failed">FetchFailedException</a></li>
       <li><a href="#lock">IndexLockException</a></li>
       <li><a href="#oom">Out-of-memory during update</a></li>
@@ -84,9 +85,28 @@ try {
           <tr><td><code>MissingSchemaException</code></td><td>Schema field is null in metadata (corrupted file).</td></tr>
           <tr><td><code>SchemaParseException</code></td><td>Stored schema string can't be parsed.</td></tr>
           <tr><td><code>FileListNotFoundException</code></td><td>Removing a file list that doesn't exist.</td></tr>
+          <tr><td><code>UnsupportedStorageFormatVersionException</code></td><td>The index declares a newer <code>storage_format_version</code> than this Ariadne build supports.</td></tr>
+          <tr><td><code>UnsupportedMetadataVersionException</code></td><td>The index declares a newer <code>metadata_version</code> than this Ariadne build supports.</td></tr>
         </tbody>
       </table>
     </div>
+
+    <h2 id="compatibility">Persisted-index compatibility</h2>
+    <p>This Ariadne build supports indexes created by <code>0.0.1-alpha-37</code> through <code>0.1.4-beta</code>. Queries and other operational methods migrate supported older layouts under the update lock; plain <code>Index(name)</code> construction remains read-only. Indexes written by later releases may require a newer library.</p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Failure</th><th>Recovery</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>UnsupportedStorageFormatVersionException</code> or <code>UnsupportedMetadataVersionException</code></td><td>Upgrade Ariadne to a version that supports the declared <code>storage_format_version</code> or <code>metadata_version</code>. Do not downgrade or edit version markers manually.</td></tr>
+          <tr><td>Index predates <code>0.0.1-alpha-37</code></td><td>Remove and rebuild the index from source data with the current library.</td></tr>
+          <tr><td>Migration fails physical verification</td><td>Correct the reported missing source, filesystem, or schema problem and retry. The version is not advanced on failure.</td></tr>
+          <tr><td>Metadata is corrupt or a previously indexed column was removed</td><td>Restore a known-good index directory or remove and rebuild from source.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Ariadne does not silently rebuild, downgrade, or return incomplete query results when it encounters an unsupported or unverifiable layout.</p>
 
     <h2 id="fetch-failed"><code>FetchFailedException</code> during joins</h2>
     <p>Large indexes can produce enormous intermediate DataFrames during the array <code>explode</code> step, which overwhelms Spark's shuffle. Spread the work across more partitions:</p>
