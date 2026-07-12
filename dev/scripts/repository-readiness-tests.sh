@@ -30,6 +30,7 @@ for file in \
     dev/scripts/coverage-policy-tests.sh \
     dev/scripts/dependency-policy-tests.sh \
     dev/scripts/migration-support-policy-tests.sh \
+    dev/scripts/managed-runtime-tests.sh \
     dev/scripts/package-contents-tests.sh \
     dev/scripts/release-pipeline-tests.sh \
     docs/contributors/architecture.html \

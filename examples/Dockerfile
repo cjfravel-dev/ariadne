@@ -1,4 +1,4 @@
-FROM maven:3.9-eclipse-temurin-11@sha256:1fee93ca227db7e8b8c7c72752ada0f03da6ebab40addd6fe48ac6293424186c AS builder
+FROM maven:3.9-eclipse-temurin-17@sha256:1ed5d1f54416b706707b4f3238f63a20bb06aab27c6d240090a2bb9ad895ed45 AS builder
 
 COPY pom.xml /build/pom.xml
 COPY src /build/src
@@ -7,7 +7,7 @@ COPY README.md /build/README.md
 WORKDIR /build
 RUN mvn package -DskipTests -q
 
-FROM eclipse-temurin:11-jdk-jammy@sha256:78d5c3a04afb5ae9750e58a755fc6ce6f4bd843587e40edaa3b7467c5184015e
+FROM eclipse-temurin:17-jdk-jammy@sha256:723151f3fc88ca2060153ee08ab8dbbea7983d6ed6f2622fe440acf178737c94
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends python3 python3-pip wget && \

@@ -55,10 +55,10 @@
     </div>
 
     <h2 id="install">Installation</h2>
-    <p>Ariadne ships two build lines: Spark 3.5 / Delta 3.2 (Scala 2.12, Java 11) and Spark 4.1 / Delta 4.1 (Scala 2.13, Java 21). Add the dependency that matches the Spark runtime on your cluster.</p>
+    <p>Ariadne ships two build lines: Spark 3.5 / Delta 3.2 (Scala 2.12, Java 17) and Spark 4.1 / Delta 4.1 (Scala 2.13, Java 21). Add the dependency that matches the Spark runtime on your cluster.</p>
 
     <h3>Maven</h3>
-<pre><code class="language-xml">&lt;!-- Spark 3.5 / Delta 3.2 (Scala 2.12, Java 11) --&gt;
+<pre><code class="language-xml">&lt;!-- Spark 3.5 / Delta 3.2 (Scala 2.12, Java 17) --&gt;
 &lt;dependency&gt;
     &lt;groupId&gt;dev.cjfravel&lt;/groupId&gt;
     &lt;artifactId&gt;ariadne-spark35_2.12&lt;/artifactId&gt;
@@ -80,7 +80,7 @@ libraryDependencies += "dev.cjfravel" %% "ariadne-spark35" % "0.1.4-beta"
 libraryDependencies += "dev.cjfravel" %% "ariadne-spark41" % "0.1.4-beta"</code></pre>
 
     <div class="callout note">
-      <p><strong>Match your Spark line.</strong> The <code>spark35</code> artifacts target Spark 3.5 / Delta 3.2 on Scala 2.12 and Java 11; the <code>spark41</code> artifacts target Spark 4.1 / Delta 4.1 on Scala 2.13 and Java 21. Pick the artifact whose Scala version matches your cluster's Spark.</p>
+      <p><strong>Match your Spark line.</strong> The <code>spark35</code> artifacts target Spark 3.5 / Delta 3.2 on Scala 2.12 and Java 17; the <code>spark41</code> artifacts target Spark 4.1 / Delta 4.1 on Scala 2.13 and Java 21. Pick the artifact whose Scala version matches your cluster's Spark.</p>
     </div>
 
     <h2 id="configure">Configure storage</h2>

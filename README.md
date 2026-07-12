@@ -15,7 +15,7 @@
 ## Install
 
 ```xml
-<!-- Spark 3.5 / Delta 3.2 (Scala 2.12, Java 11) -->
+<!-- Spark 3.5 / Delta 3.2 (Scala 2.12, Java 17) -->
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne-spark35_2.12</artifactId>

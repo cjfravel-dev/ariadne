@@ -30,11 +30,11 @@ jobs:
         with:
           ref: ${{ github.event.release.tag_name }}
 
-      - name: Set up Java 11 and release credentials
+      - name: Set up Java 17 and release credentials
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "11"
+          java-version: "17"
           cache: maven
           server-id: central
           server-username: CENTRAL_USERNAME
