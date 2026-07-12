@@ -34,7 +34,7 @@
     </scm>
 
     <properties>
-        <scoverage.plugin.version>2.0.6</scoverage.plugin.version>
+        <scoverage.plugin.version>2.1.5</scoverage.plugin.version>
         <mvn.scalafmt.version>1.1.1640084764.9f463a9</mvn.scalafmt.version>
         <scalafix.plugin.version>0.1.12_0.14.6</scalafix.plugin.version>
         <semanticdb.version>4.14.2</semanticdb.version>
