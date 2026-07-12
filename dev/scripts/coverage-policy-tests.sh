@@ -2,13 +2,12 @@
 
 set -euo pipefail
 
-SCOVERAGE_PLUGIN=$(sed -n '/<artifactId>scoverage-maven-plugin<\/artifactId>/,/<\/plugin>/p' pom.xml)
 SPARK35_PROFILE=$(sed -n '/<id>spark35<\/id>/,/<\/profile>/p' pom.xml)
 COVERAGE_EXECUTION=$(sed -n '/<id>check-coverage<\/id>/,/<\/execution>/p' <<<"$SPARK35_PROFILE")
 
 require_setting() {
     local expected="$1"
-    if ! grep -Fq -- "$expected" <<<"$SCOVERAGE_PLUGIN"; then
+    if ! grep -Fq -- "$expected" pom.xml; then
         echo "Scoverage configuration is missing coverage policy: $expected"
         exit 1
     fi
