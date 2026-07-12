@@ -91,13 +91,13 @@
 
     <h3>Prerequisites</h3>
     <dl class="kv">
-      <dt>Java 11</dt><dd><code>JAVA_HOME=/usr/lib/jvm/java-11-openjdk</code> or equivalent — newer JDKs are not supported by the target Spark versions.</dd>
+      <dt>Java 11</dt><dd><code>JAVA_HOME=/usr/lib/jvm/java-11-openjdk</code> or equivalent for the deployed Synapse Spark 3.5 line; use Java 21 for Fabric Spark 4.1.</dd>
       <dt>Maven 3.x</dt><dd>Used for build, test, packaging.</dd>
       <dt>scalafmt / scalafix / scalastyle</dt><dd>Enforced by the build. Run <code>mvn scalafmt:format</code> to format; scalafix (<code>RemoveUnused</code> + <code>OrganizeImports</code>) and scalastyle (adapted from Apache Spark) run in the <code>verify</code> phase, so <code>mvn verify</code> (and CI) fail on any violation.</dd>
     </dl>
 
     <div class="callout warn">
-      <p><strong>Don't upgrade Scala or Spark.</strong> Scala 2.12.17 and Spark 3.5 are pinned to match runtime dependencies. Bumping them is out of scope for normal PRs.</p>
+      <p><strong>Don't upgrade runtime families independently.</strong> Spark 3.5 / Scala 2.12.17 / Java 11 track the deployed Azure Synapse runtime, while Spark 4.1 / Scala 2.13.17 / Java 21 track Fabric Runtime 2.0.</p>
     </div>
 
     <h2 id="build">Build &amp; test</h2>
