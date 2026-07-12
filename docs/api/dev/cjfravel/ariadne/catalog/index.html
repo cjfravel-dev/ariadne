@@ -7,8 +7,8 @@
           <meta name="description" content="dev.cjfravel ariadne - spark35 2.12 0.1.4 - beta API - dev.cjfravel.ariadne.catalog" />
           <meta name="keywords" content="dev.cjfravel ariadne spark35 2.12 0.1.4 beta API dev.cjfravel.ariadne.catalog" />
           <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
-
-
+          
+      
       <link href="../../../../lib/index.css" media="screen" type="text/css" rel="stylesheet" />
       <link href="../../../../lib/template.css" media="screen" type="text/css" rel="stylesheet" />
       <link href="../../../../lib/diagrams.css" media="screen" type="text/css" rel="stylesheet" id="diagrams-css" />
@@ -19,12 +19,12 @@
       <script type="text/javascript" src="../../../../index.js"></script>
       <script type="text/javascript" src="../../../../lib/scheduler.js"></script>
       <script type="text/javascript" src="../../../../lib/template.js"></script>
-
+      
       <script type="text/javascript">
         /* this variable can be used by the JS to determine the path to the root document */
         var toRoot = '../../../../';
       </script>
-
+    
         </head>
         <body>
       <div id="search">
@@ -67,7 +67,7 @@
       <span class="symbol">
         <a title="" href="../../../../index.html"><span class="name">root</span></a>
       </span>
-
+      
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../../../../index.html" class="extype" name="_root_">root</a></dd></dl></div>
     </li><li name="_root_.dev" visbl="pub" class="indented1 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="dev"></a><a id="dev:dev"></a>
@@ -83,7 +83,7 @@
       <span class="symbol">
         <a title="" href="../../../index.html"><span class="name">dev</span></a>
       </span>
-
+      
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../../../../index.html" class="extype" name="_root_">root</a></dd></dl></div>
     </li><li name="dev.cjfravel" visbl="pub" class="indented2 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="cjfravel"></a><a id="cjfravel:cjfravel"></a>
@@ -99,7 +99,7 @@
       <span class="symbol">
         <a title="" href="../../index.html"><span class="name">cjfravel</span></a>
       </span>
-
+      
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../../../index.html" class="extype" name="dev">dev</a></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne" visbl="pub" class="indented3 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="ariadne"></a><a id="ariadne:ariadne"></a>
@@ -115,7 +115,7 @@
       <span class="symbol">
         <a title="" href="../index.html"><span class="name">ariadne</span></a>
       </span>
-
+      
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../../index.html" class="extype" name="dev.cjfravel">cjfravel</a></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.catalog" visbl="pub" class="indented4 current" data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="catalog"></a><a id="catalog:catalog"></a>
@@ -131,7 +131,7 @@
       <span class="symbol">
         <span class="name">catalog</span>
       </span>
-
+      
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../index.html" class="extype" name="dev.cjfravel.ariadne">ariadne</a></dd></dl></div>
     </li><li class="current-entities indented4">
                         <span class="separator"></span>
@@ -175,7 +175,7 @@
       <span class="symbol">
         <a title="" href="../exceptions/index.html"><span class="name">exceptions</span></a>
       </span>
-
+      
       <div class="fullcomment"><dl class="attributes block"> <dt>Definition Classes</dt><dd><a href="../index.html" class="extype" name="dev.cjfravel.ariadne">ariadne</a></dd></dl></div>
     </li>
               </ul>
@@ -191,7 +191,7 @@
         <i class="material-icons"></i>
       </a>
     </span></h1>
-
+        
       </div>
 
       <h4 id="signature" class="signature">
@@ -204,15 +204,15 @@
       </span>
       </h4>
 
-
+      
           <div id="comment" class="fullcommenttop"></div>
+        
 
-
-
+      
 
       <div id="template">
         <div id="allMembers">
-
+        
 
         <div id="types" class="types members">
               <h3>Type Members</h3>
@@ -230,7 +230,7 @@
       <span class="symbol">
         <a title="BaseRelation that reads Ariadne index source data files." href="AriadneBaseRelation.html"><span class="name">AriadneBaseRelation</span></a><span class="result"> extends <span class="extype" name="org.apache.spark.sql.sources.BaseRelation">BaseRelation</span> with <span class="extype" name="org.apache.spark.sql.sources.TableScan">TableScan</span> with <span class="extype" name="org.apache.spark.sql.sources.PrunedFilteredScan">PrunedFilteredScan</span></span>
       </span>
-
+      
       <p class="shortcomment cmt">BaseRelation that reads Ariadne index source data files.</p><div class="fullcomment"><div class="comment cmt"><p>BaseRelation that reads Ariadne index source data files.</p><p>Delegates to Spark's built-in format readers (CSV, Parquet, JSON) using <code>spark.read</code>. Applies computed indexes and
 exploded field transformations from the index metadata.</p><p>Extends both <code>TableScan</code> and <code>PrunedFilteredScan</code>. Spark prefers
 <code>PrunedFilteredScan.buildScan(requiredColumns, filters)</code> when available, falling back to <code>TableScan.buildScan()</code> only
@@ -250,7 +250,7 @@ if column pruning is not needed.</p><p><b>Thread safety:</b> Instances are creat
       <span class="symbol">
         <a title="Spark V2 catalog plugin that exposes Ariadne indexes as SQL tables." href="AriadneCatalog.html"><span class="name">AriadneCatalog</span></a><span class="result"> extends <span class="extype" name="org.apache.spark.sql.connector.catalog.TableCatalog">TableCatalog</span> with <span class="extype" name="org.apache.spark.sql.connector.catalog.SupportsNamespaces">SupportsNamespaces</span></span>
       </span>
-
+      
       <p class="shortcomment cmt">Spark V2 catalog plugin that exposes Ariadne indexes as SQL tables.</p><div class="fullcomment"><div class="comment cmt"><p>Spark V2 catalog plugin that exposes Ariadne indexes as SQL tables.</p><p>All indexes under <code>spark.ariadne.storagePath</code> are automatically discovered and exposed under a single <code>default</code>
 namespace. Users reference indexes as <code>{catalogName}.{indexName}</code> (which resolves via the default namespace) or
 explicitly as <code>{catalogName}.default.{indexName}</code>.</p><p><b>Configuration:</b></p><pre>spark.conf.set(<span class="lit">"spark.sql.catalog.ariadne"</span>, <span class="lit">"dev.cjfravel.ariadne.catalog.AriadneCatalog"</span>)</pre><p><b>SQL usage:</b></p><pre>SHOW TABLES IN ariadne;
@@ -277,7 +277,7 @@ initialization.
       <span class="symbol">
         <a title="Catalyst optimizer rule that rewrites JOINs involving Ariadne tables." href="AriadneJoinRule.html"><span class="name">AriadneJoinRule</span></a><span class="result"> extends <span class="extype" name="org.apache.spark.sql.catalyst.rules.Rule">Rule</span>[<span class="extype" name="org.apache.spark.sql.catalyst.plans.logical.LogicalPlan">LogicalPlan</span>]</span>
       </span>
-
+      
       <p class="shortcomment cmt">Catalyst optimizer rule that rewrites JOINs involving Ariadne tables.</p><div class="fullcomment"><div class="comment cmt"><p>Catalyst optimizer rule that rewrites JOINs involving Ariadne tables.</p><p>When a SQL query joins against an Ariadne catalog table, this rule intercepts the logical plan and replaces the
 Ariadne scan with a pre-pruned read that only includes files matching the join values. The original <code>Join</code> node,
 condition, hints, and ExprIds are all preserved.</p><p><b>Safety constraints (the rule only fires when ALL hold):</b></p><ol class="decimal"><li>The join type is <code>INNER</code> 2. The entire condition is composed of equi-join predicates (<code>a.col = b.col</code>) 3. Every
@@ -311,7 +311,7 @@ each invocation is independent.
       <span class="symbol">
         <a title="Builds a scan for reading Ariadne index source data with filter pushdown." href="AriadneScanBuilder.html"><span class="name">AriadneScanBuilder</span></a><span class="result"> extends <span class="extype" name="org.apache.spark.sql.connector.read.ScanBuilder">ScanBuilder</span> with <span class="extype" name="org.apache.spark.sql.connector.read.SupportsPushDownFilters">SupportsPushDownFilters</span></span>
       </span>
-
+      
       <p class="shortcomment cmt">Builds a scan for reading Ariadne index source data with filter pushdown.</p><div class="fullcomment"><div class="comment cmt"><p>Builds a scan for reading Ariadne index source data with filter pushdown.</p><p>Implements <span class="extype" name="SupportsPushDownFilters">SupportsPushDownFilters</span> to convert <code>WHERE</code> clause filters on indexed columns into
 <a href="../IndexQueryOperations.html#locateFiles(indexes:Map[String,Array[Any]]):Set[String]" class="extmbr" name="dev.cjfravel.ariadne.IndexQueryOperations#locateFiles">dev.cjfravel.ariadne.IndexQueryOperations.locateFiles</a> calls, pruning the source file list before reading.</p><p><b>Thread safety:</b> Instances are created per scan by <a href="AriadneTable.html#newScanBuilder(options:org.apache.spark.sql.util.CaseInsensitiveStringMap):org.apache.spark.sql.connector.read.ScanBuilder" class="extmbr" name="dev.cjfravel.ariadne.catalog.AriadneTable#newScanBuilder">AriadneTable.newScanBuilder</a> and are not shared across
 threads.
@@ -331,7 +331,7 @@ threads.
       <span class="symbol">
         <a title="Spark session extension that registers the Ariadne JOIN optimization rule." href="AriadneSparkExtension.html"><span class="name">AriadneSparkExtension</span></a><span class="result"> extends (<span class="extype" name="org.apache.spark.sql.SparkSessionExtensions">SparkSessionExtensions</span>) ⇒ <span class="extype" name="scala.Unit">Unit</span></span>
       </span>
-
+      
       <p class="shortcomment cmt">Spark session extension that registers the Ariadne JOIN optimization rule.</p><div class="fullcomment"><div class="comment cmt"><p>Spark session extension that registers the Ariadne JOIN optimization rule.</p><p>When registered, this extension injects the <a href="AriadneJoinRule.html" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneJoinRule">AriadneJoinRule</a> into Spark's optimizer. The rule rewrites JOINs
 involving Ariadne catalog tables to use the optimized file-pruning join path.</p><p><b>Configuration:</b></p><pre>spark.conf.set(<span class="lit">"spark.sql.extensions"</span>,
   <span class="lit">"dev.cjfravel.ariadne.catalog.AriadneSparkExtension"</span>)</pre><p><b>Note:</b> If your Spark session also uses Delta Lake SQL features, append this extension to the existing
@@ -354,7 +354,7 @@ concurrently.
       <span class="symbol">
         <a title="Spark V2 table representing an Ariadne index's source data." href="AriadneTable.html"><span class="name">AriadneTable</span></a><span class="params">(<span name="indexName">indexName: <span class="extype" name="scala.Predef.String">String</span></span>, <span name="sourceSchema">sourceSchema: <span class="extype" name="org.apache.spark.sql.types.StructType">StructType</span></span>, <span name="metadata">metadata: <a href="../IndexMetadata.html" class="extype" name="dev.cjfravel.ariadne.IndexMetadata">IndexMetadata</a></span>)</span><span class="result"> extends <span class="extype" name="org.apache.spark.sql.connector.catalog.Table">Table</span> with <span class="extype" name="org.apache.spark.sql.connector.catalog.SupportsRead">SupportsRead</span> with <span class="extype" name="scala.Product">Product</span> with <span class="extype" name="scala.Serializable">Serializable</span></span>
       </span>
-
+      
       <p class="shortcomment cmt">Spark V2 table representing an Ariadne index's source data.</p><div class="fullcomment"><div class="comment cmt"><p>Spark V2 table representing an Ariadne index's source data.</p><p>When queried, this table reads the original data files that were indexed (not the index metadata tables). The schema
 is the source data schema stored in the index's <code>metadata.json</code>.</p><p>This table supports batch reads only and is read-only. Write operations are not supported — index updates are
 performed via <a href="../Index.html#update:Unit" class="extmbr" name="dev.cjfravel.ariadne.Index#update">dev.cjfravel.ariadne.Index.update</a>.</p><p>When used in a JOIN, the <a href="AriadneJoinRule.html" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneJoinRule">AriadneJoinRule</a> optimizer rule rewrites the plan to use Ariadne's optimized file-pruning
@@ -380,7 +380,7 @@ threads.
       <span class="symbol">
         <a title="V1-based scan that delegates file reading to Spark's built-in readers." href="AriadneV1Scan.html"><span class="name">AriadneV1Scan</span></a><span class="result"> extends <span class="extype" name="org.apache.spark.sql.connector.read.V1Scan">V1Scan</span></span>
       </span>
-
+      
       <p class="shortcomment cmt">V1-based scan that delegates file reading to Spark's built-in readers.</p><div class="fullcomment"><div class="comment cmt"><p>V1-based scan that delegates file reading to Spark's built-in readers.</p><p>Uses <code>V1Scan</code> to create a <code>BaseRelation</code> that reads source data files using <code>spark.read</code> with the appropriate format
 (CSV, Parquet, JSON). This avoids reimplementing file readers and gives full Spark optimization (predicate pushdown
 to Parquet, column pruning, etc.).</p><p>When WHERE filters were pushed through <a href="AriadneScanBuilder.html" class="extype" name="dev.cjfravel.ariadne.catalog.AriadneScanBuilder">AriadneScanBuilder</a>, the file list is pruned via
@@ -390,24 +390,24 @@ of indexed files (not row count), but extremely large file lists could pressure 
     </li></ol>
             </div>
 
+        
 
+        
 
+        
 
-
-
-
-
+        
         </div>
 
         <div id="inheritedMembers">
-
-
+        
+        
         </div>
 
         <div id="groupedMembers">
         <div class="group" name="Ungrouped">
               <h3>Ungrouped</h3>
-
+              
             </div>
         </div>
 
