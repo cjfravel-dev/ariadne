@@ -12,7 +12,7 @@ fi
 assert_contains() {
     local expected="$1"
     if ! grep -Fq "$expected" "$DOCKERFILE"; then
-        echo "examples/Dockerfile is missing integrity contract: $expected"
+        echo "$DOCKERFILE is missing integrity contract: $expected"
         exit 1
     fi
 }
