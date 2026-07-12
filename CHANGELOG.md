@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Maven Central post-publication smoke checks now resolve artifacts from a neutral directory instead of parsing
+  Ariadne's profile-interpolated source POM.
+
 ## [0.1.5-beta]
 
 ### Added
