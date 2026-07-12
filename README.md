@@ -19,14 +19,14 @@
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne-spark35_2.12</artifactId>
-    <version>0.1.4-beta</version>
+    <version>0.1.5-beta</version>
 </dependency>
 
 <!-- Spark 4.1 / Delta 4.1 (Scala 2.13, Java 21) -->
 <dependency>
     <groupId>dev.cjfravel</groupId>
     <artifactId>ariadne-spark41_2.13</artifactId>
-    <version>0.1.4-beta</version>
+    <version>0.1.5-beta</version>
 </dependency>
 ```
 

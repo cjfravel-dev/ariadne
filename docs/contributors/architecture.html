@@ -302,7 +302,7 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
         </thead>
         <tbody>
           <tr><td><code>0.0.1-alpha-37</code> through <code>0.0.1-alpha44</code></td><td>Supported</td><td>Validates the unversioned v1 baseline, backfills file sizes, normalizes exploded aliases, verifies the result, then records v3.</td></tr>
-          <tr><td><code>0.1.0-beta</code> through <code>0.1.4-beta</code></td><td>Supported</td><td>Structurally validates the unversioned layout, applies only missing steps, verifies the result, then records v3.</td></tr>
+          <tr><td><code>0.1.0-beta</code> through <code>0.1.5-beta</code></td><td>Supported</td><td>Structurally validates the unversioned layout, applies only missing steps, verifies the result, then records v3.</td></tr>
           <tr><td>Explicit storage v1 or v2</td><td>Supported</td><td>Resumes the ordered, idempotent migration from the declared checkpoint.</td></tr>
           <tr><td>Explicit storage v3</td><td>Current</td><td>Uses the declared current layout without repeating historical schema inspection.</td></tr>
           <tr><td>Earlier than <code>0.0.1-alpha-37</code></td><td>Unsupported</td><td>Rebuild from source data with a current Ariadne version.</td></tr>
@@ -310,7 +310,7 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
         </tbody>
       </table>
     </div>
-    <p>This build supports persisted indexes from <strong>0.0.1-alpha-37 through 0.1.4-beta</strong>. Storage v2 and v3 are migration checkpoints, not promises that every historical release wrote an explicit version. All releases before the version framework wrote unversioned metadata and are classified by the validated physical layout. Future releases may introduce newer formats that require a newer Ariadne build.</p>
+    <p>This build supports persisted indexes from <strong>0.0.1-alpha-37 through 0.1.5-beta</strong>. Storage v2 and v3 are migration checkpoints, not promises that every historical release wrote an explicit version. All releases before the version framework wrote unversioned metadata and are classified by the validated physical layout. Future releases may introduce newer formats that require a newer Ariadne build.</p>
 
     <h2 id="concurrency">Thread safety</h2>
 

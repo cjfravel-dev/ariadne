@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.5-beta]
+
 ### Added
 
 - Automated coordinated Maven Central releases: a published GitHub Release signs and validates the
