@@ -1,0 +1,307 @@
+name: Maven Central
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maven-central
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish Spark 3.5 and 4.1
+    runs-on: ubuntu-latest
+    environment: maven-central
+    env:
+      MAVEN_OPTS: -Xmx8g -XX:+UseG1GC
+      CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+      CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
+      MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      GPG_KEY_ID: ${{ vars.GPG_KEY_ID }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Java 11 and release credentials
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "11"
+          cache: maven
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_TOKEN
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+
+      - name: Verify release identity and credentials
+        env:
+          CENTRAL_USER_TOKEN_EXPIRATION_DATE: ${{ vars.CENTRAL_USER_TOKEN_EXPIRATION_DATE }}
+          GPG_KEY_EXPIRATION_DATE: ${{ vars.GPG_KEY_EXPIRATION_DATE }}
+        run: |
+          set -euo pipefail
+          version=$(./mvnw -q help:evaluate -Dexpression=project.version -DforceStdout)
+          test "$RELEASE_TAG" = "$version"
+          test "${version%-SNAPSHOT}" = "$version"
+
+          for expiration in "$CENTRAL_USER_TOKEN_EXPIRATION_DATE" "$GPG_KEY_EXPIRATION_DATE"; do
+            test "$(date -u +%s)" -lt "$(date -u -d "$expiration" +%s)"
+          done
+
+          imported_fingerprint=$(
+            gpg --batch --with-colons --fingerprint "$GPG_KEY_ID" |
+              awk -F: '$1 == "fpr" { print $10; exit }'
+          )
+          test "$imported_fingerprint" = "$GPG_KEY_ID"
+          gpg --batch --with-colons --list-keys "$GPG_KEY_ID" |
+            awk -F: '$1 == "uid" { print $10 }' |
+            grep -F 'Ariadne Release <ariadne-releases@cjfravel.dev>'
+
+          base="https://repo1.maven.org/maven2/dev/cjfravel"
+          for artifact in ariadne-spark35_2.12 ariadne-spark41_2.13; do
+            url="$base/$artifact/$version/$artifact-$version.pom"
+            if curl --fail --silent --show-error --location \
+              --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 30 \
+              --output /dev/null "$url"; then
+              echo "$artifact:$version is already published." >&2
+              exit 1
+            fi
+          done
+
+      - name: Stage and validate Spark 3.5
+        id: stage35
+        run: |
+          set -uo pipefail
+          log=$(mktemp)
+          set +e
+          ./mvnw clean deploy -Pspark35 -B \
+            -Dgpg.skip=false \
+            -Dgpg.keyname="$GPG_KEY_ID" \
+            -Dcentral.autoPublish=false \
+            -Dcentral.waitUntil=validated \
+            -Dcentral.waitMaxTime=3600 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          deployment_id=$(
+            sed -n 's/.*deploymentId: \([0-9a-f-]\+\).*/\1/p' "$log" |
+              tail -1
+          )
+          rm -f "$log"
+          if [[ -n "$deployment_id" ]]; then
+            echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$status"
+
+      - name: Set up Java 21 and release credentials
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_TOKEN
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+
+      - name: Stage and validate Spark 4.1
+        id: stage41
+        run: |
+          set -uo pipefail
+          log=$(mktemp)
+          set +e
+          ./mvnw clean deploy -Pspark41 -B \
+            -Dgpg.skip=false \
+            -Dgpg.keyname="$GPG_KEY_ID" \
+            -Dcentral.autoPublish=false \
+            -Dcentral.waitUntil=validated \
+            -Dcentral.waitMaxTime=3600 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          deployment_id=$(
+            sed -n 's/.*deploymentId: \([0-9a-f-]\+\).*/\1/p' "$log" |
+              tail -1
+          )
+          rm -f "$log"
+          if [[ -n "$deployment_id" ]]; then
+            echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$status"
+
+      - name: Drop validated deployments after a staging failure
+        if: failure()
+        env:
+          DEPLOYMENT_35: ${{ steps.stage35.outputs.deployment_id }}
+          DEPLOYMENT_41: ${{ steps.stage41.outputs.deployment_id }}
+        run: |
+          set -euo pipefail
+          auth=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_TOKEN" | base64 -w0)
+          authorization_header=$(printf 'Authorization: %s %s' Bearer "$auth")
+          cleanup_failed=0
+          for deployment_id in "$DEPLOYMENT_35" "$DEPLOYMENT_41"; do
+            if [[ -n "$deployment_id" ]]; then
+              curl --fail --silent --show-error --retry 5 --retry-all-errors \
+                --request DELETE \
+                --header "$authorization_header" \
+                "https://central.sonatype.com/api/v1/publisher/deployment/$deployment_id" ||
+                cleanup_failed=1
+            fi
+          done
+          exit "$cleanup_failed"
+
+      - name: Publish both validated deployments
+        env:
+          DEPLOYMENT_35: ${{ steps.stage35.outputs.deployment_id }}
+          DEPLOYMENT_41: ${{ steps.stage41.outputs.deployment_id }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOYMENT_35"
+          test -n "$DEPLOYMENT_41"
+          auth=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_TOKEN" | base64 -w0)
+          authorization_header=$(printf 'Authorization: %s %s' Bearer "$auth")
+
+          publish() {
+            curl --fail --silent --show-error --retry 5 --retry-all-errors \
+              --request POST \
+              --header "$authorization_header" \
+              "https://central.sonatype.com/api/v1/publisher/deployment/$1"
+          }
+
+          publish "$DEPLOYMENT_35" &
+          pid35=$!
+          publish "$DEPLOYMENT_41" &
+          pid41=$!
+          publish_failed=0
+          wait "$pid35" || publish_failed=1
+          wait "$pid41" || publish_failed=1
+          if [[ "$publish_failed" -ne 0 ]]; then
+            echo "One or more publish requests failed; the status loop will retry validated deployments."
+          fi
+
+      - name: Wait for both Central publications
+        env:
+          DEPLOYMENT_35: ${{ steps.stage35.outputs.deployment_id }}
+          DEPLOYMENT_41: ${{ steps.stage41.outputs.deployment_id }}
+        run: |
+          set -euo pipefail
+          auth=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_TOKEN" | base64 -w0)
+          authorization_header=$(printf 'Authorization: %s %s' Bearer "$auth")
+
+          status() {
+            curl --fail --silent --show-error --retry 5 --retry-all-errors \
+              --request POST \
+              --header "$authorization_header" \
+              "https://central.sonatype.com/api/v1/publisher/status?id=$1"
+          }
+
+          publish() {
+            curl --fail --silent --show-error --retry 5 --retry-all-errors \
+              --request POST \
+              --header "$authorization_header" \
+              "https://central.sonatype.com/api/v1/publisher/deployment/$1"
+          }
+
+          for attempt in $(seq 1 360); do
+            state35=UNKNOWN
+            state41=UNKNOWN
+            state35=$(status "$DEPLOYMENT_35" | jq -r .deploymentState) || state35=UNKNOWN
+            state41=$(status "$DEPLOYMENT_41" | jq -r .deploymentState) || state41=UNKNOWN
+            if [[ "$state35" == "FAILED" || "$state41" == "FAILED" ]]; then
+              echo "Central publication failed: Spark 3.5=$state35, Spark 4.1=$state41" >&2
+              exit 1
+            fi
+            if [[ "$state35" == "PUBLISHED" && "$state41" == "PUBLISHED" ]]; then
+              exit 0
+            fi
+            if [[ "$state35" == "VALIDATED" ]]; then
+              publish "$DEPLOYMENT_35" || true
+            fi
+            if [[ "$state41" == "VALIDATED" ]]; then
+              publish "$DEPLOYMENT_41" || true
+            fi
+            sleep 10
+          done
+          echo "Central publication did not complete within 60 minutes." >&2
+          exit 1
+
+      - name: Wait for Maven Central resolution
+        run: |
+          set -euo pipefail
+          base="https://repo1.maven.org/maven2/dev/cjfravel"
+          artifacts=(ariadne-spark35_2.12 ariadne-spark41_2.13)
+
+          for attempt in $(seq 1 40); do
+            missing=0
+            for artifact in "${artifacts[@]}"; do
+              path="$artifact/$RELEASE_TAG/$artifact-$RELEASE_TAG.jar"
+              if ! curl --fail --silent --show-error --location --output /dev/null "$base/$path"; then
+                missing=1
+              fi
+            done
+            if [[ "$missing" -eq 0 ]]; then
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Published artifacts did not become resolvable within 10 minutes." >&2
+          exit 1
+
+      - name: Resolve both artifacts from clean repositories
+        run: |
+          set -euo pipefail
+          for artifact in ariadne-spark35_2.12 ariadne-spark41_2.13; do
+            ./mvnw -B \
+              -Dmaven.repo.local="$RUNNER_TEMP/$artifact" \
+              dependency:get \
+              -Dtransitive=false \
+              -Dartifact="dev.cjfravel:$artifact:$RELEASE_TAG"
+          done
+
+      - name: Write release summary
+        run: |
+          {
+            echo "## Ariadne $RELEASE_TAG"
+            echo
+            echo "Published and verified:"
+            echo
+            echo "- \`dev.cjfravel:ariadne-spark35_2.12:$RELEASE_TAG\`"
+            echo "- \`dev.cjfravel:ariadne-spark41_2.13:$RELEASE_TAG\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Final cleanup after a release failure
+        if: failure()
+        env:
+          DEPLOYMENT_35: ${{ steps.stage35.outputs.deployment_id }}
+          DEPLOYMENT_41: ${{ steps.stage41.outputs.deployment_id }}
+        run: |
+          set -euo pipefail
+          auth=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_TOKEN" | base64 -w0)
+          authorization_header=$(printf 'Authorization: %s %s' Bearer "$auth")
+          cleanup_failed=0
+
+          status() {
+            curl --fail --silent --show-error --retry 5 --retry-all-errors \
+              --request POST \
+              --header "$authorization_header" \
+              "https://central.sonatype.com/api/v1/publisher/status?id=$1"
+          }
+
+          for deployment_id in "$DEPLOYMENT_35" "$DEPLOYMENT_41"; do
+            [[ -n "$deployment_id" ]] || continue
+            state=UNKNOWN
+            state=$(status "$deployment_id" | jq -r .deploymentState) || state=UNKNOWN
+            if [[ "$state" == "VALIDATED" || "$state" == "FAILED" ]]; then
+              curl --fail --silent --show-error --retry 5 --retry-all-errors \
+                --request DELETE \
+                --header "$authorization_header" \
+                "https://central.sonatype.com/api/v1/publisher/deployment/$deployment_id" ||
+                cleanup_failed=1
+            fi
+          done
+          exit "$cleanup_failed"
