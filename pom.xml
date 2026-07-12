@@ -156,7 +156,7 @@
             <dependency>
                 <groupId>com.google.errorprone</groupId>
                 <artifactId>error_prone_annotations</artifactId>
-                <version>2.41.0</version>
+                <version>2.50.0</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -188,14 +188,14 @@
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
-            <version>2.12.1</version>
+            <version>2.14.0</version>
         </dependency>
 
         <!-- Guava for BloomFilter -->
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>33.5.0-jre</version>
+            <version>33.6.0-jre</version>
         </dependency>
         <!-- Log4J (version tracks the Spark line's log4j via the active profile so the
              log4j-api we compile against matches the log4j-core Spark provides at runtime). -->
