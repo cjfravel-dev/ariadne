@@ -27,6 +27,7 @@ for file in \
     dev/scripts/api-docs-drift-tests.sh \
     dev/scripts/build-api-docs.sh \
     dev/scripts/clean-api-docs-output.sh \
+    dev/scripts/coverage-policy-tests.sh \
     dev/scripts/dependency-policy-tests.sh \
     dev/scripts/migration-support-policy-tests.sh \
     dev/scripts/package-contents-tests.sh \

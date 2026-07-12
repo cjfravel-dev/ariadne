@@ -51,12 +51,13 @@
     <!-- One profile per supported Spark/Delta line. Each profile pins the Scala
          binary version (used throughout the artifactId and dependency coordinates),
          the Spark/Delta versions, and the Scala compiler flags for that Scala series.
-         spark35 is the default; build the others with, e.g., `mvn -Pspark41`. -->
+         spark35 auto-activates on its required Java 11 runtime; select it explicitly
+         on other JDKs. Build Spark 4.1 with `mvn -Pspark41` on Java 21. -->
     <profiles>
         <profile>
             <id>spark35</id>
             <activation>
-                <activeByDefault>true</activeByDefault>
+                <jdk>[11,12)</jdk>
             </activation>
             <properties>
                 <scala.version>2.12.17</scala.version>
@@ -104,6 +105,7 @@
                 <delta.artifactId>delta-spark_2.13</delta.artifactId>
                 <delta.version>4.1.0</delta.version>
                 <log4j.version>2.24.3</log4j.version>
+                <scoverage.skip>true</scoverage.skip>
             </properties>
             <build>
                 <plugins>
@@ -117,6 +119,32 @@
                                 <arg>-Wunused</arg>
                             </args>
                         </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>coverage-enforcement</id>
+            <activation>
+                <property>
+                    <name>env.CI</name>
+                    <value>true</value>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.scoverage</groupId>
+                        <artifactId>scoverage-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>check-coverage</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>check</goal>
+                                </goals>
+                            </execution>
+                        </executions>
                     </plugin>
                 </plugins>
             </build>
@@ -245,6 +273,7 @@
                 <configuration>
                     <scalaVersion>${scala.version}</scalaVersion>
                     <minimumCoverage>80</minimumCoverage>
+                    <minimumCoverageBranchTotal>73</minimumCoverageBranchTotal>
                     <failOnMinimumCoverage>true</failOnMinimumCoverage>
                     <highlighting>true</highlighting>
                 </configuration>
@@ -372,6 +401,19 @@
                             <executable>bash</executable>
                             <arguments>
                                 <argument>dev/scripts/dependency-policy-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>test-coverage-policy-script</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/coverage-policy-tests.sh</argument>
                             </arguments>
                         </configuration>
                     </execution>
