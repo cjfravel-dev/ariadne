@@ -26,14 +26,14 @@ ENV PATH=$SPARK_HOME/bin:$PATH
 ENV PYSPARK_PYTHON=python3
 
 # Install Delta Lake JARs
-ARG DELTA_SPARK_SHA1=ce09ca3d701f55357199bf5167b3c7daa729a07c
-ARG DELTA_STORAGE_SHA1=9d9d56fcae37f1b3d48d80f8b7eefabd3477569d
+ARG DELTA_SPARK_SHA256=088e187da689a347a6a8556dcb22318e3dfcfb995d807f5e2c19b4d0a7ee9499
+ARG DELTA_STORAGE_SHA256=4dcc179fc4076bda5060a4038f979c53e1f5916cf04971e28f9441db390763c7
 RUN wget -q https://repo1.maven.org/maven2/io/delta/delta-spark_2.12/3.2.1/delta-spark_2.12-3.2.1.jar \
       -O $SPARK_HOME/jars/delta-spark_2.12-3.2.1.jar && \
     wget -q https://repo1.maven.org/maven2/io/delta/delta-storage/3.2.1/delta-storage-3.2.1.jar \
       -O $SPARK_HOME/jars/delta-storage-3.2.1.jar && \
-    echo "$DELTA_SPARK_SHA1  $SPARK_HOME/jars/delta-spark_2.12-3.2.1.jar" | sha1sum -c - && \
-    echo "$DELTA_STORAGE_SHA1  $SPARK_HOME/jars/delta-storage-3.2.1.jar" | sha1sum -c -
+    echo "$DELTA_SPARK_SHA256  $SPARK_HOME/jars/delta-spark_2.12-3.2.1.jar" | sha256sum -c - && \
+    echo "$DELTA_STORAGE_SHA256  $SPARK_HOME/jars/delta-storage-3.2.1.jar" | sha256sum -c -
 
 # Install Jupyter + Scala kernel
 RUN pip3 install --no-cache-dir jupyter spylon-kernel && \
