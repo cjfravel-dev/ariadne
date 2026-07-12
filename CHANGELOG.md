@@ -23,6 +23,8 @@ All notable changes to this project are documented here. The format is based on
   completeness/hash fallback.
 - Intelligent batching now keeps files together when their aggregate distinct count equals `largeIndexLimit`, avoiding
   unnecessary staging writes and consolidation cycles.
+- Catalog `list`, `exists`, `get`, and `describe` now consistently expose only metadata-backed indexes, while `remove`
+  still cleans directory-only and FileList-only recovery artifacts.
 - Multi-column temporal joins now calculate every temporal rank against the original rows before filtering, preventing
   stale rows from being promoted by an earlier temporal deduplication pass.
 - Index updates now migrate legacy exploded-field column names in both main and staging tables under the update lock

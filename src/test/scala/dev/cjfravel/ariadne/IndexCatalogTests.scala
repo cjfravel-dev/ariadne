@@ -1,6 +1,7 @@
 package dev.cjfravel.ariadne
 
 import dev.cjfravel.ariadne.exceptions.IndexNotFoundException
+import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.types._
 
 /**
@@ -77,6 +78,34 @@ class IndexCatalogTests extends SparkTests {
   test("exists returns true for existing index") {
     Index("catalog_exists", schema1, "parquet")
     assert(IndexCatalog.exists("catalog_exists"))
+  }
+
+  test("partial index directory is removable but not a catalog entry") {
+    val name = "catalog_partial_directory"
+    val path = new Path(IndexPathUtils.storagePath, name)
+    path.getFileSystem(spark.sparkContext.hadoopConfiguration).mkdirs(path)
+
+    assert(!IndexCatalog.list().contains(name))
+    assert(!IndexCatalog.exists(name))
+    assertThrows[IndexNotFoundException] {
+      IndexCatalog.describe(name)
+    }
+    assert(IndexCatalog.remove(name))
+    assert(!path.getFileSystem(spark.sparkContext.hadoopConfiguration).exists(path))
+  }
+
+  test("file-list-only state is removable but not a catalog entry") {
+    val name = "catalog_partial_filelist"
+    val fileListName = IndexPathUtils.fileListName(name)
+    FileList(fileListName).addFile("/tmp/catalog-partial-file.parquet")
+
+    assert(!IndexCatalog.list().contains(name))
+    assert(!IndexCatalog.exists(name))
+    assertThrows[IndexNotFoundException] {
+      IndexCatalog.describe(name)
+    }
+    assert(IndexCatalog.remove(name))
+    assert(!FileList.exists(fileListName))
   }
 
   // --- describe ---
