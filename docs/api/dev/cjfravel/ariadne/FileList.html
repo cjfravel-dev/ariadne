@@ -386,7 +386,7 @@ external synchronization must be applied.
       <p class="shortcomment cmt">Registers new files in the file list.</p><div class="fullcomment"><div class="comment cmt"><p>Registers new files in the file list.</p><p>Files already present are silently skipped. Candidate filenames are merged into Delta so duplicate detection stays
 distributed instead of collecting the complete existing file list to the driver.
 </p></div><dl class="paramcmts block"><dt class="param">fileNames</dt><dd class="cmt"><p>
-  one or more file paths to add</p></dd></dl><dl class="attributes block"> <dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="IllegalArgumentException"><code>IllegalArgumentException</code></span> 
+  zero or more file paths to add; an empty sequence is a no-op</p></dd></dl><dl class="attributes block"> <dt>Exceptions thrown</dt><dd><span class="cmt"><p><span class="extype" name="IllegalArgumentException"><code>IllegalArgumentException</code></span> 
   if fileNames is null or any individual file name is null or blank</p></span></dd></dl></div>
     </li><li name="scala.Any#asInstanceOf" visbl="pub" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="asInstanceOf[T0]:T0"></a>

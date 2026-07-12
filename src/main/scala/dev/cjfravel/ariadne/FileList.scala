@@ -135,7 +135,7 @@ case class FileList private (name: String)(implicit val spark: SparkSession) ext
    * distributed instead of collecting the complete existing file list to the driver.
    *
    * @param fileNames
-   *   one or more file paths to add
+   *   zero or more file paths to add; an empty sequence is a no-op
    * @throws IllegalArgumentException
    *   if fileNames is null or any individual file name is null or blank
    */
