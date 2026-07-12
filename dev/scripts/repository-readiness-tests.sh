@@ -27,7 +27,10 @@ for file in \
     dev/scripts/api-docs-drift-tests.sh \
     dev/scripts/build-api-docs.sh \
     dev/scripts/clean-api-docs-output.sh \
+    dev/scripts/migration-support-policy-tests.sh \
     dev/scripts/package-contents-tests.sh \
+    docs/contributors/architecture.html \
+    docs/users/troubleshooting.html \
     .github/ISSUE_TEMPLATE/bug.yml \
     .github/ISSUE_TEMPLATE/feature.yml \
     .github/ISSUE_TEMPLATE/config.yml \
@@ -50,6 +53,10 @@ assert_contains dev/scripts/api-docs-drift-tests.sh 'target/site/scaladocs'
 assert_contains dev/scripts/build-api-docs.sh 'clean-api-docs-output.sh'
 assert_contains dev/scripts/build-api-docs.sh '-Pspark35'
 assert_contains pom.xml 'clean-api-docs-output'
+assert_contains pom.xml 'migration-support-policy-tests.sh'
+assert_contains docs/contributors/architecture.html '0.0.1-alpha-37'
+assert_contains docs/users/troubleshooting.html 'UnsupportedStorageFormatVersionException'
+assert_contains docs/users/troubleshooting.html 'storage_format_version'
 assert_contains dev/scripts/package-contents-tests.sh 'dev/cjfravel/ariadne/shaded'
 assert_contains dev/scripts/package-contents-tests.sh 'com/fasterxml/jackson'
 assert_contains README.md 'ariadne-spark35_2.12'
