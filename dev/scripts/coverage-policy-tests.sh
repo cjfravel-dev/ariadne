@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCOVERAGE_PLUGIN=$(sed -n '/<artifactId>scoverage-maven-plugin<\/artifactId>/,/<\/plugin>/p' pom.xml)
 SPARK35_PROFILE=$(sed -n '/<id>spark35<\/id>/,/<\/profile>/p' pom.xml)
+COVERAGE_EXECUTION=$(sed -n '/<id>check-coverage<\/id>/,/<\/execution>/p' <<<"$SPARK35_PROFILE")
 
 require_setting() {
     local expected="$1"
@@ -17,13 +18,14 @@ require_setting '<minimumCoverage>80</minimumCoverage>'
 require_setting '<minimumCoverageBranchTotal>73</minimumCoverageBranchTotal>'
 require_setting '<failOnMinimumCoverage>true</failOnMinimumCoverage>'
 
-for expected in \
-    '<artifactId>scoverage-maven-plugin</artifactId>' \
-    '<id>check-coverage</id>' \
-    '<phase>verify</phase>' \
-    '<goal>check</goal>'; do
-    if ! grep -Fq -- "$expected" <<<"$SPARK35_PROFILE"; then
-        echo "Spark 3.5 profile is missing coverage enforcement: $expected"
+if ! grep -Fq '<artifactId>scoverage-maven-plugin</artifactId>' <<<"$SPARK35_PROFILE"; then
+    echo "Spark 3.5 profile is missing the Scoverage plugin"
+    exit 1
+fi
+
+for expected in '<id>check-coverage</id>' '<phase>verify</phase>' '<goal>check</goal>'; do
+    if ! grep -Fq -- "$expected" <<<"$COVERAGE_EXECUTION"; then
+        echo "Spark 3.5 check-coverage execution is missing coverage enforcement: $expected"
         exit 1
     fi
 done
