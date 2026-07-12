@@ -61,7 +61,8 @@ assert_contains .github/workflows/publish.yml "publish_failed=0"
 assert_contains .github/workflows/publish.yml 'if [[ "$state35" == "VALIDATED" ]]'
 assert_contains .github/workflows/publish.yml 'if [[ "$state41" == "VALIDATED" ]]'
 assert_contains .github/workflows/publish.yml "publisher/deployment/"
-assert_contains .github/workflows/publish.yml '--header "Authorization: ******"'
+assert_contains .github/workflows/publish.yml "authorization_header="
+assert_contains .github/workflows/publish.yml '--header "$authorization_header"'
 assert_contains .github/workflows/publish.yml "ariadne-spark35_2.12"
 assert_contains .github/workflows/publish.yml "ariadne-spark41_2.13"
 assert_not_contains .github/workflows/publish.yml "gpg-passphrase:"

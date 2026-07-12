@@ -140,12 +140,13 @@ jobs:
         run: |
           set -euo pipefail
           auth=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_TOKEN" | base64 -w0)
+          authorization_header=$(printf 'Authorization: %s %s' Bearer "$auth")
           cleanup_failed=0
           for deployment_id in "$DEPLOYMENT_35" "$DEPLOYMENT_41"; do
             if [[ -n "$deployment_id" ]]; then
               curl --fail --silent --show-error --retry 5 --retry-all-errors \
                 --request DELETE \
-                --header "Authorization: Bearer $auth" \
+                --header "$authorization_header" \
                 "https://central.sonatype.com/api/v1/publisher/deployment/$deployment_id" ||
                 cleanup_failed=1
             fi
@@ -161,11 +162,12 @@ jobs:
           test -n "$DEPLOYMENT_35"
           test -n "$DEPLOYMENT_41"
           auth=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_TOKEN" | base64 -w0)
+          authorization_header=$(printf 'Authorization: %s %s' Bearer "$auth")
 
           publish() {
             curl --fail --silent --show-error --retry 5 --retry-all-errors \
               --request POST \
-              --header "Authorization: Bearer $auth" \
+              --header "$authorization_header" \
               "https://central.sonatype.com/api/v1/publisher/deployment/$1"
           }
 
@@ -187,18 +189,19 @@ jobs:
         run: |
           set -euo pipefail
           auth=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_TOKEN" | base64 -w0)
+          authorization_header=$(printf 'Authorization: %s %s' Bearer "$auth")
 
           status() {
             curl --fail --silent --show-error --retry 5 --retry-all-errors \
               --request POST \
-              --header "Authorization: Bearer $auth" \
+              --header "$authorization_header" \
               "https://central.sonatype.com/api/v1/publisher/status?id=$1"
           }
 
           publish() {
             curl --fail --silent --show-error --retry 5 --retry-all-errors \
               --request POST \
-              --header "Authorization: ******" \
+              --header "$authorization_header" \
               "https://central.sonatype.com/api/v1/publisher/deployment/$1"
           }
 
