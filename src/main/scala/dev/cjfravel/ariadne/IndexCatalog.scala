@@ -128,8 +128,8 @@ object IndexCatalog {
   /**
    * Checks whether an index with the given name exists.
    *
-   * An index is considered to exist if its `metadata.json` file is present in the indexes storage directory, or if its
-   * file list entry exists.
+   * An index is considered a valid catalog entry only when its `metadata.json` file is present. Partial storage
+   * directories and orphaned FileLists remain removable recovery artifacts but are not exposed through catalog APIs.
    *
    * @example
    *   {{{if (IndexCatalog.exists("orders")) println("Index found")}}}
@@ -152,7 +152,7 @@ object IndexCatalog {
       }
     val metadataPath =
       new Path(new Path(IndexPathUtils.storagePath, name), "metadata.json")
-    contextUser.fs.exists(metadataPath) || IndexPathUtils.exists(name)
+    contextUser.fs.exists(metadataPath)
   }
 
   /**
@@ -382,7 +382,7 @@ object IndexCatalog {
    */
   def remove(name: String)(implicit spark: SparkSession): Boolean = {
     require(name != null && name.trim.nonEmpty, "name must not be null or blank")
-    if (!exists(name)) {
+    if (!IndexPathUtils.exists(name)) {
       throw new IndexNotFoundException(name)
     }
     val sparkSession = spark

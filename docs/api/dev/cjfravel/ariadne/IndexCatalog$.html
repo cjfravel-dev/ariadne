@@ -514,8 +514,8 @@ summaries.foreach(s <span class="kw">=&gt;</span> println(s.name))</pre></li></o
         <span class="name">exists</span><span class="params">(<span name="name">name: <span class="extype" name="scala.Predef.String">String</span></span>)</span><span class="params">(<span class="implicit">implicit </span><span name="spark">spark: <span class="extype" name="org.apache.spark.sql.SparkSession">SparkSession</span></span>)</span><span class="result">: <span class="extype" name="scala.Boolean">Boolean</span></span>
       </span>
 
-      <p class="shortcomment cmt">Checks whether an index with the given name exists.</p><div class="fullcomment"><div class="comment cmt"><p>Checks whether an index with the given name exists.</p><p>An index is considered to exist if its <code>metadata.json</code> file is present in the indexes storage directory, or if its
-file list entry exists.
+      <p class="shortcomment cmt">Checks whether an index with the given name exists.</p><div class="fullcomment"><div class="comment cmt"><p>Checks whether an index with the given name exists.</p><p>An index is considered a valid catalog entry only when its <code>metadata.json</code> file is present. Partial storage
+directories and orphaned FileLists remain removable recovery artifacts but are not exposed through catalog APIs.
 </p></div><dl class="paramcmts block"><dt class="param">name</dt><dd class="cmt"><p>
   the index name to check</p></dd><dt class="param">spark</dt><dd class="cmt"><p>
   implicit SparkSession</p></dd><dt>returns</dt><dd class="cmt"><p>
