@@ -537,7 +537,7 @@ class StorageMigrationTests extends SparkTests with Matchers {
     readMetadataJson(indexName).get("storage_format_version") shouldBe null
   }
 
-  test("malformed source paths fail file-size migration with a controlled error") {
+  test("unexpected file status failures produce a controlled migration error") {
     val schema = StructType(Seq(StructField("Id", IntegerType, nullable = false)))
     val indexName = "malformed_file_size_source"
     Index(indexName, schema, "parquet")

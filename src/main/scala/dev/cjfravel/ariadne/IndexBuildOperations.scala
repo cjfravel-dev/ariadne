@@ -310,8 +310,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
             .as[String]
             .mapPartitions { filenames =>
               filenames.map { filename =>
-                val path = new Path(filename)
                 try {
+                  val path = new Path(filename)
                   val length = path.getFileSystem(serializableConfiguration.value).getFileStatus(path).getLen
                   (filename, java.lang.Long.valueOf(length), null: String)
                 } catch {

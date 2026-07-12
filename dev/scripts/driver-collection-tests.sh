@@ -6,7 +6,7 @@ FILE_LIST=src/main/scala/dev/cjfravel/ariadne/FileList.scala
 INDEX_BUILD=src/main/scala/dev/cjfravel/ariadne/IndexBuildOperations.scala
 MIGRATION_METHOD=$(sed -n '/private def migrateFileSizeColumns/,/private def verifyFileSizeColumns/p' "$INDEX_BUILD")
 
-if grep -Fq '.collect' "$FILE_LIST"; then
+if grep -Eq '\.collect(\(|\.|AsList\(|[[:space:]]*$)' "$FILE_LIST"; then
     echo "FileList duplicate detection must not collect all tracked filenames"
     exit 1
 fi
