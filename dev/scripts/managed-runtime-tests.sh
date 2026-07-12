@@ -10,6 +10,10 @@ profile_xml() {
 require_text() {
     local file="$1"
     local expected="$2"
+    if [[ ! -f "$file" ]]; then
+        echo "Managed-runtime contract file is missing: $file"
+        exit 1
+    fi
     if ! grep -Fq -- "$expected" "$file"; then
         echo "$file is not aligned with managed runtimes: $expected"
         exit 1
@@ -53,9 +57,15 @@ require_text .github/workflows/publish.yml 'Set up Java 21 and release credentia
 require_text .github/workflows/publish.yml 'java-version: "21"'
 require_text examples/Dockerfile 'eclipse-temurin:11-jdk-jammy'
 require_text README.md 'Scala 2.12, Java 11'
+require_text README.md 'Scala 2.13, Java 21'
+require_text README.md 'ariadne-spark41_2.13'
 require_text docs/users/getting-started.html 'Scala 2.12, Java 11'
+require_text docs/users/getting-started.html 'Scala 2.13, Java 21'
+require_text docs/users/getting-started.html 'ariadne-spark41_2.13'
 require_text docs/contributors/index.html 'Java 11'
+require_text docs/contributors/index.html 'Java 21'
 require_text .github/copilot-instructions.md 'Java 11 is required'
+require_text .github/copilot-instructions.md 'ariadne-spark41_2.13'
 require_text .github/ISSUE_TEMPLATE/bug.yml 'Scala 2.12.17, Java 11'
 
 for dependency in \

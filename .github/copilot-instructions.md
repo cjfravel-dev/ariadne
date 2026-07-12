@@ -103,7 +103,11 @@ Guava and Gson are shaded under `dev.cjfravel.ariadne.shaded.*` to avoid version
 
 ### Spark Version
 
-Ariadne targets Spark 3.5 / Delta Lake 3.2. The artifact ID is `ariadne-spark35_2.12`.
+Ariadne targets two managed runtime lines:
+- Azure Synapse: Spark 3.5 / Delta Lake 3.2 / Scala 2.12.17 / Java 11, published as `ariadne-spark35_2.12`.
+- Fabric Runtime 2.0: Spark 4.1 / Delta Lake 4.1 / Scala 2.13.17 / Java 21, published as `ariadne-spark41_2.13`.
+
+Do not upgrade Spark, Delta, Scala, Log4j, or Jackson independently of those managed runtimes.
 
 ### Tests
 
