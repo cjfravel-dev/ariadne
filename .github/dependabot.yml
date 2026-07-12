@@ -27,10 +27,7 @@ updates:
           - "org.codehaus.mojo:*"
     ignore:
       - dependency-name: "org.apache.spark:*"
-        update-types:
-          - "version-update:semver-major"
       - dependency-name: "io.delta:*"
-        update-types:
-          - "version-update:semver-major"
       - dependency-name: "org.scala-lang:*"
+      - dependency-name: "org.apache.logging.log4j:*"
       - dependency-name: "com.fasterxml.jackson.*:*"

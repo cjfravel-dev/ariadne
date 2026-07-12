@@ -103,7 +103,11 @@ Guava and Gson are shaded under `dev.cjfravel.ariadne.shaded.*` to avoid version
 
 ### Spark Version
 
-Ariadne targets Spark 3.5 / Delta Lake 3.2. The artifact ID is `ariadne-spark35_2.12`.
+Ariadne targets two managed runtime lines:
+- Azure Synapse: Spark 3.5 / Delta Lake 3.2 / Scala 2.12.17 / Java 11, published as `ariadne-spark35_2.12`.
+- Fabric Runtime 2.0: Spark 4.1 / Delta Lake 4.1 / Scala 2.13.17 / Java 21, published as `ariadne-spark41_2.13`.
+
+Do not upgrade Spark, Delta, Scala, Log4j, or Jackson independently of those managed runtimes.
 
 ### Tests
 
@@ -111,7 +115,7 @@ All Spark tests mix in `SparkTests`, which creates a local `SparkSession` with a
 
 ### Java Version
 
-Java 11 is required (`JAVA_HOME=/usr/lib/jvm/java-11-openjdk`). Do not use Java features beyond Java 11. The Scala version (2.12.17) and Spark version (3.5) are tied to Azure Synapse dependencies and must not be changed.
+Java 11 is required for the Spark 3.5 line; Java 21 is required for Spark 4.1. Scala 2.12.17 / Spark 3.5 / Delta 3.2 align with the deployed Azure Synapse runtime, while Scala 2.13.17 / Spark 4.1 / Delta 4.1 align with Fabric Runtime 2.0. Do not upgrade these runtime families independently.
 
 ### Scaladoc Requirements
 

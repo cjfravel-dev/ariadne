@@ -46,6 +46,9 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- Runtime profiles now match their managed platforms: the deployed Synapse runtime uses Spark 3.5.5, Delta 3.2.1,
+  Scala 2.12.17, and Java 11; Fabric Runtime 2.0 uses Spark 4.1.1, Delta 4.1.0, Scala 2.13.17, and Java 21. Runtime-owned dependency
+  families are excluded from independent Dependabot upgrades.
 - FileList duplicate detection now uses a distributed Delta merge, and legacy `file_size` migration processes bounded
   batches instead of materializing every tracked filename in driver memory.
 - The examples image pins both base images by digest and verifies Spark SHA-512 plus Delta JAR SHA-256 checksums before

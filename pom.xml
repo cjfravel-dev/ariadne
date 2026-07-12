@@ -97,10 +97,10 @@
         <profile>
             <id>spark41</id>
             <properties>
-                <scala.version>2.13.16</scala.version>
+                <scala.version>2.13.17</scala.version>
                 <scala.binary.version>2.13</scala.binary.version>
                 <spark.suffix>41</spark.suffix>
-                <spark.version>4.1.0</spark.version>
+                <spark.version>4.1.1</spark.version>
                 <spark.compat>spark4</spark.compat>
                 <delta.artifactId>delta-spark_2.13</delta.artifactId>
                 <delta.version>4.1.0</delta.version>
@@ -414,6 +414,19 @@
                             <executable>bash</executable>
                             <arguments>
                                 <argument>dev/scripts/coverage-policy-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>test-managed-runtime-script</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/managed-runtime-tests.sh</argument>
                             </arguments>
                         </configuration>
                     </execution>
