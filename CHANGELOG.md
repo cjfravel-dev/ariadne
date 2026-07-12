@@ -40,6 +40,8 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- FileList duplicate detection now uses a distributed Delta merge, and legacy `file_size` migration processes bounded
+  batches instead of materializing every tracked filename in driver memory.
 - The examples image pins both base images by digest and verifies Spark SHA-512 plus Delta JAR SHA-256 checksums before
   extraction or use.
 - Release version checks now cover the changelog and include a shell regression test in the Maven test phase.

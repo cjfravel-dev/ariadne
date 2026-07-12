@@ -96,49 +96,48 @@ case class FileList private (name: String)(implicit val spark: SparkSession) ext
     require(fileNames != null, "fileNames must not be null")
     fileNames.foreach(fn => require(fn != null && fn.trim.nonEmpty, "Each fileName must be non-null and non-blank"))
     logger.warn(s"addFile called on FileList '$name' with ${fileNames.size} file(s)")
-    import spark.implicits._
-    val existing = files.select("filename").as[String].collect().toSet
-    val toAdd = fileNames.toSet.diff(existing)
-    if (toAdd.isEmpty) {
-      logger.warn("All files were already added")
+    if (fileNames.isEmpty) {
+      logger.warn("No files were provided")
     } else {
       val ts = Timestamp.from(Instant.now())
-      val newFilesData = toAdd.toList.map(filename => Row(filename, ts))
-      val newFiles =
+      val candidatesData = fileNames.distinct.map(filename => Row(filename, ts))
+      val candidates =
         spark.createDataFrame(
-          spark.sparkContext.parallelize(newFilesData),
+          spark.sparkContext.parallelize(candidatesData),
           StructType(
             Seq(
               StructField("filename", StringType, nullable = false),
               StructField("addedAt", TimestampType, nullable = false))))
 
-      val originalFiles = _files
-      _files = _files.union(newFiles)
-      try {
-        write
-      } catch {
-        case e: Exception =>
-          logger.warn(s"Failed to write FileList '$name', rolling back in-memory state: ${e.getMessage}")
-          _files = originalFiles
-          throw e
+      delta(storagePath) match {
+        case Some(table) =>
+          table
+            .as("target")
+            .merge(candidates.as("source"), "target.filename = source.filename")
+            .whenNotMatched()
+            .insertAll()
+            .execute()
+        case None =>
+          candidates.write
+            .format("delta")
+            .mode("overwrite")
+            .save(storagePath.toString)
       }
-      logger.warn(s"Added ${toAdd.size} files to FileList $name")
+      _files = null
+      logger.warn(s"Merged ${candidatesData.size} file candidate(s) into FileList $name")
     }
   }
 
   /**
    * Registers new files in the file list.
    *
-   * Files already present are silently skipped. The additions are written to the Delta table immediately; if the write
-   * fails, the in-memory cache is rolled back to its previous state.
+   * Files already present are silently skipped. Candidate filenames are merged into Delta so duplicate detection stays
+   * distributed instead of collecting the complete existing file list to the driver.
    *
    * @param fileNames
    *   one or more file paths to add
    * @throws IllegalArgumentException
    *   if fileNames is null or any individual file name is null or blank
-   * @note
-   *   Collects all existing filenames to the driver for duplicate detection. May cause driver OOM for indexes tracking
-   *   millions of files.
    */
   def addFile(fileNames: String*): Unit = addFile(spark, fileNames: _*)
 
@@ -185,33 +184,6 @@ case class FileList private (name: String)(implicit val spark: SparkSession) ext
   def hasFile(fileName: String): Boolean = {
     require(fileName != null && fileName.trim.nonEmpty, "fileName must not be null or blank")
     !files.filter(col("filename") === fileName).isEmpty
-  }
-
-  /**
-   * Persists the current in-memory file list to the Delta table.
-   *
-   * Uses a merge (upsert) if the table already exists, or a full overwrite for first-time creation. Invalidates the
-   * in-memory cache after writing.
-   */
-  private def write: Unit = {
-    delta(storagePath) match {
-      case Some(delta) =>
-        delta
-          .as("target")
-          .merge(files.as("source"), "target.filename = source.filename")
-          .whenMatched()
-          .updateExpr(Map("addedAt" -> "target.addedAt"))
-          .whenNotMatched()
-          .insertAll()
-          .execute()
-      case None =>
-        files.write
-          .format("delta")
-          .mode("overwrite")
-          .save(storagePath.toString)
-    }
-    _files = null
-    logger.warn(s"Wrote out FileList $name")
   }
 
 }
