@@ -41,6 +41,11 @@
         <scalastyle.plugin.version>1.0.0</scalastyle.plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <project.build.outputTimestamp>2026-07-12T00:00:00Z</project.build.outputTimestamp>
+        <!-- Official GitHub releases override these safe local defaults. -->
+        <central.autoPublish>false</central.autoPublish>
+        <central.waitUntil>validated</central.waitUntil>
+        <central.waitMaxTime>1800</central.waitMaxTime>
     </properties>
 
     <!-- One profile per supported Spark/Delta line. Each profile pins the Scala
@@ -277,6 +282,19 @@
                         </configuration>
                     </execution>
                     <execution>
+                        <id>test-release-pipeline-script</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/release-pipeline-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>test-example-dockerfile-script</id>
                         <phase>test</phase>
                         <goals>
@@ -506,11 +524,14 @@
             <plugin>
                 <groupId>org.sonatype.central</groupId>
                 <artifactId>central-publishing-maven-plugin</artifactId>
-                <version>0.7.0</version>
+                <version>0.11.0</version>
                 <extensions>true</extensions>
                 <configuration>
                     <publishingServerId>central</publishingServerId>
-                    <autoPublish>true</autoPublish>
+                    <deploymentName>${project.artifactId}-${project.version}</deploymentName>
+                    <autoPublish>${central.autoPublish}</autoPublish>
+                    <waitUntil>${central.waitUntil}</waitUntil>
+                    <waitMaxTime>${central.waitMaxTime}</waitMaxTime>
                 </configuration>
             </plugin>
 

@@ -29,6 +29,7 @@ for file in \
     dev/scripts/clean-api-docs-output.sh \
     dev/scripts/migration-support-policy-tests.sh \
     dev/scripts/package-contents-tests.sh \
+    dev/scripts/release-pipeline-tests.sh \
     docs/contributors/architecture.html \
     docs/users/troubleshooting.html \
     .github/ISSUE_TEMPLATE/bug.yml \
