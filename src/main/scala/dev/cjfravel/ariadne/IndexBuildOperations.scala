@@ -10,10 +10,10 @@ import scala.util.control.NonFatal
 import dev.cjfravel.ariadne.exceptions._
 import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.Path
-import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.LongType
+import org.apache.spark.sql.types.{LongType, StructField}
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.util.SerializableConfiguration
 
@@ -292,8 +292,19 @@ trait IndexBuildOperations extends BloomFilterOperations {
       migrationDelta(path, tableName).foreach { table =>
         if (!table.toDF.columns.contains("file_size")) {
           logger.warn(s"Adding file_size to $tableName for index '$name'")
-          val escapedPath = path.toString.replace("`", "``")
-          spark.sql(s"ALTER TABLE delta.`$escapedPath` ADD COLUMNS (file_size BIGINT)")
+          checkHeartbeat()
+          // Evolve the schema by appending an empty, schema-widened DataFrame with mergeSchema enabled. This resolves
+          // through Delta's path-based DataSource writer rather than the analyzer's ResolveRelations rule, so it never
+          // forces HiveExternalCatalog initialization (which fails with "null path" on Synapse). Works identically on
+          // Delta 3.2 (Spark 3.5) and Delta 4.1 (Spark 4.1). Zero rows are written; only the table schema evolves.
+          val evolvedSchema = table.toDF.schema.add(StructField("file_size", LongType, nullable = true))
+          val emptyWithFileSize = spark.createDataFrame(spark.sparkContext.emptyRDD[Row], evolvedSchema)
+          emptyWithFileSize.write
+            .format("delta")
+            .mode("append")
+            .option("mergeSchema", "true")
+            .save(path.toString)
+          checkHeartbeat()
         }
       }
 

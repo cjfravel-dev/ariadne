@@ -6,8 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.6-beta]
+
 ### Fixed
 
+- The `file_size` storage migration now evolves the Delta schema with a metastore-free `mergeSchema` append instead of a
+  path-based `ALTER TABLE ADD COLUMNS`. The SQL DDL forced Hive metastore initialization on Azure Synapse, which failed
+  with `IllegalArgumentException: null path` and aborted `update`. The new path works identically on Delta 3.2 / Spark 3.5
+  and Delta 4.1 / Spark 4.1.
 - Maven Central post-publication smoke checks now resolve artifacts from a neutral directory instead of parsing
   Ariadne's profile-interpolated source POM.
 
