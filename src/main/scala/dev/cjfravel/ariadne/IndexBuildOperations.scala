@@ -10,10 +10,10 @@ import scala.util.control.NonFatal
 import dev.cjfravel.ariadne.exceptions._
 import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.Path
-import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{LongType, StructField}
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.util.SerializableConfiguration
 
