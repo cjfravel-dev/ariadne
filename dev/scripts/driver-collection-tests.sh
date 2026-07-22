@@ -26,7 +26,7 @@ if ! grep -Fq 'checkHeartbeat()' <<<"$MIGRATION_METHOD"; then
     exit 1
 fi
 
-if grep -Eq 'spark\.sql\(.*ALTER TABLE' <<<"$MIGRATION_METHOD"; then
+if grep -Fq 'spark.sql' <<<"$MIGRATION_METHOD" && grep -Fq 'ALTER TABLE' <<<"$MIGRATION_METHOD"; then
     echo "file_size migration must not add columns via spark.sql ALTER TABLE (forces Hive metastore init on Synapse)"
     exit 1
 fi

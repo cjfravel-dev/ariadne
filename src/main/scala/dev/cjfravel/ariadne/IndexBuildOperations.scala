@@ -292,6 +292,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
       migrationDelta(path, tableName).foreach { table =>
         if (!table.toDF.columns.contains("file_size")) {
           logger.warn(s"Adding file_size to $tableName for index '$name'")
+          checkHeartbeat()
           // Evolve the schema by appending an empty, schema-widened DataFrame with mergeSchema enabled. This resolves
           // through Delta's path-based DataSource writer rather than the analyzer's ResolveRelations rule, so it never
           // forces HiveExternalCatalog initialization (which fails with "null path" on Synapse). Works identically on
@@ -303,6 +304,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
             .mode("append")
             .option("mergeSchema", "true")
             .save(path.toString)
+          checkHeartbeat()
         }
       }
 
