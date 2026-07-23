@@ -108,7 +108,6 @@ jobs:
           server-id: central
           server-username: CENTRAL_USERNAME
           server-password: CENTRAL_TOKEN
-          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
 
       - name: Stage and validate Spark 4.1
         id: stage41

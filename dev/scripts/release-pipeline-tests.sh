@@ -75,6 +75,15 @@ assert_contains .github/workflows/publish.yml '"$GITHUB_WORKSPACE/mvnw"'
 assert_not_contains .github/workflows/publish.yml "gpg-passphrase:"
 assert_not_contains .github/workflows/publish.yml "gpg.pinentryMode"
 
+# The GPG key is imported into the runner keyring once and persists across the job. Importing it in more than one
+# setup-java step registers duplicate post-job cleanups that race to delete the key, failing the run with gpg exit 2
+# even though the release itself succeeds. Keep exactly one gpg-private-key import.
+gpg_import_count=$(grep -c "gpg-private-key:" .github/workflows/publish.yml)
+if [[ "$gpg_import_count" -ne 1 ]]; then
+    echo ".github/workflows/publish.yml must import gpg-private-key exactly once (found $gpg_import_count)"
+    exit 1
+fi
+
 assert_contains pom.xml "<central.autoPublish>false</central.autoPublish>"
 assert_contains pom.xml "<central.waitUntil>validated</central.waitUntil>"
 assert_contains pom.xml "<project.build.outputTimestamp>"
