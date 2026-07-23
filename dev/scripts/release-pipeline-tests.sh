@@ -78,7 +78,7 @@ assert_not_contains .github/workflows/publish.yml "gpg.pinentryMode"
 # The GPG key is imported into the runner keyring once and persists across the job. Importing it in more than one
 # setup-java step registers duplicate post-job cleanups that race to delete the key, failing the run with gpg exit 2
 # even though the release itself succeeds. Keep exactly one gpg-private-key import.
-gpg_import_count=$(grep -c "gpg-private-key:" .github/workflows/publish.yml)
+gpg_import_count=$(grep -c "gpg-private-key:" .github/workflows/publish.yml || true)
 if [[ "$gpg_import_count" -ne 1 ]]; then
     echo ".github/workflows/publish.yml must import gpg-private-key exactly once (found $gpg_import_count)"
     exit 1
