@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- The Maven Central publish workflow now imports the GPG signing key in a single `setup-java` step. Importing it in both
+  the Java 11 and Java 21 steps registered duplicate post-job cleanups that raced to delete the key, marking otherwise
+  successful releases as failed (`gpg` exit 2). Release artifacts were unaffected.
+
 ## [0.1.6-beta]
 
 ### Fixed
