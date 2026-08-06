@@ -16,10 +16,38 @@
 
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 
 OUTPUT_DIR=${1:-target/site/pages}
 VERSION_TOKEN='__ARIADNE_VERSION__'
+
+# The assembly step deletes OUTPUT_DIR outright, so refuse anything that is not
+# a disposable path inside the repository. Without this, a stray argument like
+# `docs`, `.` or `/` would destroy the checkout: `docs` in particular is a
+# plausible typo that would delete the hand-written pages this script consumes.
+if [[ -z "${OUTPUT_DIR//[[:space:]]/}" ]]; then
+    echo "ERROR: output directory must not be empty" >&2
+    exit 1
+fi
+
+mkdir -p "$(dirname "$OUTPUT_DIR")"
+ABS_OUTPUT="$(cd "$(dirname "$OUTPUT_DIR")" && pwd)/$(basename "$OUTPUT_DIR")"
+
+if [[ "$ABS_OUTPUT" == "$REPO_ROOT" ]]; then
+    echo "ERROR: refusing to use the repository root as the output directory" >&2
+    exit 1
+fi
+
+if [[ "$ABS_OUTPUT" != "$REPO_ROOT"/* ]]; then
+    echo "ERROR: output directory must be inside the repository: $ABS_OUTPUT" >&2
+    exit 1
+fi
+
+if [[ -n "$(git ls-files -- "${ABS_OUTPUT#"$REPO_ROOT"/}")" ]]; then
+    echo "ERROR: refusing to delete '$OUTPUT_DIR'; it contains tracked files" >&2
+    exit 1
+fi
 
 echo "==> Resolving project version..."
 VERSION=$(./mvnw -q help:evaluate -Dexpression=project.version -DforceStdout)
