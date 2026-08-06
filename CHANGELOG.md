@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- Index type mutual exclusivity is now enforced symmetrically. `addIndex` did not check computed or exploded field
+  indexes, and `addBloomIndex`, `addTemporalIndex` and `addRangeIndex` did not check exploded field indexes, so whether
+  a conflict was rejected depended on registration order: `addExplodedFieldIndex("items", "id", "x")` followed by
+  `addTemporalIndex("x", ...)` was silently accepted, while the reverse order threw. A column carrying two index types
+  produces a wrong result set at query time rather than an error, because deduplication partitions by a column the
+  exploded projection also writes. All six `add*Index` methods now share one exclusivity check covering every type.
+
+### Fixed
+
 - Temporal indexes now support nested timestamp columns such as `meta.updatedAt`. `addTemporalIndex` accepted them,
   because dotted paths resolve against the schema, but `update` then aborted with Spark's `UNRESOLVED_COLUMN` analysis
   error: selecting a nested path flattens it to its leaf name, so aggregating by the original dotted path could not

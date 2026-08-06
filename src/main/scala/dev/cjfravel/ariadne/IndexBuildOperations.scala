@@ -114,6 +114,54 @@ trait IndexBuildOperations extends BloomFilterOperations {
     Iterator.iterate(base)(_ + "_").find(candidate => !taken.contains(candidate)).getOrElse(base)
 
   /**
+   * Returns the index type already registered for a column, if any.
+   *
+   * @param column
+   *   the column name to look up
+   * @return
+   *   the label of the registered index type, or `None` if the column is not indexed
+   */
+  private def registeredIndexTypeFor(column: String): Option[String] =
+    if (metadata.indexes.contains(column)) Some("regular")
+    else if (metadata.computed_indexes.containsKey(column)) Some("computed")
+    else if (metadata.exploded_field_indexes.asScala.exists(_.as_column == column)) Some("exploded field")
+    else if (metadata.bloom_indexes.asScala.exists(_.column == column)) Some("bloom")
+    else if (metadata.temporal_indexes.asScala.exists(_.column == column)) Some("temporal")
+    else if (metadata.range_indexes.asScala.exists(_.column == column)) Some("range")
+    else None
+
+  /**
+   * Enforces that a column carries at most one index type.
+   *
+   * Each `add*Index` method previously enforced this with its own list of checks, which made the rule depend on
+   * registration order wherever an entry was missing: one order threw and the reverse silently accepted a column
+   * carrying two index types, which yields wrong results at query time rather than an error.
+   *
+   * Checking every type in one place keeps the matrix symmetric by construction, so a new index type cannot reintroduce
+   * a one-directional gap.
+   *
+   * Callers must invoke this only after confirming the column is not already registered as `newType`, so that re-adding
+   * the same index type remains idempotent.
+   *
+   * @param column
+   *   the column being indexed
+   * @param newType
+   *   the label of the index type being added, used in the error message
+   * @throws IllegalArgumentException
+   *   if the column already carries a different index type
+   */
+  protected def requireColumnNotAlreadyIndexed(column: String, newType: String): Unit =
+    registeredIndexTypeFor(column).filter(_ != newType).foreach { existing =>
+      throw new IllegalArgumentException(
+        s"Column '$column' is already ${indefiniteArticle(existing)} $existing index. " +
+          s"A column cannot be both ${indefiniteArticle(newType)} $newType index " +
+          s"and ${indefiniteArticle(existing)} $existing index.")
+    }
+
+  /** Returns the English indefinite article for an index type label. */
+  private def indefiniteArticle(label: String): String = if (label.startsWith("e")) "an" else "a"
+
+  /**
    * Computes file sizes in bytes for the given files using the Hadoop FileSystem.
    *
    * Files that cannot be found or read are silently skipped with a warning log.
