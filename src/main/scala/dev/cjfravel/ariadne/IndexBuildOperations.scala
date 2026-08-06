@@ -92,9 +92,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
   protected def requireTopLevelIndexColumn(column: String, indexType: String): Unit =
     require(
       !column.contains("."),
-      s"Nested column '$column' cannot be used as a $indexType column. Index columns are stored under their own name, " +
-        "so only top-level columns are supported. Project the nested field to a top-level column before indexing, " +
-        "or use a computed index.")
+      s"Nested column '$column' cannot be used as a $indexType column. Index columns are stored " +
+        "under their own name, so only top-level columns are supported. Project the nested field " +
+        "to a top-level column before indexing, or use a computed index.")
 
   /**
    * Computes file sizes in bytes for the given files using the Hadoop FileSystem.
