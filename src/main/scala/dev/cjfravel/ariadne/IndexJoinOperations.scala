@@ -145,8 +145,12 @@ trait IndexJoinOperations extends IndexBuildOperations {
 
     if (files.isEmpty) {
       logger.warn(s"No matching files found in index '$name', returning empty DataFrame")
-      import org.apache.spark.sql.Row
-      spark.createDataFrame(spark.sparkContext.emptyRDD[Row], storedSchema)
+      // Build the empty result through the same read path the populated branch uses, rather than
+      // from `storedSchema` verbatim. `createBaseDataFrame` short-circuits on an empty file set,
+      // so no IO happens, but computed indexes, exploded fields and the active `select()` are all
+      // applied. Deriving both branches from one path keeps the result schema independent of
+      // whether any file matched, and stops the two from drifting apart again.
+      readFiles(files)
     } else {
 
       // Log data pruning metrics using stored file sizes

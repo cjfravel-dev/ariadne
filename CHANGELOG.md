@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- `join` and `joinDf` no longer ignore an active column selection when the file lookup matches no files. The no-match
+  branch built its empty DataFrame from the full stored schema, so the result schema depended on whether any data
+  matched: the same code returned different columns depending only on whether a key happened to match. This was
+  visible on non-empty results too, since an outer join in the DataFrame-left direction null-padded the unselected
+  columns onto otherwise valid left rows. The empty result is now derived from the same read path as the populated
+  one, so the schema is identical either way.
+
 - Index type mutual exclusivity is now enforced symmetrically. `addIndex` did not check computed or exploded field
   indexes, and `addBloomIndex`, `addTemporalIndex` and `addRangeIndex` did not check exploded field indexes, so whether
   a conflict was rejected depended on registration order: `addExplodedFieldIndex("items", "id", "x")` followed by
@@ -15,13 +22,11 @@ All notable changes to this project are documented here. The format is based on
   produces a wrong result set at query time rather than an error, because deduplication partitions by a column the
   exploded projection also writes. All six `add*Index` methods now share one exclusivity check covering every type.
 
-### Fixed
-
 - Temporal indexes now support nested timestamp columns such as `meta.updatedAt`. `addTemporalIndex` accepted them,
   because dotted paths resolve against the schema, but `update` then aborted with Spark's `UNRESOLVED_COLUMN` analysis
   error: selecting a nested path flattens it to its leaf name, so aggregating by the original dotted path could not
-  resolve. The timestamp projection is now aliased to a stable name before aggregation. Top-level timestamp columns are
-  unaffected.
+  resolve. The timestamp projection is now aliased before aggregation, using a working name derived per configuration
+  so it cannot collide with the indexed value column itself. Top-level timestamp columns are unaffected.
 
 ### Changed
 
