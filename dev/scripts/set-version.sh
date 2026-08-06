@@ -35,7 +35,7 @@ if [[ "$NEW_VERSION" == *-SNAPSHOT ]]; then
     exit 1
 fi
 
-OLD_VERSION=$(grep -oPm1 "(?<=<version>)[^<]+" pom.xml)
+OLD_VERSION=$(./mvnw -q help:evaluate -Dexpression=project.version -DforceStdout)
 if [[ -z "$OLD_VERSION" ]]; then
     echo "Unable to read the current version from pom.xml" >&2
     exit 1
