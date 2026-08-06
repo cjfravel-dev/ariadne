@@ -70,6 +70,33 @@ trait IndexBuildOperations extends BloomFilterOperations {
     require(!ReservedStagingColumnNames.contains(column), s"Column '$column' is reserved for Ariadne staging metadata")
 
   /**
+   * Rejects nested (dotted) paths for columns that become index column names.
+   *
+   * An indexed value column is persisted as a column of the index table under its own name, and is later read back with
+   * `col(name)`. A dotted path such as `meta.userId` would be written as a literal column name but read back as nested
+   * field access, so such an index can never be built or queried.
+   *
+   * `SchemaHelper.fieldExists` resolves dotted paths, so without this guard the configuration is accepted and persisted
+   * to `metadata.json`, and only fails later during `update` with an opaque Spark analysis error.
+   *
+   * This restriction applies to the indexed value column only. Temporal timestamp columns may be nested, because they
+   * are never persisted under their own name.
+   *
+   * @param column
+   *   the candidate index column name
+   * @param indexType
+   *   the index type, used to build the error message
+   * @throws IllegalArgumentException
+   *   if the column is a nested path
+   */
+  protected def requireTopLevelIndexColumn(column: String, indexType: String): Unit =
+    require(
+      !column.contains("."),
+      s"Nested column '$column' cannot be used as a $indexType column. Index columns are stored under their own name, " +
+        "so only top-level columns are supported. Project the nested field to a top-level column before indexing, " +
+        "or use a computed index.")
+
+  /**
    * Computes file sizes in bytes for the given files using the Hadoop FileSystem.
    *
    * Files that cannot be found or read are silently skipped with a warning log.
@@ -797,11 +824,14 @@ trait IndexBuildOperations extends BloomFilterOperations {
           s"${temporalConfigs.map(_.column).mkString(", ")}")
 
       temporalConfigs.foldLeft(df.select("filename").distinct()) { (accumDf, config) =>
+        // The timestamp may be a nested path such as `meta.updatedAt`. Selecting it flattens the
+        // path to its leaf name, so aggregating by the original dotted path would not resolve.
+        // Alias the projection to a stable name and aggregate on that.
         val perFilePerValue =
           df
-            .select("filename", config.column, config.timestamp_column)
+            .select(col("filename"), col(config.column), col(config.timestamp_column).alias("_ariadne_ts"))
             .groupBy("filename", config.column)
-            .agg(max(col(config.timestamp_column)).alias("_ariadne_max_ts"))
+            .agg(max(col("_ariadne_ts")).alias("_ariadne_max_ts"))
 
         val structPerFile =
           perFilePerValue

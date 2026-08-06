@@ -425,4 +425,101 @@ class TemporalIndexTests extends SparkTests with Matchers {
     result.count() should be(1)
     result.select("Value").collect().head.getDouble(0) should be(150.0)
   }
+
+  // Schema whose timestamp lives inside a struct, so the temporal timestamp is the nested path
+  // `meta.updatedAt` rather than a top-level column.
+  val nestedTemporalSchema =
+    StructType(
+      Seq(
+        StructField("Id", IntegerType, nullable = false),
+        StructField("Value", DoubleType, nullable = false),
+        StructField(
+          "meta",
+          StructType(Seq(StructField("updatedAt", TimestampType, nullable = true))),
+          nullable = true)))
+
+  /**
+   * Writes a parquet file whose timestamp is nested under a `meta` struct. Id=1 appears twice so deduplication has
+   * something to resolve: the 2024-06 row must win over the 2024-01 row.
+   */
+  private def writeNestedTemporalFile(name: String): String = {
+    val rows =
+      Seq(
+        Row(1, 10.0, Row(java.sql.Timestamp.valueOf("2024-01-15 00:00:00"))),
+        Row(2, 20.0, Row(java.sql.Timestamp.valueOf("2024-01-15 00:00:00"))),
+        Row(1, 99.0, Row(java.sql.Timestamp.valueOf("2024-06-01 00:00:00"))))
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(rows), nestedTemporalSchema)
+    val path = s"${System.getProperty("java.io.tmpdir")}/ariadne-nested-temporal-$name"
+    df.write.mode("overwrite").parquet(path)
+    path
+  }
+
+  test("temporal index supports a nested timestamp column") {
+    val path = writeNestedTemporalFile("build")
+    val index = Index("temporal_nested_timestamp", nestedTemporalSchema, "parquet")
+    index.addFile(s"$path/*.parquet")
+    index.addTemporalIndex("Id", "meta.updatedAt")
+
+    // Regression: selecting a nested path flattens it to its leaf name, so aggregating by the
+    // original dotted path used to fail here with UNRESOLVED_COLUMN.
+    index.update
+
+    val queryData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(Seq(Row(1), Row(2))),
+        StructType(Seq(StructField("Id", IntegerType, nullable = false))))
+
+    val result = index.join(queryData, Seq("Id"), "inner")
+
+    // Id=1 must resolve to the later 2024-06 row, not the 2024-01 one.
+    val values = result.select("Id", "Value").collect().toSeq.map(r => (r.getInt(0), r.getDouble(1)))
+    values should contain theSameElementsAs Seq((1, 99.0), (2, 20.0))
+  }
+
+  test("temporal deduplication works when a nested timestamp column is not selected") {
+    val path = writeNestedTemporalFile("select")
+    val index = Index("temporal_nested_timestamp_select", nestedTemporalSchema, "parquet")
+    index.addFile(s"$path/*.parquet")
+    index.addTemporalIndex("Id", "meta.updatedAt")
+    index.update
+
+    val queryData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(Seq(Row(1))),
+        StructType(Seq(StructField("Id", IntegerType, nullable = false))))
+
+    // The `meta` struct is dropped by the projection, so deduplication must still read it
+    // internally and then remove it from the result.
+    val result = index.select("Id", "Value").join(queryData, Seq("Id"), "inner")
+
+    result.columns should contain theSameElementsAs Seq("Id", "Value")
+    result.count() should be(1)
+    result.select("Value").collect().head.getDouble(0) should be(99.0)
+  }
+
+  test("addTemporalIndex rejects a nested value column") {
+    val index = Index("temporal_nested_value_rejected", nestedTemporalSchema, "parquet")
+
+    // The value column is persisted under its own name, so a dotted path could never be read back.
+    // It must be rejected up front rather than failing later during update.
+    val error =
+      the[IllegalArgumentException] thrownBy {
+        index.addTemporalIndex("meta.updatedAt", "meta.updatedAt")
+      }
+
+    error.getMessage should include("Nested column 'meta.updatedAt'")
+    error.getMessage should include("temporal index")
+    index.indexes should not contain "meta.updatedAt"
+  }
+
+  test("index types that persist a value column reject nested columns") {
+    val index = Index("nested_value_rejected_all_types", nestedTemporalSchema, "parquet")
+
+    a[IllegalArgumentException] should be thrownBy index.addIndex("meta.updatedAt")
+    a[IllegalArgumentException] should be thrownBy index.addBloomIndex("meta.updatedAt")
+    a[IllegalArgumentException] should be thrownBy index.addRangeIndex("meta.updatedAt")
+    a[IllegalArgumentException] should be thrownBy index.addComputedIndex("meta.derived", "Id + 1")
+
+    index.indexes shouldBe empty
+  }
 }

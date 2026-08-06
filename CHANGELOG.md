@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Temporal indexes now support nested timestamp columns such as `meta.updatedAt`. `addTemporalIndex` accepted them,
+  because dotted paths resolve against the schema, but `update` then aborted with Spark's `UNRESOLVED_COLUMN` analysis
+  error: selecting a nested path flattens it to its leaf name, so aggregating by the original dotted path could not
+  resolve. The timestamp projection is now aliased to a stable name before aggregation. Top-level timestamp columns are
+  unaffected.
+
+### Changed
+
+- Nested (dotted) columns are rejected up front by `addIndex`, `addBloomIndex`, `addRangeIndex`, `addComputedIndex`,
+  `addExplodedFieldIndex` and the value column of `addTemporalIndex`, with an `IllegalArgumentException` explaining the
+  restriction. An indexed value column is persisted under its own name and read back with `col(name)`, so a dotted path
+  was written as a literal column name but read as nested field access. Such a configuration could never be built or
+  queried; it was previously accepted and persisted, then failed later during `update` with an opaque analysis error.
+  No working configuration is affected, since these indexes could not be built before.
+
 ## [0.1.7-beta]
 
 ### Fixed
