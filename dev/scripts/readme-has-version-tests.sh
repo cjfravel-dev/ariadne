@@ -39,9 +39,9 @@ cat >"$TEST_ROOT/README.md" <<'EOF'
 EOF
 cat >"$TEST_ROOT/docs/users/getting-started.html" <<'EOF'
 &lt;artifactId&gt;ariadne-spark35_2.12&lt;/artifactId&gt;
-&lt;version&gt;1.2.3&lt;/version&gt;
+&lt;version&gt;__ARIADNE_VERSION__&lt;/version&gt;
 &lt;artifactId&gt;ariadne-spark41_2.13&lt;/artifactId&gt;
-&lt;version&gt;1.2.3&lt;/version&gt;
+&lt;version&gt;__ARIADNE_VERSION__&lt;/version&gt;
 EOF
 echo "## [1.2.2]" >"$TEST_ROOT/CHANGELOG.md"
 echo "version: 1.2.3" >"$TEST_ROOT/CITATION.cff"
@@ -90,3 +90,32 @@ if ! grep -Fq "Unable to determine artifact coordinates for spark35" <<<"$OUTPUT
   echo "Version check did not report a controlled malformed-profile error"
   exit 1
 fi
+
+cp "$TEST_ROOT/pom.valid.xml" "$TEST_ROOT/pom.xml"
+cat >"$TEST_ROOT/README.md" <<'EOF'
+<artifactId>ariadne-spark35_2.12</artifactId>
+<version>1.2.3</version>
+<artifactId>ariadne-spark41_2.13</artifactId>
+<version>1.2.3</version>
+EOF
+cp "$TEST_ROOT/docs/users/getting-started.html" "$TEST_ROOT/docs/users/getting-started.valid.html"
+sed -i 's/__ARIADNE_VERSION__/1.2.3/g' "$TEST_ROOT/docs/users/getting-started.html"
+if (cd "$TEST_ROOT" && bash dev/scripts/readme-has-version.sh >/dev/null); then
+  echo "Version check accepted a documentation page that hardcoded the version"
+  exit 1
+fi
+
+cp "$TEST_ROOT/docs/users/getting-started.valid.html" "$TEST_ROOT/docs/users/getting-started.html"
+rm "$TEST_ROOT/docs/users/getting-started.valid.html"
+cat >"$TEST_ROOT/docs/users/stale.html" <<'EOF'
+This build supports indexes created through 1.2.3.
+EOF
+if (cd "$TEST_ROOT" && bash dev/scripts/readme-has-version.sh >/dev/null); then
+  echo "Version check accepted an unrelated documentation page that hardcoded the version"
+  exit 1
+fi
+rm "$TEST_ROOT/docs/users/stale.html"
+
+(cd "$TEST_ROOT" && bash dev/scripts/readme-has-version.sh >/dev/null)
+
+echo "Release version contracts passed."

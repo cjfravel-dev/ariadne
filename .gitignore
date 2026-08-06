@@ -7,3 +7,4 @@ examples/notebooks/.ipynb_checkpoints/
 spark-warehouse/
 derby.log
 metastore_db/
+target/site/

@@ -136,7 +136,7 @@ mvn package</code></pre>
       <li>Fork the repository and branch from <code>main</code>.</li>
       <li>Make your changes, ensuring <code>mvn test</code> passes.</li>
       <li>Update documentation if your changes affect the public API.</li>
-      <li>If you changed any public class, trait, method, or scaladoc, regenerate the API reference: <code>dev/scripts/build-api-docs.sh</code> (commits the regenerated <code>docs/api/</code> alongside your code change).</li>
+      <li>If you changed any public class, trait, method, or scaladoc, no extra step is needed — the API reference is generated and published automatically from <code>main</code>. Preview it locally with <code>dev/scripts/build-docs-site.sh</code>.</li>
       <li><strong>Don't change the version</strong> in <code>pom.xml</code> or the docs — versioning is managed by the maintainer.</li>
       <li>Open a pull request with a clear description.</li>
     </ol>

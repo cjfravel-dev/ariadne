@@ -314,6 +314,32 @@
                         </configuration>
                     </execution>
                     <execution>
+                        <id>test-build-docs-site-script</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/build-docs-site-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>test-ci-change-scope-script</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/ci-change-scope-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>test-ci-runtime-script</id>
                         <phase>test</phase>
                         <goals>
@@ -427,21 +453,6 @@
                             <executable>bash</executable>
                             <arguments>
                                 <argument>dev/scripts/managed-runtime-tests.sh</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>test-api-docs-drift</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <skip>false</skip>
-                            <executable>bash</executable>
-                            <arguments>
-                                <argument>dev/scripts/api-docs-drift-tests.sh</argument>
-                                <argument>${spark.compat}</argument>
                             </arguments>
                         </configuration>
                     </execution>

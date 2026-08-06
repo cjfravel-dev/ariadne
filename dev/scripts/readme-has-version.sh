@@ -9,6 +9,8 @@ if [[ -z "$VERSION" ]]; then
     exit 1
 fi
 
+VERSION_TOKEN='__ARIADNE_VERSION__'
+
 STATUS=0
 
 require_fixed_line() {
@@ -52,10 +54,25 @@ for profile in spark35 spark41; do
     fi
     artifact_id="ariadne-spark${spark_suffix}_${scala_binary_version}"
 
+    # README.md is rendered on GitHub and Maven Central, so it carries the
+    # literal version.
     require_compact_sequence README.md \
         "<artifactId>$artifact_id</artifactId><version>$VERSION</version>"
+
+    # Documentation pages are published through GitHub Pages, which substitutes
+    # the version token when the site is built. They must reference the token so
+    # that a release never has to edit them.
     require_compact_sequence docs/users/getting-started.html \
-        "&lt;artifactId&gt;$artifact_id&lt;/artifactId&gt;&lt;version&gt;$VERSION&lt;/version&gt;"
+        "&lt;artifactId&gt;$artifact_id&lt;/artifactId&gt;&lt;version&gt;$VERSION_TOKEN&lt;/version&gt;"
 done
+
+# A literal version committed under docs/ silently goes stale, because the site
+# build only rewrites the token.
+while IFS= read -r -d '' file; do
+    if grep -Fq "$VERSION" "$file"; then
+        echo "$file hardcodes the release version; use $VERSION_TOKEN instead"
+        STATUS=1
+    fi
+done < <(find docs -type f -name '*.html' -print0)
 
 exit $STATUS
