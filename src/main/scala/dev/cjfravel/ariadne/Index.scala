@@ -232,6 +232,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
   def addIndex(index: String): Unit = {
     require(index != null && index.trim.nonEmpty, "index column name must not be null or blank")
     requireNonReservedStagingColumn(index)
+    requireTopLevelIndexColumn(index, "regular index")
     ensureStorageReady()
     logger.warn(s"Adding regular index on column '$index' for index '$name'")
 
@@ -295,6 +296,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
   def addBloomIndex(column: String, fpr: Double = 0.01): Unit = {
     require(column != null && column.trim.nonEmpty, "bloom index column name must not be null or blank")
     requireNonReservedStagingColumn(column)
+    requireTopLevelIndexColumn(column, "bloom index")
     // Validate FPR range
     require(fpr > 0 && fpr < 1, s"FPR must be between 0 and 1, got: $fpr")
     ensureStorageReady()
@@ -363,6 +365,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
     require(fieldPath != null && fieldPath.trim.nonEmpty, "fieldPath must not be null or blank")
     require(asColumn != null && asColumn.trim.nonEmpty, "asColumn must not be null or blank")
     requireNonReservedStagingColumn(asColumn)
+    requireTopLevelIndexColumn(asColumn, "exploded field index")
     ensureStorageReady()
     logger.warn(s"Adding exploded field index '$asColumn' on column '$arrayColumn' for index '$name'")
 
@@ -460,6 +463,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
     require(name != null && name.trim.nonEmpty, "computed index name must not be null or blank")
     require(sql_expression != null && sql_expression.trim.nonEmpty, "sql_expression must not be null or blank")
     requireNonReservedStagingColumn(name)
+    requireTopLevelIndexColumn(name, "computed index")
     ensureStorageReady()
     logger.warn(s"Adding computed index '$name' for index '${this.name}'")
 
@@ -504,17 +508,24 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    * When joining on a temporal index column, only the latest version (by timestamp) of each value is returned. This is
    * useful when multiple files contain the same entity at different points in time.
    *
+   * The timestamp may be a nested path such as `meta.updatedAt`, since it is only read during index construction and
+   * deduplication. The value column must be top-level: it is persisted as a column of the index table under its own
+   * name, so a dotted path could not be read back.
+   *
    * @example
    *   {{{
    * index.addTemporalIndex("userId", "updated_at")
+   * // the timestamp may also be a nested path
+   * index.addTemporalIndex("orderId", "meta.updatedAt")
    *   }}}
    *
    * @param column
-   *   The value column to index on (e.g., "user_id")
+   *   The top-level value column to index on (e.g., "user_id")
    * @param timestampColumn
-   *   The timestamp column for ordering versions (e.g., "updated_at")
+   *   The timestamp column for ordering versions (e.g., "updated_at"), which may be a nested path
    * @throws IllegalArgumentException
-   *   if column or timestampColumn is null/blank, or column is already indexed by another type
+   *   if column or timestampColumn is null/blank, if column is a nested path, or if column is already indexed by
+   *   another type
    * @throws ColumnNotFoundException
    *   if either column doesn't exist in schema
    */
@@ -522,6 +533,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
     require(column != null && column.trim.nonEmpty, "temporal index column must not be null or blank")
     require(timestampColumn != null && timestampColumn.trim.nonEmpty, "timestampColumn must not be null or blank")
     requireNonReservedStagingColumn(column)
+    requireTopLevelIndexColumn(column, "temporal index")
     ensureStorageReady()
     logger.warn(s"Adding temporal index on column '$column' for index '$name'")
 
@@ -587,6 +599,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
   def addRangeIndex(column: String): Unit = {
     require(column != null && column.trim.nonEmpty, "range index column must not be null or blank")
     requireNonReservedStagingColumn(column)
+    requireTopLevelIndexColumn(column, "range index")
     ensureStorageReady()
     logger.warn(s"Adding range index on column '$column' for index '$name'")
 
