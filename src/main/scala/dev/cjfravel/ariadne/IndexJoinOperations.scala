@@ -234,14 +234,34 @@ trait IndexJoinOperations extends IndexBuildOperations {
       // Enable when reading all columns from very large indexes to reduce
       // per-executor memory pressure.
       logger.warn(s"Reading ${files.size} data files from index '$name'")
+      // Temporal deduplication orders by each applicable temporal index's timestamp column.
+      // If select() pruned that column away, read it anyway and drop it after deduplication
+      // so the caller's projection is preserved.
+      val temporalTimestampColumns =
+        getSelectedColumns match {
+          case Some(selectedCols) =>
+            metadata.temporal_indexes.asScala.toSeq
+              .filter(tc => usingColumns.contains(tc.column))
+              .map(_.timestamp_column)
+              .filterNot(selectedCols.contains)
+              .distinct
+          case None => Seq.empty
+        }
+      if (temporalTimestampColumns.nonEmpty) {
+        logger.warn(
+          s"Reading unselected temporal timestamp column(s) for deduplication: " +
+            s"${temporalTimestampColumns.mkString(", ")}")
+      }
       val rawReadIndex =
         if (repartitionDataFiles) {
-          maybeRepartition(readFiles(files))
+          maybeRepartition(readFiles(files, temporalTimestampColumns))
         } else {
-          readFiles(files)
+          readFiles(files, temporalTimestampColumns)
         }
       // Apply temporal deduplication if any temporal indexes are being used in this join
-      val readIndex = applyTemporalDeduplication(rawReadIndex, usingColumns)
+      val readIndex =
+        applyTemporalDeduplication(rawReadIndex, usingColumns)
+          .drop(temporalTimestampColumns: _*)
       if (debugEnabled) {
         logger.warn(
           s"[debug] readFiles setup in ${elapsed()}, repartitionDataFiles=$repartitionDataFiles, " +
