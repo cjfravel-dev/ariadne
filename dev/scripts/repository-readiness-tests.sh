@@ -88,3 +88,18 @@ assert_contains README.md 'ariadne-spark35_2.12'
 assert_contains README.md 'ariadne-spark41_2.13'
 VERSION=$(grep -oPm1 "(?<=<version>)[^<]+" pom.xml)
 assert_contains CITATION.cff "version: $VERSION"
+
+# Documentation-only changes skip the Maven build, so the governance scripts
+# must run outside it. If the governance step were ever gated on the same
+# condition as the build, a docs-only change would land with no checks at all.
+assert_contains .github/workflows/ci.yml 'ci-change-scope.sh'
+assert_contains .github/workflows/ci.yml 'run-governance-checks.sh'
+assert_contains pom.xml 'ci-change-scope-tests.sh'
+if grep -B3 'run: bash dev/scripts/run-governance-checks.sh' .github/workflows/ci.yml | grep -q 'if:'; then
+    echo "Governance checks must not be gated on the change scope; they validate documentation."
+    exit 1
+fi
+if ! grep -B4 'run: bash dev/scripts/run-governance-checks.sh' .github/workflows/ci.yml | grep -q 'Run governance checks'; then
+    echo "ci.yml must run the governance checks in the Spark 3.5 job"
+    exit 1
+fi
