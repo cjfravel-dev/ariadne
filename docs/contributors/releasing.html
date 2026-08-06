@@ -46,8 +46,8 @@
 
     <h2>Prepare one coordinated version</h2>
     <ol>
-      <li>Update the POM, README, getting-started guide, changelog, and citation metadata.</li>
-      <li>Regenerate the canonical Spark 3.5 API documentation.</li>
+      <li>Run <code>dev/scripts/set-version.sh &lt;version&gt;</code>. It updates the only four files that carry a literal version — <code>pom.xml</code>, <code>README.md</code>, <code>CITATION.cff</code>, and <code>CHANGELOG.md</code> — and verifies the result.</li>
+      <li>Fill in the new changelog section. Documentation pages and the API reference need no edits: they use the <code>&#95;_ARIADNE_VERSION__</code> token and are generated when the site is published.</li>
       <li>Merge the release pull request after both profile checks and CodeQL pass.</li>
     </ol>
 
