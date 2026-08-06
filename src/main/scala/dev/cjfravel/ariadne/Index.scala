@@ -515,7 +515,8 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    * @example
    *   {{{
    * index.addTemporalIndex("userId", "updated_at")
-   * index.addTemporalIndex("userId", "meta.updatedAt") // nested timestamps are supported
+   * // the timestamp may also be a nested path
+   * index.addTemporalIndex("orderId", "meta.updatedAt")
    *   }}}
    *
    * @param column

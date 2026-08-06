@@ -92,9 +92,26 @@ trait IndexBuildOperations extends BloomFilterOperations {
   protected def requireTopLevelIndexColumn(column: String, indexType: String): Unit =
     require(
       !column.contains("."),
-      s"Nested column '$column' cannot be used as a $indexType column. Index columns are stored " +
-        "under their own name, so only top-level columns are supported. Project the nested field " +
-        "to a top-level column before indexing, or use a computed index.")
+      s"Nested column '$column' cannot be used as the value column for $indexType. Index columns " +
+        "are stored under their own name, so only top-level columns are supported. Project the " +
+        "nested field to a top-level column before indexing.")
+
+  /**
+   * Derives a transient working column name that cannot collide with columns already in play.
+   *
+   * Build-time projections need scratch column names. Because any user column name is legal, a fixed literal such as
+   * `_ariadne_ts` can collide with a genuine indexed column and make the subsequent reference ambiguous. Underscores
+   * are appended until the name is free. These names are never persisted.
+   *
+   * @param base
+   *   the preferred name
+   * @param taken
+   *   names that must be avoided
+   * @return
+   *   a name not present in `taken`
+   */
+  private def uniqueWorkingName(base: String, taken: Set[String]): String =
+    Iterator.iterate(base)(_ + "_").find(candidate => !taken.contains(candidate)).getOrElse(base)
 
   /**
    * Computes file sizes in bytes for the given files using the Hadoop FileSystem.
@@ -826,18 +843,24 @@ trait IndexBuildOperations extends BloomFilterOperations {
       temporalConfigs.foldLeft(df.select("filename").distinct()) { (accumDf, config) =>
         // The timestamp may be a nested path such as `meta.updatedAt`. Selecting it flattens the
         // path to its leaf name, so aggregating by the original dotted path would not resolve.
-        // Alias the projection to a stable name and aggregate on that.
+        // Alias the projection to a working name and aggregate on that. The working names are
+        // derived per config so they cannot collide with the indexed value column itself.
+        val taken = Set("filename", config.column)
+        val tsAlias = uniqueWorkingName("_ariadne_ts", taken)
+        val maxTsAlias = uniqueWorkingName("_ariadne_max_ts", taken)
+        val structAlias = uniqueWorkingName("_ariadne_struct", taken)
+
         val perFilePerValue =
           df
-            .select(col("filename"), col(config.column), col(config.timestamp_column).alias("_ariadne_ts"))
+            .select(col("filename"), col(config.column), col(config.timestamp_column).alias(tsAlias))
             .groupBy("filename", config.column)
-            .agg(max(col("_ariadne_ts")).alias("_ariadne_max_ts"))
+            .agg(max(col(tsAlias)).alias(maxTsAlias))
 
         val structPerFile =
           perFilePerValue
-            .withColumn("_struct", struct(col(config.column).as("value"), col("_ariadne_max_ts").as("max_ts")))
+            .withColumn(structAlias, struct(col(config.column).as("value"), col(maxTsAlias).as("max_ts")))
             .groupBy("filename")
-            .agg(collect_set(col("_struct")).alias(config.column))
+            .agg(collect_set(col(structAlias)).alias(config.column))
 
         accumDf.join(structPerFile, Seq("filename"), "full_outer")
       }

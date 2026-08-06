@@ -497,6 +497,41 @@ class TemporalIndexTests extends SparkTests with Matchers {
     result.select("Value").collect().head.getDouble(0) should be(99.0)
   }
 
+  test("temporal index supports a value column named like an internal working column") {
+    // Regression: the build aliased the timestamp to the fixed literal `_ariadne_ts`. A value
+    // column with that exact name collided with the alias, making the aggregation ambiguous.
+    val collidingSchema =
+      StructType(
+        Seq(
+          StructField("_ariadne_ts", IntegerType, nullable = false),
+          StructField("Value", DoubleType, nullable = false),
+          StructField("updated_at", TimestampType, nullable = true)))
+
+    val rows =
+      Seq(
+        Row(1, 10.0, java.sql.Timestamp.valueOf("2024-01-15 00:00:00")),
+        Row(2, 20.0, java.sql.Timestamp.valueOf("2024-01-15 00:00:00")),
+        Row(1, 99.0, java.sql.Timestamp.valueOf("2024-06-01 00:00:00")))
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(rows), collidingSchema)
+    val path = s"${System.getProperty("java.io.tmpdir")}/ariadne-temporal-alias-collision"
+    df.write.mode("overwrite").parquet(path)
+
+    val index = Index("temporal_alias_collision", collidingSchema, "parquet")
+    index.addFile(s"$path/*.parquet")
+    index.addTemporalIndex("_ariadne_ts", "updated_at")
+    index.update
+
+    val queryData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(Seq(Row(1), Row(2))),
+        StructType(Seq(StructField("_ariadne_ts", IntegerType, nullable = false))))
+
+    val result = index.join(queryData, Seq("_ariadne_ts"), "inner")
+
+    val values = result.select("_ariadne_ts", "Value").collect().toSeq.map(r => (r.getInt(0), r.getDouble(1)))
+    values should contain theSameElementsAs Seq((1, 99.0), (2, 20.0))
+  }
+
   test("addTemporalIndex rejects a nested value column") {
     val index = Index("temporal_nested_value_rejected", nestedTemporalSchema, "parquet")
 
