@@ -381,4 +381,48 @@ class TemporalIndexTests extends SparkTests with Matchers {
 
     result.select("Payload").collect().map(_.getString(0)).toSeq shouldBe Seq("latest-for-both")
   }
+
+  test("temporal join should deduplicate when select() drops the timestamp column") {
+    val index = Index("temporal_select_drops_timestamp", temporalSchema, "csv", Map("header" -> "true"))
+
+    val csvPath0 = resourcePath("/data/temporal_part0.csv")
+    val csvPath1 = resourcePath("/data/temporal_part1.csv")
+    index.addFile(csvPath0, csvPath1)
+    index.addTemporalIndex("Id", "UpdatedAt")
+    index.update
+
+    val queryData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(Seq(Row(1))),
+        StructType(Seq(StructField("Id", IntegerType, nullable = false))))
+
+    // UpdatedAt is required for deduplication but is not selected: it should be
+    // read transparently and dropped from the result.
+    val result = index.select("Id", "Value").join(queryData, Seq("Id"), "inner")
+
+    result.columns should contain theSameElementsAs Seq("Id", "Value")
+    result.count() should be(1)
+    result.select("Value").collect().head.getDouble(0) should be(150.0)
+  }
+
+  test("temporal join should keep the timestamp column when it is explicitly selected") {
+    val index = Index("temporal_select_keeps_timestamp", temporalSchema, "csv", Map("header" -> "true"))
+
+    val csvPath0 = resourcePath("/data/temporal_part0.csv")
+    val csvPath1 = resourcePath("/data/temporal_part1.csv")
+    index.addFile(csvPath0, csvPath1)
+    index.addTemporalIndex("Id", "UpdatedAt")
+    index.update
+
+    val queryData =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(Seq(Row(1))),
+        StructType(Seq(StructField("Id", IntegerType, nullable = false))))
+
+    val result = index.select("Id", "Value", "UpdatedAt").join(queryData, Seq("Id"), "inner")
+
+    result.columns should contain theSameElementsAs Seq("Id", "Value", "UpdatedAt")
+    result.count() should be(1)
+    result.select("Value").collect().head.getDouble(0) should be(150.0)
+  }
 }

@@ -234,14 +234,37 @@ trait IndexJoinOperations extends IndexBuildOperations {
       // Enable when reading all columns from very large indexes to reduce
       // per-executor memory pressure.
       logger.warn(s"Reading ${files.size} data files from index '$name'")
+      // Temporal deduplication orders by each applicable temporal index's timestamp column.
+      // If select() pruned that column away, read it anyway and drop it after deduplication
+      // so the caller's projection is preserved. Deduplication resolves the configured
+      // timestamp path against the DataFrame, so a nested path such as `meta.updatedAt`
+      // requires its root struct (`meta`) to be present rather than the flattened leaf that
+      // projecting the dotted path would produce.
+      val temporalTimestampRootColumns =
+        getSelectedColumns match {
+          case Some(selectedCols) =>
+            metadata.temporal_indexes.asScala.toSeq
+              .filter(tc => usingColumns.contains(tc.column))
+              .map(tc => tc.timestamp_column.split("\\.").head)
+              .filterNot(selectedCols.contains)
+              .distinct
+          case None => Seq.empty
+        }
+      if (temporalTimestampRootColumns.nonEmpty) {
+        logger.warn(
+          s"Reading unselected temporal timestamp column(s) for deduplication: " +
+            s"${temporalTimestampRootColumns.mkString(", ")}")
+      }
       val rawReadIndex =
         if (repartitionDataFiles) {
-          maybeRepartition(readFiles(files))
+          maybeRepartition(readFiles(files, temporalTimestampRootColumns))
         } else {
-          readFiles(files)
+          readFiles(files, temporalTimestampRootColumns)
         }
       // Apply temporal deduplication if any temporal indexes are being used in this join
-      val readIndex = applyTemporalDeduplication(rawReadIndex, usingColumns)
+      val readIndex =
+        applyTemporalDeduplication(rawReadIndex, usingColumns)
+          .drop(temporalTimestampRootColumns: _*)
       if (debugEnabled) {
         logger.warn(
           s"[debug] readFiles setup in ${elapsed()}, repartitionDataFiles=$repartitionDataFiles, " +

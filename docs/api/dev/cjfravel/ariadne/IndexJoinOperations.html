@@ -3,9 +3,9 @@
         <head>
           <meta http-equiv="X-UA-Compatible" content="IE=edge" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-          <title>dev.cjfravel:ariadne-spark35_2.12 0.1.6-beta API  - dev.cjfravel.ariadne.IndexJoinOperations</title>
-          <meta name="description" content="dev.cjfravel ariadne - spark35 2.12 0.1.6 - beta API - dev.cjfravel.ariadne.IndexJoinOperations" />
-          <meta name="keywords" content="dev.cjfravel ariadne spark35 2.12 0.1.6 beta API dev.cjfravel.ariadne.IndexJoinOperations" />
+          <title>dev.cjfravel:ariadne-spark35_2.12 0.1.7-beta API  - dev.cjfravel.ariadne.IndexJoinOperations</title>
+          <meta name="description" content="dev.cjfravel ariadne - spark35 2.12 0.1.7 - beta API - dev.cjfravel.ariadne.IndexJoinOperations" />
+          <meta name="keywords" content="dev.cjfravel ariadne spark35 2.12 0.1.7 beta API dev.cjfravel.ariadne.IndexJoinOperations" />
           <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
           
       
@@ -28,7 +28,7 @@
         </head>
         <body>
       <div id="search">
-        <span id="doc-title">dev.cjfravel:ariadne-spark35_2.12 0.1.6-beta API<span id="doc-version"></span></span>
+        <span id="doc-title">dev.cjfravel:ariadne-spark35_2.12 0.1.7-beta API<span id="doc-version"></span></span>
         <span class="close-results"><span class="left">&lt;</span> Back</span>
         <div id="textfilter">
           <span class="input">
@@ -504,9 +504,9 @@ stored separately via <a href="IndexBuildOperations.html#appendToLargeIndex(df:o
 </p></div><dl class="paramcmts block"><dt class="param">df</dt><dd class="cmt"><p>
   the combined index DataFrame to stage</p></dd></dl><dl class="attributes block"> <dt>Attributes</dt><dd>protected </dd><dt>Definition Classes</dt><dd><a href="IndexBuildOperations.html" class="extype" name="dev.cjfravel.ariadne.IndexBuildOperations">IndexBuildOperations</a></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.IndexFileOperations#applyColumnSelection" visbl="prt" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
-      <a id="applyColumnSelection(df:org.apache.spark.sql.DataFrame):org.apache.spark.sql.DataFrame"></a><a id="applyColumnSelection(DataFrame):DataFrame"></a>
+      <a id="applyColumnSelection(df:org.apache.spark.sql.DataFrame,additionalColumns:Seq[String]):org.apache.spark.sql.DataFrame"></a><a id="applyColumnSelection(DataFrame,Seq[String]):DataFrame"></a>
       <span class="permalink">
-      <a href="../../../dev/cjfravel/ariadne/IndexJoinOperations.html#applyColumnSelection(df:org.apache.spark.sql.DataFrame):org.apache.spark.sql.DataFrame" title="Permalink">
+      <a href="../../../dev/cjfravel/ariadne/IndexJoinOperations.html#applyColumnSelection(df:org.apache.spark.sql.DataFrame,additionalColumns:Seq[String]):org.apache.spark.sql.DataFrame" title="Permalink">
         <i class="material-icons"></i>
       </a>
     </span>
@@ -515,12 +515,13 @@ stored separately via <a href="IndexBuildOperations.html#appendToLargeIndex(df:o
         <span class="kind">def</span>
       </span>
       <span class="symbol">
-        <span class="name">applyColumnSelection</span><span class="params">(<span name="df">df: <a href="../../../org/apache/spark/sql/index.html#DataFrame=org.apache.spark.sql.Dataset[org.apache.spark.sql.Row]" class="extmbr" name="org.apache.spark.sql.DataFrame">DataFrame</a></span>)</span><span class="result">: <a href="../../../org/apache/spark/sql/index.html#DataFrame=org.apache.spark.sql.Dataset[org.apache.spark.sql.Row]" class="extmbr" name="org.apache.spark.sql.DataFrame">DataFrame</a></span>
+        <span class="name">applyColumnSelection</span><span class="params">(<span name="df">df: <a href="../../../org/apache/spark/sql/index.html#DataFrame=org.apache.spark.sql.Dataset[org.apache.spark.sql.Row]" class="extmbr" name="org.apache.spark.sql.DataFrame">DataFrame</a></span>, <span name="additionalColumns">additionalColumns: <span class="extype" name="scala.Seq">Seq</span>[<span class="extype" name="scala.Predef.String">String</span>] = <span class="symbol">Seq.empty</span></span>)</span><span class="result">: <a href="../../../org/apache/spark/sql/index.html#DataFrame=org.apache.spark.sql.Dataset[org.apache.spark.sql.Row]" class="extmbr" name="org.apache.spark.sql.DataFrame">DataFrame</a></span>
       </span>
       
       <p class="shortcomment cmt">Applies column selection if columns have been specified via select().</p><div class="fullcomment"><div class="comment cmt"><p>Applies column selection if columns have been specified via select(). Only reads the explicitly selected columns.
 </p></div><dl class="paramcmts block"><dt class="param">df</dt><dd class="cmt"><p>
-  The DataFrame to apply column selection to</p></dd><dt>returns</dt><dd class="cmt"><p>
+  The DataFrame to apply column selection to</p></dd><dt class="param">additionalColumns</dt><dd class="cmt"><p>
+  Columns to retain alongside the user's selection. Entries absent from <code>df</code> are ignored.</p></dd><dt>returns</dt><dd class="cmt"><p>
   DataFrame with selected columns or original DataFrame if no selection</p></dd></dl><dl class="attributes block"> <dt>Attributes</dt><dd>protected </dd><dt>Definition Classes</dt><dd><a href="IndexFileOperations.html" class="extype" name="dev.cjfravel.ariadne.IndexFileOperations">IndexFileOperations</a></dd></dl></div>
     </li><li name="dev.cjfravel.ariadne.IndexFileOperations#applyComputedIndexes" visbl="prt" class="indented0 " data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="applyComputedIndexes(df:org.apache.spark.sql.DataFrame):org.apache.spark.sql.DataFrame"></a><a id="applyComputedIndexes(DataFrame):DataFrame"></a>

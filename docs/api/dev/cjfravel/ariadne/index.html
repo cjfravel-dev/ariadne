@@ -3,9 +3,9 @@
         <head>
           <meta http-equiv="X-UA-Compatible" content="IE=edge" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-          <title>dev.cjfravel:ariadne-spark35_2.12 0.1.6-beta API  - dev.cjfravel.ariadne</title>
-          <meta name="description" content="dev.cjfravel ariadne - spark35 2.12 0.1.6 - beta API - dev.cjfravel.ariadne" />
-          <meta name="keywords" content="dev.cjfravel ariadne spark35 2.12 0.1.6 beta API dev.cjfravel.ariadne" />
+          <title>dev.cjfravel:ariadne-spark35_2.12 0.1.7-beta API  - dev.cjfravel.ariadne</title>
+          <meta name="description" content="dev.cjfravel ariadne - spark35 2.12 0.1.7 - beta API - dev.cjfravel.ariadne" />
+          <meta name="keywords" content="dev.cjfravel ariadne spark35 2.12 0.1.7 beta API dev.cjfravel.ariadne" />
           <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
           
       
@@ -28,7 +28,7 @@
         </head>
         <body>
       <div id="search">
-        <span id="doc-title">dev.cjfravel:ariadne-spark35_2.12 0.1.6-beta API<span id="doc-version"></span></span>
+        <span id="doc-title">dev.cjfravel:ariadne-spark35_2.12 0.1.7-beta API<span id="doc-version"></span></span>
         <span class="close-results"><span class="left">&lt;</span> Back</span>
         <div id="textfilter">
           <span class="input">
@@ -484,7 +484,7 @@ are built for these columns in the main index to enable pre-filtering at query t
       <p class="shortcomment cmt">Trait providing file I/O operations for <a href="Index.html" class="extype" name="dev.cjfravel.ariadne.Index">Index</a> instances.</p><div class="fullcomment"><div class="comment cmt"><p>Trait providing file I/O operations for <a href="Index.html" class="extype" name="dev.cjfravel.ariadne.Index">Index</a> instances.</p><p>Handles reading data files in supported formats (CSV, Parquet, JSON), applying computed indexes and exploded field
 transformations, and managing column selection for optimized reads.</p><p><b>Read pipeline:</b> <span class="extype" name="readFiles">readFiles</span> orchestrates the full read path:</p><ol class="decimal"><li><a href="IndexFileOperations.html#createBaseDataFrame(files:Set[String]):org.apache.spark.sql.DataFrame" class="extmbr" name="dev.cjfravel.ariadne.IndexFileOperations#createBaseDataFrame">createBaseDataFrame</a> — loads files using the stored schema, format, and read options 2.
      <a href="IndexFileOperations.html#applyComputedIndexes(df:org.apache.spark.sql.DataFrame):org.apache.spark.sql.DataFrame" class="extmbr" name="dev.cjfravel.ariadne.IndexFileOperations#applyComputedIndexes">applyComputedIndexes</a> — adds derived columns via Spark SQL expressions 3. <a href="IndexFileOperations.html#applyExplodedFields(df:org.apache.spark.sql.DataFrame):org.apache.spark.sql.DataFrame" class="extmbr" name="dev.cjfravel.ariadne.IndexFileOperations#applyExplodedFields">applyExplodedFields</a> — explodes
-     nested array fields into top-level columns 4. <a href="IndexFileOperations.html#applyColumnSelection(df:org.apache.spark.sql.DataFrame):org.apache.spark.sql.DataFrame" class="extmbr" name="dev.cjfravel.ariadne.IndexFileOperations#applyColumnSelection">applyColumnSelection</a> — prunes to user-selected columns if
+     nested array fields into top-level columns 4. <a href="IndexFileOperations.html#applyColumnSelection(df:org.apache.spark.sql.DataFrame,additionalColumns:Seq[String]):org.apache.spark.sql.DataFrame" class="extmbr" name="dev.cjfravel.ariadne.IndexFileOperations#applyColumnSelection">applyColumnSelection</a> — prunes to user-selected columns if
      specified</li></ol><p><b>Format support:</b> CSV, Parquet, and JSON. The format is stored in <a href="IndexMetadata.html" class="extype" name="dev.cjfravel.ariadne.IndexMetadata">IndexMetadata</a> and determines which Spark
 reader method is used. Read options (e.g., <code>header</code>, <code>delimiter</code>) are applied from metadata.</p><p><b>Filename tracking:</b> <a href="IndexFileOperations.html#addFilenameColumn(df:org.apache.spark.sql.DataFrame,files:Set[String]):org.apache.spark.sql.DataFrame" class="extmbr" name="dev.cjfravel.ariadne.IndexFileOperations#addFilenameColumn">addFilenameColumn</a> uses <code>input_file_name()</code> to attach the source file path to each row.
 For single-file reads, a fallback literal is used because Spark may report an empty filename.

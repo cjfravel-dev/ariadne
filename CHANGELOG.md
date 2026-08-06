@@ -6,8 +6,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.7-beta]
+
 ### Fixed
 
+- Temporal deduplication no longer fails when `select()` omits a temporal index's timestamp column. The read pipeline
+  pruned columns before `joinDf` applied deduplication, so a join such as `index.select("Id", "Value").join(df,
+  Seq("Id"))` against a temporal index on `("Id", "UpdatedAt")` aborted with Spark's `UNRESOLVED_COLUMN` analysis error.
+  The timestamp column is now read transparently for ranking and dropped afterward, leaving the caller's projection
+  unchanged. Joins without `select()`, selections that already include the timestamp column, and the catalog read paths
+  are unaffected.
 - The Maven Central publish workflow now imports the GPG signing key in a single `setup-java` step. Importing it in both
   the Java 11 and Java 21 steps registered duplicate post-job cleanups that raced to delete the key, marking otherwise
   successful releases as failed (`gpg` exit 2). Release artifacts were unaffected.

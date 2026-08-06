@@ -72,13 +72,16 @@ trait IndexFileOperations extends IndexMetadataOperations {
    *
    * @param files
    *   A set of file paths to read
+   * @param additionalColumns
+   *   Columns to retain in addition to those chosen via [[Index.select]], for internal operations (such as temporal
+   *   deduplication) that need columns the caller did not select. Ignored when no column selection is active.
    * @return
    *   A DataFrame containing the contents of the specified files, with computed indexes, exploded fields, and column
    *   selection applied
    * @throws IllegalArgumentException
    *   if the stored format is not csv, parquet, or json (propagated from [[createBaseDataFrame]])
    */
-  private[ariadne] def readFiles(files: Set[String]): DataFrame = {
+  private[ariadne] def readFiles(files: Set[String], additionalColumns: Seq[String] = Seq.empty): DataFrame = {
     require(files != null, "files must not be null")
     logger.warn(s"Reading ${files.size} files in format '${metadata.format}'")
     if (debugEnabled) {
@@ -93,7 +96,7 @@ trait IndexFileOperations extends IndexMetadataOperations {
     val withExplodedFields = applyExplodedFields(withComputedIndexes)
 
     // Apply column selection if specified
-    val result = applyColumnSelection(withExplodedFields)
+    val result = applyColumnSelection(withExplodedFields, additionalColumns)
     if (debugEnabled) {
       logger.warn(s"[debug] readFiles: complete setup in ${System
           .currentTimeMillis() - readStart}ms, columns: ${result.schema.fieldNames.length}")
@@ -107,14 +110,22 @@ trait IndexFileOperations extends IndexMetadataOperations {
    *
    * @param df
    *   The DataFrame to apply column selection to
+   * @param additionalColumns
+   *   Columns to retain alongside the user's selection. Entries absent from `df` are ignored.
    * @return
    *   DataFrame with selected columns or original DataFrame if no selection
    */
-  protected def applyColumnSelection(df: DataFrame): DataFrame =
+  protected def applyColumnSelection(df: DataFrame, additionalColumns: Seq[String] = Seq.empty): DataFrame =
     getSelectedColumns match {
       case Some(selectedCols) =>
-        logger.debug(s"Selecting columns: ${selectedCols.mkString(", ")}")
-        df.select(selectedCols.map(col): _*)
+        val availableColumns = df.columns.toSet
+        val extraCols =
+          additionalColumns.distinct
+            .filterNot(selectedCols.contains)
+            .filter(availableColumns.contains)
+        val colsToRead = selectedCols ++ extraCols
+        logger.debug(s"Selecting columns: ${colsToRead.mkString(", ")}")
+        df.select(colsToRead.map(col): _*)
       case None =>
         df // No column selection specified, return full DataFrame
     }
