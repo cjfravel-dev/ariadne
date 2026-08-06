@@ -269,8 +269,8 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    * @param fpr
    *   False positive rate between 0.0 and 1.0 (default 0.01 = 1%)
    * @throws IllegalArgumentException
-   *   if column is null/blank, FPR out of range, column is a nested path, or column is already indexed by any
-   *   other type
+   *   if column is null/blank, FPR out of range, column is a nested path, or column is already indexed by any other
+   *   type
    * @throws ColumnNotFoundException
    *   if column doesn't exist in schema
    */
