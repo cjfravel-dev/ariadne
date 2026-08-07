@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.8-beta]
+
 ### Fixed
 
 - `join` and `joinDf` no longer ignore an active column selection when the file lookup matches no files. The no-match
