@@ -195,7 +195,7 @@
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>33.6.0-jre</version>
+            <version>33.7.1-jre</version>
         </dependency>
         <!-- Log4J (version tracks the Spark line's log4j via the active profile so the
              log4j-api we compile against matches the log4j-core Spark provides at runtime). -->
