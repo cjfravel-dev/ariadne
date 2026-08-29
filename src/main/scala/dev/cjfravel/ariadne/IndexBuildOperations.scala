@@ -877,6 +877,10 @@ trait IndexBuildOperations extends BloomFilterOperations {
         // is counted from its own array in isolation, mirroring buildExplodedFieldIndexes: a shared
         // applyExplodedFields plan folds an inner `explode` over every configured array, so a row
         // with one null array would be dropped before the other columns were counted.
+        // `explode_outer` keeps one row per source row when an array is null or empty, so the file
+        // still appears in the analysis with a count of zero (countDistinct ignores the null).
+        // Without it, an index whose columns are all exploded would omit such a file entirely and
+        // createOptimalBatches would never schedule it, silently skipping the file during update.
         val explodedConfigs =
           metadata.exploded_field_indexes.asScala.toSeq.filter(c => allStorageColumns.contains(c.as_column))
         val explodedTargets = explodedConfigs.map(_.as_column)
@@ -885,7 +889,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
             .map { explodedField =>
               withFilename
                 .select("filename", explodedField.array_column)
-                .withColumn("temp_exploded", explode(col(s"${explodedField.array_column}.${explodedField.field_path}")))
+                .withColumn(
+                  "temp_exploded",
+                  explode_outer(col(s"${explodedField.array_column}.${explodedField.field_path}")))
                 .groupBy("filename")
                 .agg(countDistinct(col("temp_exploded")).alias(s"${explodedField.as_column}_distinct"))
             }

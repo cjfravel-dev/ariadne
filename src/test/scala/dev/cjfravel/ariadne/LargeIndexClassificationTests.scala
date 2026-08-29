@@ -371,6 +371,57 @@ class LargeIndexClassificationTests extends SparkTests with Matchers {
     }
   }
 
+  test("a file with no exploded values is still analyzed when every index column is exploded") {
+    // With only exploded storage columns there is no direct pass, so the analysis is built purely
+    // from exploded rows. `explode` yields nothing for a null array, so such a file would be absent
+    // from analyzeFiles entirely, createOptimalBatches would never schedule it, and update would
+    // silently skip the file.
+    val onlyExplodedSchema =
+      StructType(
+        Seq(
+          StructField("event_id", StringType, nullable = false),
+          StructField(
+            "users",
+            ArrayType(StructType(Seq(StructField("id", LongType, nullable = false)))),
+            nullable = true)))
+
+    val base = s"${System.getProperty("java.io.tmpdir")}/large_class_allnull_${System.currentTimeMillis()}"
+    val withValues = s"$base/with_values"
+    val withoutValues = s"$base/without_values"
+    spark
+      .createDataFrame(spark.sparkContext.parallelize(Seq(Row("evt1", Array(Row(100L))))), onlyExplodedSchema)
+      .coalesce(1)
+      .write
+      .mode("overwrite")
+      .json(withValues)
+    spark
+      .createDataFrame(spark.sparkContext.parallelize(Seq(Row("evt2", null))), onlyExplodedSchema)
+      .coalesce(1)
+      .write
+      .mode("overwrite")
+      .json(withoutValues)
+
+    try
+      withLargeIndexLimit(4) {
+        val index = Index("large_class_allnull", onlyExplodedSchema, "json", Map.empty[String, String])
+        index.addFile(withValues)
+        index.addFile(withoutValues)
+        index.addExplodedFieldIndex("users", "id", "user_id")
+        index.update
+
+        // Both files must be represented in the index; the one with no exploded values simply
+        // carries a null array rather than being dropped from the analysis.
+        val indexed = mainIndex(index).select("filename").collect().map(_.getString(0))
+        indexed should have size 2
+
+        index.locateFiles(Map("user_id" -> Array(100L))) should have size 1
+      }
+    finally {
+      val fs = org.apache.hadoop.fs.FileSystem.get(spark.sparkContext.hadoopConfiguration)
+      fs.delete(new Path(base), true)
+    }
+  }
+
   test("a temporal column with null values is not lost at the large index boundary") {
     // collect_set keeps one struct for the null value group, so the stored array is one longer than
     // countDistinct reports. At the boundary that mismatch must not drop the file's values.
