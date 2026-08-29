@@ -153,6 +153,50 @@ fi
 rm -rf "$sandbox"
 
 # ---------------------------------------------------------------------------
+# Paths with spaces must survive the staged/partially-staged comparison. The
+# decision gates `git add`, so a split or glob-expanded path would compare
+# unequal and sweep unstaged work into the commit.
+# ---------------------------------------------------------------------------
+sandbox=$(make_sandbox)
+(
+    cd "$sandbox/repo"
+    export PATH="$sandbox/bin:$PATH"
+    export MVN_CALLS="$sandbox/calls.txt"
+    export MVN_FORMAT_FILE="$sandbox/repo/src/my file.scala"
+    : >"$MVN_CALLS"
+    echo "object Spaced" >"src/my file.scala"
+    git add "src/my file.scala"
+    git commit -qm "spaced filename"
+) >/dev/null 2>&1
+committed=$(cd "$sandbox/repo" && git show "HEAD:src/my file.scala" 2>/dev/null)
+if ! grep -Fq "// reformatted" <<<"$committed"; then
+    fail "reformatted file with a space in its path was not re-staged"
+fi
+rm -rf "$sandbox"
+
+# The same path, partially staged, must still be refused.
+sandbox=$(make_sandbox)
+(
+    cd "$sandbox/repo"
+    export PATH="$sandbox/bin:$PATH"
+    export MVN_CALLS="$sandbox/calls.txt"
+    export MVN_FORMAT_FILE="$sandbox/repo/src/my file.scala"
+    : >"$MVN_CALLS"
+    echo "object Spaced" >"src/my file.scala"
+    git add "src/my file.scala"
+    echo "// unstaged work in progress" >>"src/my file.scala"
+    git commit -qm "spaced partial"
+) >/dev/null 2>&1
+if (cd "$sandbox/repo" && git log --oneline | grep -q "spaced partial"); then
+    fail "commit succeeded despite a partially staged file whose path contains a space"
+fi
+staged_now=$(cd "$sandbox/repo" && git diff --cached -- "src/my file.scala")
+if grep -Fq "unstaged work in progress" <<<"$staged_now"; then
+    fail "hook staged unstaged work from a partially staged path containing a space"
+fi
+rm -rf "$sandbox"
+
+# ---------------------------------------------------------------------------
 # A scalafix or scalastyle violation must abort the commit.
 # ---------------------------------------------------------------------------
 for goal in "scalafix:scalafix@scalafix-check" "scalastyle:check@scalastyle-check"; do

@@ -69,9 +69,13 @@ mapfile -d '' -t PARTIALLY_STAGED < <(
     git diff --name-only -z -- '*.scala'
 )
 
+# The `${arr[@]+...}` guard keeps `set -u` happy when nothing is partially staged.
+# Paths come from `git -z` and may contain spaces or newlines, so the expansion stays
+# quoted: this decides whether re-staging is safe, and a split path would compare
+# unequal and let `git add` sweep in unstaged work.
 is_partially_staged() {
     local candidate
-    for candidate in ${PARTIALLY_STAGED+"${PARTIALLY_STAGED[@]}"}; do
+    for candidate in ${PARTIALLY_STAGED[@]+"${PARTIALLY_STAGED[@]}"}; do
         [[ "$candidate" == "$1" ]] && return 0
     done
     return 1
