@@ -438,16 +438,25 @@ trait IndexQueryOperations extends IndexJoinOperations {
             .where(col(joinColumn).isNotNull)
             .distinct()
 
-        val valueCount = distinctValuesDf.count()
-        if (valueCount > bloomMaxQueryValues) {
+        // Collect one more than the bound in a single action: enough to tell "within bounds"
+        // from "over bounds" without a separate count job, and without pulling an unbounded
+        // number of values to the driver. The extra row is a probe, never a query value --
+        // over the bound we skip entirely rather than probe a truncated set, which would
+        // prune files holding the dropped values and silently lose rows.
+        // The bound is a Long but `limit` takes an Int; clamping is safe because a bound at
+        // or above Int.MaxValue can never be exceeded by a driver-collectable value set.
+        val collectLimit = math.min(bloomMaxQueryValues + 1L, Int.MaxValue.toLong).toInt
+        val bounded = distinctValuesDf.limit(collectLimit).collect()
+
+        if (bounded.length > bloomMaxQueryValues) {
           logger.warn(
-            s"Auto-bloom pre-filter skipped for '$storageColumn': $valueCount distinct query values exceeds " +
-              s"spark.ariadne.bloomMaxQueryValues ($bloomMaxQueryValues). At this probe cardinality the " +
-              s"O(files x values) probe costs more than the join it would accelerate and prunes almost nothing. " +
+            s"Auto-bloom pre-filter skipped for '$storageColumn': more than $bloomMaxQueryValues distinct query " +
+              s"values exceeds spark.ariadne.bloomMaxQueryValues ($bloomMaxQueryValues). At this probe cardinality " +
+              s"the O(files x values) probe costs more than the join it would accelerate and prunes almost nothing. " +
               s"Results are unaffected; the large index is scanned without bloom pruning.")
           None
         } else {
-          val values = distinctValuesDf.collect().map(_.get(0))
+          val values = bounded.map(_.get(0))
           if (values.isEmpty) None
           else getAutoBloomCandidates(storageColumn, values, indexDf)
         }

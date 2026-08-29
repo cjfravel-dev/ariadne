@@ -305,6 +305,72 @@ class LargeIndexClassificationTests extends SparkTests with Matchers {
     }
   }
 
+  test("an exploded column is measured on its own array, not one shared with another exploded index") {
+    // applyExplodedFields folds an inner `explode` over EVERY configured array, so a row with a
+    // null `users` is dropped before `tags` is counted. buildExplodedFieldIndexes builds each
+    // column from its own array in isolation, so tag_name's stored array holds all 6 values while
+    // a shared-plan analysis would see only 3 -- under-reporting the count that decides largeness
+    // and drives batch packing, which is exactly the unbounded array this PR exists to avoid.
+    val multiSchema =
+      StructType(
+        Seq(
+          StructField("event_id", StringType, nullable = false),
+          StructField(
+            "users",
+            ArrayType(StructType(Seq(StructField("id", LongType, nullable = false)))),
+            nullable = true),
+          StructField(
+            "tags",
+            ArrayType(StructType(Seq(StructField("name", StringType, nullable = false)))),
+            nullable = true)))
+
+    val tempPath = s"${System.getProperty("java.io.tmpdir")}/large_class_multi_${System.currentTimeMillis()}"
+    spark
+      .createDataFrame(
+        spark.sparkContext.parallelize(Seq(
+          Row("evt1", Array(Row(100L)), Array(Row("t1"))),
+          Row("evt2", Array(Row(101L)), Array(Row("t2"))),
+          Row("evt3", Array(Row(102L)), Array(Row("t3"))),
+          // users is null here, so these rows vanish from any plan that explodes both arrays.
+          Row("evt4", null, Array(Row("t4"))),
+          Row("evt5", null, Array(Row("t5"))),
+          Row("evt6", null, Array(Row("t6"))))),
+        multiSchema)
+      .coalesce(1)
+      .write
+      .mode("overwrite")
+      .json(tempPath)
+
+    try
+      withLargeIndexLimit(4) {
+        val index = Index("large_class_multi", multiSchema, "json", Map.empty[String, String])
+        index.addFile(tempPath)
+        index.addExplodedFieldIndex("users", "id", "user_id")
+        index.addExplodedFieldIndex("tags", "name", "tag_name")
+        index.update
+
+        // tag_name has 6 distinct values, at or above the limit of 4, so it must be classified
+        // large. A shared-plan analysis sees only the 3 rows that survive the `users` explode and
+        // would leave it inline.
+        val tagLarge = largeIndex(index, "tag_name").getOrElse(fail("expected large index table for tag_name"))
+        tagLarge.select("tag_name").collect().map(_.getString(0)).toSet shouldBe
+          Set("t1", "t2", "t3", "t4", "t5", "t6")
+
+        // user_id has only 3 distinct values, below the limit, so it stays inline.
+        largeIndex(index, "user_id") shouldBe None
+        mainIndex(index).select("user_id").collect().flatMap(r => r.getSeq[Long](0)).toSet shouldBe
+          Set(100L, 101L, 102L)
+
+        // Values must remain locatable from whichever store holds them.
+        index.locateFiles(Map("tag_name" -> Array("t6"))) should have size 1
+        index.locateFiles(Map("user_id" -> Array(100L))) should have size 1
+      }
+    finally {
+      val fs = org.apache.hadoop.fs.FileSystem.get(spark.sparkContext.hadoopConfiguration)
+      fs.delete(new Path(tempPath), true)
+    }
+  }
+
   test("a temporal column with null values is not lost at the large index boundary") {
     // collect_set keeps one struct for the null value group, so the stored array is one longer than
     // countDistinct reports. At the boundary that mismatch must not drop the file's values.

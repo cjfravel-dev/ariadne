@@ -873,17 +873,23 @@ trait IndexBuildOperations extends BloomFilterOperations {
             Some(withFilename.groupBy("filename").agg(exprs.head, exprs.tail: _*))
           }
 
-        // Exploded columns only exist after the explode, so they need their own pass.
-        val explodedTargets = allStorageColumns.intersect(explodedColumns).toSeq
+        // Exploded columns only exist after the explode, so they need their own pass. Each config
+        // is counted from its own array in isolation, mirroring buildExplodedFieldIndexes: a shared
+        // applyExplodedFields plan folds an inner `explode` over every configured array, so a row
+        // with one null array would be dropped before the other columns were counted.
+        val explodedConfigs =
+          metadata.exploded_field_indexes.asScala.toSeq.filter(c => allStorageColumns.contains(c.as_column))
+        val explodedTargets = explodedConfigs.map(_.as_column)
         val explodedCounts =
-          if (explodedTargets.isEmpty) None
-          else {
-            val exploded = applyExplodedFields(withComputedIndexes)
-            val explodedWithFilename = addFilenameColumn(exploded, files)
-            val exprs =
-              explodedTargets.map(colName => countDistinct(col(colName)).alias(s"${colName}_distinct"))
-            Some(explodedWithFilename.groupBy("filename").agg(exprs.head, exprs.tail: _*))
-          }
+          explodedConfigs
+            .map { explodedField =>
+              withFilename
+                .select("filename", explodedField.array_column)
+                .withColumn("temp_exploded", explode(col(s"${explodedField.array_column}.${explodedField.field_path}")))
+                .groupBy("filename")
+                .agg(countDistinct(col("temp_exploded")).alias(s"${explodedField.as_column}_distinct"))
+            }
+            .reduceOption((left, right) => left.join(right, Seq("filename"), "full_outer"))
 
         val combined =
           (directCounts, explodedCounts) match {

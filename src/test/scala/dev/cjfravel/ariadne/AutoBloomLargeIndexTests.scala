@@ -197,6 +197,36 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
     }
   }
 
+  test("should apply the auto-bloom pre-filter over the full value set when the count equals bloomMaxQueryValues") {
+    spark.conf.set("spark.ariadne.largeIndexLimit", "1")
+    // Exactly at the bound: the pre-filter must still run, and it must probe every
+    // distinct value. Bounding the collect must never truncate the probe set, or files
+    // holding the dropped values would be pruned away and rows would silently vanish.
+    spark.conf.set("spark.ariadne.bloomMaxQueryValues", "4")
+    try {
+      val index = Index("auto_bloom_boundary_test", testSchema, "csv", Map("header" -> "true"))
+      index.addFile(resourcePath("/data/table1_part0.csv"))
+      index.addFile(resourcePath("/data/table1_part1.csv"))
+      index.addIndex("Id")
+      index.update
+
+      val _spark = spark
+      import _spark.implicits._
+      val queryDf = Seq(1, 2, 3, 4).toDF("Id")
+
+      val ids = index.join(queryDf, Seq("Id")).select("Id").collect().map(_.getInt(0)).toSet
+      ids shouldBe Set(1, 2, 3, 4)
+
+      // Every value must resolve to the same files it would on its own.
+      val all = index.locateFiles(Map("Id" -> Array(1, 2, 3, 4)))
+      val union = Seq(1, 2, 3, 4).flatMap(v => index.locateFiles(Map("Id" -> Array(v)))).toSet
+      all shouldBe union
+    } finally {
+      spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
+      spark.conf.set("spark.ariadne.bloomMaxQueryValues", "1000000")
+    }
+  }
+
   test("should return identical results whether or not the auto-bloom pre-filter is applied") {
     spark.conf.set("spark.ariadne.largeIndexLimit", "1")
     try {
