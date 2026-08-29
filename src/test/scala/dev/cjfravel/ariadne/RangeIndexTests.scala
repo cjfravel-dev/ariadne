@@ -236,4 +236,136 @@ class RangeIndexTests extends SparkTests with Matchers {
       }
     }
   }
+
+  /**
+   * Counts Spark jobs submitted while `body` runs.
+   *
+   * Job count is the only externally observable measure of how many actions a query performs, so it is asserted
+   * directly rather than inferred from timing.
+   */
+  private def countingJobs[A](body: => A): (A, Int) = {
+    val jobs = new java.util.concurrent.atomic.AtomicInteger(0)
+    val listener =
+      new org.apache.spark.scheduler.SparkListener {
+        override def onJobStart(e: org.apache.spark.scheduler.SparkListenerJobStart): Unit = {
+          jobs.incrementAndGet()
+          ()
+        }
+      }
+    spark.sparkContext.addSparkListener(listener)
+    try {
+      val result = body
+      // Job-start events are posted asynchronously, so settle before reading the counter:
+      // wait until the count stops moving rather than guessing a fixed sleep.
+      var stable = 0
+      var last = -1
+      val deadline = System.currentTimeMillis() + 10000
+      while (stable < 3 && System.currentTimeMillis() < deadline) {
+        Thread.sleep(150)
+        val current = jobs.get()
+        if (current == last) stable += 1 else stable = 0
+        last = current
+      }
+      (result, jobs.get())
+    } finally {
+      spark.sparkContext.removeSparkListener(listener)
+    }
+  }
+
+  private def rangeIndexOver(name: String): Index = {
+    val index = Index(name, testSchema, "csv", Map("header" -> "true"))
+    index.addFile(resourcePath("/data/table1_part0.csv"))
+    index.addFile(resourcePath("/data/table1_part1.csv"))
+    index.addRangeIndex("Id")
+    index.update
+    index
+  }
+
+  private def unindexedOracle(queryDf: org.apache.spark.sql.DataFrame): Set[String] =
+    spark.read
+      .schema(testSchema)
+      .option("header", "true")
+      .csv(resourcePath("/data/table1_part0.csv"), resourcePath("/data/table1_part1.csv"))
+      .join(queryDf, Seq("Id"))
+      .select("Id", "Version", "Value")
+      .collect()
+      .map(_.toString)
+      .toSet
+
+  test("range query must not submit a separate counting job to choose its strategy") {
+    val index = rangeIndexOver("range_single_job_test")
+    val _spark = spark
+    import _spark.implicits._
+
+    // Past the per-value threshold, so the bounding-box strategy is selected.
+    val queryDf = Seq.range(1, 1500).toDF("Id").cache()
+    queryDf.count() // materialize the cache outside the measured region
+
+    val (files, jobs) =
+      countingJobs(index.locateFilesFromDataFrame(queryDf, Map("Id" -> "Id"), Seq("Id")))
+
+    // Choosing between the per-value and bounding-box strategies must not cost an action of
+    // its own: the collect that supplies the values also decides the branch. Measured at 10
+    // jobs for this query on Spark 3.5, against 12 when the branch is chosen by a separate
+    // count. The bound carries one job of headroom, since planning of limit and aggregate
+    // differs slightly across Spark lines, and still fails on the extra count.
+    withClue(s"jobs=$jobs for ${files.size} file(s): ") {
+      jobs should be <= 11
+    }
+    queryDf.unpersist()
+  }
+
+  test("range query results must match an unindexed join on both sides of the strategy threshold") {
+    val index = rangeIndexOver("range_threshold_parity_test")
+    val _spark = spark
+    import _spark.implicits._
+
+    // 999 and 1000 take per-value pruning; 1001 and beyond switch to the bounding box.
+    // The strategy is an optimization, so every one of them must agree with the oracle.
+    Seq(999, 1000, 1001, 1500).foreach { n =>
+      val queryDf = Seq.range(1, n + 1).toDF("Id")
+      val actual =
+        index.join(queryDf, Seq("Id")).select("Id", "Version", "Value").collect().map(_.toString).toSet
+      withClue(s"query with $n distinct values: ") {
+        actual shouldBe unindexedOracle(queryDf)
+        actual should not be empty
+      }
+    }
+  }
+
+  test("a query value set far beyond any internal bound must still find every matching file") {
+    // Query value sets are unbounded, while any internal collect is bounded. A bound that
+    // ever narrowed the candidate files would prune away files holding the excluded values,
+    // so assert the files directly rather than relying on the bound's placement.
+    val index = rangeIndexOver("range_beyond_bound_test")
+    val _spark = spark
+    import _spark.implicits._
+
+    val queryDf = Seq.range(1, 20000).toDF("Id")
+    val files = index.locateFilesFromDataFrame(queryDf, Map("Id" -> "Id"), Seq("Id"))
+
+    // Every indexed file holds Ids inside [1, 20000), so none may be pruned.
+    files.size shouldBe 2
+
+    val actual = index.join(queryDf, Seq("Id")).select("Id", "Version", "Value").collect().map(_.toString).toSet
+    actual shouldBe unindexedOracle(queryDf)
+  }
+
+  test("per-value range pruning must plan a value set at the strategy threshold") {
+    // The per-value strategy builds one containment predicate per value and combines them.
+    // Combined as a chain, the predicate tree is as deep as the value set, and Delta's data
+    // skipping recurses over it until the stack gives out -- inside the size this strategy
+    // accepts. Both entry points build the predicate, so both are exercised.
+    val index = rangeIndexOver("range_predicate_depth_test")
+    val _spark = spark
+    import _spark.implicits._
+
+    val values = Array.range(1, 1001)
+    val fromArray = index.locateFiles(Map("Id" -> values.map(_.asInstanceOf[Any])))
+    fromArray.size shouldBe 2
+
+    val queryDf = values.toSeq.toDF("Id")
+    val fromDf = index.locateFilesFromDataFrame(queryDf, Map("Id" -> "Id"), Seq("Id"))
+    fromDf.size shouldBe 2
+  }
 }
