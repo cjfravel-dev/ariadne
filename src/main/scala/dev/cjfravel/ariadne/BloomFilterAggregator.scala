@@ -41,15 +41,9 @@ private[ariadne] class BloomFilterBuffer(var filter: BloomFilter[CharSequence]) 
 /**
  * Spark `Aggregator` that folds values into a Guava bloom filter incrementally.
  *
- * This is the streaming replacement for `agg(bloomUdf(collect_set(col)))`. The `collect_set` formulation had to
- * materialize every distinct value of a file into a single executor-side array before any filter could be built, so
- * peak memory scaled with the file's cardinality times the per-object overhead of a boxed JVM value (tens of bytes
- * each). Here the buffer '''is''' the bloom filter, so peak memory is the filter's own size — roughly 1.2 bytes per
- * distinct value at a 1% false positive rate — and values are discarded as soon as they are hashed in.
- *
- * The result is that a bloom-indexed column is no longer bounded by what fits in an executor-side array. This matters
- * specifically for bloom indexes because, unlike every other index type, they never persist the values themselves —
- * only the filter — so `collect_set` was the sole thing capping their cardinality.
+ * The buffer '''is''' the bloom filter: each value is hashed in and discarded immediately, so peak executor memory is
+ * the filter's own size — roughly 1.2 bytes per distinct value at a 1% false positive rate — rather than the file's
+ * distinct values held as boxed JVM objects. A bloom-indexed column is therefore unbounded in cardinality.
  *
  * Values must already be converted to the same canonical string form used at query time; see
  * `BloomFilterOperations.canonicalStringColumn`. Mismatched string forms would produce false negatives, which a bloom

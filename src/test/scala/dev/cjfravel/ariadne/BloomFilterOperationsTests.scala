@@ -362,9 +362,8 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
   }
 
   test("bloom probing must not be configurable") {
-    // The cutoff is a mathematical property of the filter. Exposing it as a knob invites
-    // tuning it into a regime where the pre-filter provably prunes nothing, which is how
-    // the default came to sit three orders of magnitude above the useful range.
+    // The cutoff is a mathematical property of the filter. Exposing it as a knob would
+    // allow tuning it into a regime where the pre-filter provably prunes nothing.
     val root = java.nio.file.Paths.get("src/main/scala")
     val stream = java.nio.file.Files.walk(root)
     val offenders =

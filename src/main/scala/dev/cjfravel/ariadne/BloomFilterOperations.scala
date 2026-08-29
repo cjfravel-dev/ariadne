@@ -132,8 +132,7 @@ trait BloomFilterOperations extends IndexFileOperations {
    * JVM objects. A bloom-backed column is therefore not bounded by what fits in an executor-side array, which is what
    * makes this safe for the very large, high-cardinality columns auto-bloom targets.
    *
-   * Values are reduced to distinct `(filename, value)` pairs first so each value is inserted exactly once, matching the
-   * semantics of the `collect_set` based implementation this replaces.
+   * Values are reduced to distinct `(filename, value)` pairs first, so each value is inserted exactly once.
    *
    * @param df
    *   DataFrame containing a `filename` column and the source values
@@ -151,7 +150,6 @@ trait BloomFilterOperations extends IndexFileOperations {
       valueColumn: Column,
       bloomColumn: String,
       fpr: Double): DataFrame = {
-    // Distinct pairs match the old collect_set semantics: each value is inserted once.
     val distinctValues =
       df
         .select(col("filename"), canonicalStringColumn(valueColumn).alias(bloomValueColumn))

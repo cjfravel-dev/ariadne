@@ -310,7 +310,7 @@ class LargeIndexClassificationTests extends SparkTests with Matchers {
     // null `users` is dropped before `tags` is counted. buildExplodedFieldIndexes builds each
     // column from its own array in isolation, so tag_name's stored array holds all 6 values while
     // a shared-plan analysis would see only 3 -- under-reporting the count that decides largeness
-    // and drives batch packing, which is exactly the unbounded array this PR exists to avoid.
+    // and drives batch packing.
     val multiSchema =
       StructType(
         Seq(

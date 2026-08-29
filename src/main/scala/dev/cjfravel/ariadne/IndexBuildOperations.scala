@@ -759,9 +759,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
   /**
    * Produces the `(filename, value)` rows for an index column, one row per occurrence.
    *
-   * This is the streaming equivalent of exploding a `collect_set` array back into rows, and is the source used both for
-   * writing `large_indexes/{column}` and for building auto-bloom filters. Callers are responsible for any `distinct` or
-   * filename filtering they need.
+   * Rows are produced directly from the source data without aggregating into arrays. This is the value source for both
+   * `large_indexes/{column}` and auto-bloom filters. Callers are responsible for any `distinct` or filename filtering
+   * they need.
    *
    * Regular and computed indexes project the column directly; exploded-field indexes explode the configured nested
    * path; temporal indexes reduce to one `(value, max_ts)` struct per distinct value.
