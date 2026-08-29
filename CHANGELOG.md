@@ -6,6 +6,33 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.9-beta]
+
+### Added
+
+- An opt-in, version-controlled pre-commit hook can run the same scalafmt, scalafix, and scalastyle gates as CI for
+  staged Scala changes. The installer configures a repository-local hooks path, and the hook protects partially staged
+  or unrelated files from being swept into a commit when formatting rewrites sources.
+
+### Changed
+
+- Bloom-filter queries now probe serialized filters on executors and collect only matching filenames instead of
+  collecting every filter on the driver. Probe collection is bounded from each filter's false-positive rate, and large
+  probe sets safely skip the optimization rather than truncating values and risking false negatives.
+- Bloom filters and large indexes now stream values into their final representation instead of materializing unbounded
+  per-file arrays. Large-file classification uses the same distinct-count semantics as each index builder, preserving
+  files with empty exploded arrays and avoiding stale or missing large-index rows when cardinality changes.
+- DataFrame range-index queries choose between per-value pruning and a bounding box from one bounded collection,
+  eliminating a separate full distinct-count Spark job.
+- The shaded Guava dependency is updated from 33.6.0-jre to 33.7.1-jre.
+
+### Fixed
+
+- Range queries with up to 1,000 probe values no longer build a linear-depth predicate tree that can overflow Delta
+  Lake's recursive data-skipping analysis. Predicates are now combined as a balanced tree.
+- Large-index analysis no longer undercounts unrelated regular or exploded fields when another exploded array is null
+  or empty, and temporal cardinality now includes the stored null group.
+
 ## [0.1.8-beta]
 
 ### Fixed
