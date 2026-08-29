@@ -352,21 +352,132 @@ trait BloomFilterOperations extends IndexFileOperations {
       logger.warn(s"Bloom column $bloomColumn not found in index")
       Set.empty
     } else {
-      // Collect distinct values from the query DataFrame
-      val values =
-        valuesDf
-          .select(column)
-          .where(col(column).isNotNull)
-          .distinct()
-          .collect()
-          .map(_.get(0))
+      val fpr = bloomIndexConfigs.find(_.column == column).map(_.fpr).getOrElse(0.01)
+      collectProbeValues(valuesDf, column, fpr) match {
+        case None =>
+          // Over the bound the pre-filter cannot prune meaningfully. Returning every
+          // indexed file is a superset, and the subsequent read and join filter to the
+          // correct rows, so this costs I/O rather than correctness.
+          logger.warn(
+            s"Bloom pre-filter skipped for '$column': more than ${BloomFilterOperations.maxProbeValues(fpr)} " +
+              s"distinct query values, past which a filter at FPR $fpr prunes less than " +
+              s"${BloomFilterOperations.MinPruningFraction} of non-matching files. Results are unaffected.")
+          allIndexedFiles(indexDf)
 
-      if (values.isEmpty) Set.empty
-      else {
-        logger.warn(s"Bloom filter query for '$column': ${values.length} distinct values from DataFrame")
-        // Use the existing method with collected values
-        locateFilesWithBloom(column, values, indexDf)
+        case Some(values) if values.isEmpty => Set.empty
+
+        case Some(values) =>
+          logger.warn(s"Bloom filter query for '$column': ${values.length} distinct values from DataFrame")
+          locateFilesWithBloom(column, values, indexDf)
       }
     }
+  }
+
+  /**
+   * Every filename present in the index.
+   *
+   * Used as the result of a skipped bloom pre-filter: a superset of the true match set, which the subsequent read and
+   * join narrow correctly.
+   *
+   * @param indexDf
+   *   the main index DataFrame
+   * @return
+   *   set of all indexed filenames
+   */
+  private def allIndexedFiles(indexDf: DataFrame): Set[String] =
+    indexDf.select("filename").distinct().collect().map(_.getString(0)).filter(_ != null).toSet
+
+  /**
+   * Collects the distinct non-null values of `column` from `valuesDf` for broadcasting, subject to the probe bound
+   * derived from `fpr`.
+   *
+   * This is the single query-side entry point for '''both''' explicit bloom indexes and auto-bloom pre-filters. Both
+   * collect query values to the driver and broadcast them, so both carry the same driver-memory exposure and are
+   * bounded identically here; leaving either unbounded is a driver OOM waiting on a wide enough join key.
+   *
+   * @note
+   *   Returns `None` rather than a truncated array when the bound is exceeded. Truncating would drop probe values and
+   *   prune away the files holding them, turning a pre-filter into a source of missing rows. Skipping only widens the
+   *   candidate set.
+   *
+   * @param valuesDf
+   *   DataFrame supplying the query-side values
+   * @param column
+   *   the column of `valuesDf` holding the join keys
+   * @param fpr
+   *   false positive rate of the filters that will be probed, used to derive the bound
+   * @return
+   *   `Some(distinct values)` when within the bound, `None` when the pre-filter should be skipped
+   */
+  private[ariadne] def collectProbeValues(valuesDf: DataFrame, column: String, fpr: Double): Option[Array[Any]] = {
+    require(valuesDf != null, "valuesDf must not be null")
+    require(column != null && column.trim.nonEmpty, "column must not be null or blank")
+
+    val bound = BloomFilterOperations.maxProbeValues(fpr)
+    // Collect one row beyond the bound in a single action: enough to distinguish "within
+    // bound" from "over bound" without a separate count job, and without pulling an
+    // unbounded number of values to the driver. The extra row is a probe, never a value.
+    val bounded =
+      valuesDf
+        .select(column)
+        .where(col(column).isNotNull)
+        .distinct()
+        .limit(bound + 1)
+        .collect()
+
+    if (bounded.length > bound) None else Some(bounded.map(_.get(0)))
+  }
+}
+
+/**
+ * Derivation of the query-side probe bound shared by every bloom filter path.
+ *
+ * A bloom pre-filter only earns its keep while it still prunes files. A file that holds '''none''' of the probe values
+ * survives the probe with probability `1 - (1 - fpr)^n`, so the fraction of non-matching files actually pruned is
+ * `(1 - fpr)^n` and decays geometrically as the probe set grows. At the default 1% FPR that fraction is 90% at 10 probe
+ * values, 37% at 100, 4.9% at 300, and 0.004% at 1000 — past roughly `1/fpr` values the pre-filter provably prunes
+ * nothing while still requiring every distinct value to be collected to the driver and broadcast cluster-wide.
+ *
+ * The useful ceiling is therefore a property of the filter, not a user preference, and is derived here rather than
+ * configured. Exposing it as a setting invites tuning it into the regime where it cannot help.
+ *
+ * @note
+ *   Past the bound the pre-filter is '''skipped''', never truncated. Skipping widens the candidate file set, and the
+ *   subsequent read and join still filter to the correct rows, so results are unaffected. Truncating would drop probe
+ *   values and prune away files that hold them, silently losing rows.
+ */
+private[ariadne] object BloomFilterOperations {
+
+  /**
+   * The smallest fraction of non-matching files a pre-filter must still prune to be worth running.
+   *
+   * Below this the collect and broadcast cost is paid for no measurable reduction in files read.
+   */
+  val MinPruningFraction: Double = 0.01
+
+  /**
+   * Hard ceiling on probe values regardless of FPR.
+   *
+   * The derivation grows as `1/fpr`, so an extreme FPR would otherwise authorize collecting an effectively unbounded
+   * value set to the driver. This is a driver-safety backstop, not a tuning parameter.
+   */
+  val AbsoluteMaxProbeValues: Int = 1000000
+
+  /**
+   * Largest probe set for which a filter with the given false positive rate still prunes at least
+   * [[MinPruningFraction]] of non-matching files.
+   *
+   * Solves `(1 - fpr)^n >= MinPruningFraction` for `n`.
+   *
+   * @param fpr
+   *   the false positive rate the filter was built with, in `(0, 1)`
+   * @return
+   *   the probe-set size bound, at least 1 and never above [[AbsoluteMaxProbeValues]]
+   */
+  def maxProbeValues(fpr: Double): Int = {
+    require(fpr > 0.0 && fpr < 1.0, s"fpr must be in (0, 1), got: $fpr")
+    val exact = math.log(MinPruningFraction) / math.log(1.0 - fpr)
+    if (exact >= AbsoluteMaxProbeValues.toDouble) AbsoluteMaxProbeValues
+    else math.max(1, math.floor(exact).toInt)
   }
 }

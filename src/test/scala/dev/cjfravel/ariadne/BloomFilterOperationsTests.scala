@@ -1,5 +1,9 @@
 package dev.cjfravel.ariadne
 
+import java.nio.charset.StandardCharsets
+
+import scala.collection.JavaConverters._
+
 import dev.cjfravel.ariadne.exceptions.ColumnNotFoundException
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.types._
@@ -331,5 +335,114 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
 
     // Correctness is unaffected by the sizing.
     index.locateFiles(Map("Id" -> Array(2))).size shouldBe 1
+  }
+
+  test("maxProbeValues should be derived from the filter's FPR, not from configuration") {
+    // A bloom pre-filter only earns its keep while it still prunes files. A file holding
+    // none of the probe values survives with probability 1-(1-fpr)^n, so pruning power
+    // decays as n grows and the useful ceiling is a property of the filter itself.
+    BloomFilterOperations.maxProbeValues(0.01) shouldBe 458
+    BloomFilterOperations.maxProbeValues(0.001) shouldBe 4602
+    BloomFilterOperations.maxProbeValues(0.0001) shouldBe 46049
+
+    // At the cap, at least the target fraction of non-matching files is still pruned;
+    // one value past it, the guarantee is gone.
+    Seq(0.01, 0.001, 0.0001).foreach { fpr =>
+      val n = BloomFilterOperations.maxProbeValues(fpr)
+      math.pow(1.0 - fpr, n.toDouble) should be >= BloomFilterOperations.MinPruningFraction
+      math.pow(1.0 - fpr, (n + 1).toDouble) should be < BloomFilterOperations.MinPruningFraction
+    }
+  }
+
+  test("maxProbeValues should stay within a driver-safe ceiling for vanishingly small FPRs") {
+    // The derivation grows as 1/fpr, so an extreme FPR would authorize collecting an
+    // unbounded value set to the driver. The ceiling is a hard backstop, not a tuning knob.
+    BloomFilterOperations.maxProbeValues(1e-12) shouldBe BloomFilterOperations.AbsoluteMaxProbeValues
+    BloomFilterOperations.maxProbeValues(0.5) should be >= 1
+  }
+
+  test("bloom probing must not be configurable") {
+    // The cutoff is a mathematical property of the filter. Exposing it as a knob invites
+    // tuning it into a regime where the pre-filter provably prunes nothing, which is how
+    // the default came to sit three orders of magnitude above the useful range.
+    val root = java.nio.file.Paths.get("src/main/scala")
+    val stream = java.nio.file.Files.walk(root)
+    val offenders =
+      try {
+        stream
+          .iterator()
+          .asScala
+          .filter(_.toString.endsWith(".scala"))
+          .filter { path =>
+            new String(java.nio.file.Files.readAllBytes(path), StandardCharsets.UTF_8)
+              .contains("bloomMaxQueryValues")
+          }
+          .map(_.toString)
+          .toList
+      } finally {
+        stream.close()
+      }
+    offenders shouldBe empty
+  }
+
+  test("explicit bloom and auto-bloom must bound the query-side collect identically") {
+    // Both paths collect distinct query values to the driver and broadcast them. An
+    // unbounded collect on either is a driver OOM, so neither may be left unguarded.
+    val index = Index("bloom_probe_parity_test", testSchema, "csv", Map("header" -> "true"))
+    val _spark = spark
+    import _spark.implicits._
+
+    val within = Seq.range(1, 10).toDF("Id")
+    val beyond = Seq.range(1, BloomFilterOperations.maxProbeValues(0.01) + 10).toDF("Id")
+
+    index.collectProbeValues(within, "Id", 0.01).map(_.length) shouldBe Some(9)
+    index.collectProbeValues(beyond, "Id", 0.01) shouldBe None
+
+    // Skipping is safe; truncating is not. Whenever values are returned, every distinct
+    // value must be present, or files holding a dropped value would be pruned away.
+    val exact = Seq.range(0, BloomFilterOperations.maxProbeValues(0.01)).toDF("Id")
+    index.collectProbeValues(exact, "Id", 0.01).map(_.length) shouldBe
+      Some(BloomFilterOperations.maxProbeValues(0.01))
+  }
+
+  test("an over-cap query must return the same rows as an unindexed join") {
+    // Above the cap the pre-filter is skipped. Skipping may read more files, but the
+    // result must be identical to joining the raw source data -- a pre-filter that
+    // changes the answer is a correctness bug, not an optimization.
+    val schema =
+      StructType(
+        Seq(
+          StructField("Id", IntegerType, nullable = false),
+          StructField("Version", IntegerType, nullable = false),
+          StructField("Value", DoubleType, nullable = false)))
+
+    val index = Index("bloom_overcap_parity", schema, "csv", Map("header" -> "true"))
+    index.addFile(resourcePath("/data/table1_part0.csv"))
+    index.addFile(resourcePath("/data/table1_part1.csv"))
+    index.addBloomIndex("Id")
+    index.update
+
+    val _spark = spark
+    import _spark.implicits._
+    // Comfortably past the derived cap, so the pre-filter is skipped.
+    val overCap = BloomFilterOperations.maxProbeValues(0.01) + 50
+    val queryDf = Seq.range(1, overCap).toDF("Id")
+
+    val actual =
+      index.join(queryDf, Seq("Id")).select("Id", "Version", "Value").collect().map(_.toString).sorted
+
+    val oracle =
+      spark.read
+        .schema(schema)
+        .option("header", "true")
+        .csv(resourcePath("/data/table1_part0.csv"), resourcePath("/data/table1_part1.csv"))
+        .join(queryDf, Seq("Id"))
+        .select("Id", "Version", "Value")
+        .collect()
+        .map(_.toString)
+        .sorted
+
+    actual shouldBe oracle
+    actual should not be empty
   }
 }

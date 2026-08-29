@@ -105,12 +105,7 @@
           <tr>
             <td><code>spark.ariadne.autoBloomFpr</code></td>
             <td><code>0.01</code></td>
-            <td>False-positive rate for the automatic bloom filters built on columns that exceed <code>largeIndexLimit</code>.</td>
-          </tr>
-          <tr>
-            <td><code>spark.ariadne.bloomMaxQueryValues</code></td>
-            <td><code>1000000</code></td>
-            <td>Maximum number of distinct <em>query-side</em> values probed against auto-bloom filters. This bounds the join keys of the incoming DataFrame, not the index &mdash; index-side cardinality is governed by <code>largeIndexLimit</code>, and columns with billions of indexed values are precisely what auto-bloom is for. Above this bound the pre-filter is skipped, because an <code>O(files x values)</code> probe then costs more than the join it would accelerate while pruning almost nothing. Results are unchanged; only pruning is lost.</td>
+            <td>False-positive rate for the automatic bloom filters built on columns that exceed <code>largeIndexLimit</code>. This also determines how many distinct query-side values are worth probing: a filter prunes <code>(1&nbsp;&minus;&nbsp;fpr)<sup>n</sup></code> of non-matching files, so past roughly <code>1/fpr</code> values it prunes nothing and the pre-filter is skipped automatically. That bound is derived, not configurable.</td>
           </tr>
         </tbody>
       </table>

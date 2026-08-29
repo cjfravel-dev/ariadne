@@ -401,15 +401,17 @@ trait IndexQueryOperations extends IndexJoinOperations {
   /**
    * Gets candidate files from the auto-bloom filter using values extracted from a DataFrame.
    *
-   * Collects distinct non-null values from the given DataFrame column, then delegates to [[getAutoBloomCandidates]] for
-   * the actual bloom filter probing.
+   * Delegates the bounded query-side collect to [[BloomFilterOperations.collectProbeValues]], the same helper the
+   * explicit bloom path uses, then probes via [[getAutoBloomCandidates]]. The two bloom kinds differ only in how a
+   * `null` filter is interpreted: a missing auto-bloom means the file was never large enough to get one and must stay a
+   * candidate, whereas a missing explicit bloom means the file held no values for the column and cannot match.
    *
    * @note
    *   The bound applies to query-side cardinality only; it does not limit how many values an index may hold. Auto-bloom
-   *   is only a pre-filter, so when the distinct probe count exceeds `spark.ariadne.bloomMaxQueryValues` this returns
-   *   `None` and the caller proceeds without pruning — past that point the O(files x values) probe costs more than the
-   *   join it would accelerate and prunes almost nothing. The value set is never truncated, since dropping probe values
-   *   would turn a pre-filter into a source of missing rows.
+   *   is only a pre-filter, so past the bound this returns `None` and the caller proceeds without pruning. Results are
+   *   unaffected — the large index is simply scanned without bloom pruning. The value set is never truncated, since
+   *   dropping probe values would prune away the files holding them and turn a pre-filter into a source of missing
+   *   rows.
    *
    * @param storageColumn
    *   The storage column name in the index (used to look up the auto-bloom)
@@ -432,33 +434,18 @@ trait IndexQueryOperations extends IndexJoinOperations {
       val autoBloomCol = s"auto_bloom_$storageColumn"
       if (!indexDf.columns.contains(autoBloomCol)) None
       else {
-        val distinctValuesDf =
-          valuesDf
-            .select(joinColumn)
-            .where(col(joinColumn).isNotNull)
-            .distinct()
+        collectProbeValues(valuesDf, joinColumn, autoBloomFpr) match {
+          case None =>
+            logger.warn(
+              s"Auto-bloom pre-filter skipped for '$storageColumn': more than " +
+                s"${BloomFilterOperations.maxProbeValues(autoBloomFpr)} distinct query values, past which a filter " +
+                s"at FPR $autoBloomFpr prunes less than ${BloomFilterOperations.MinPruningFraction} of non-matching " +
+                s"files. Results are unaffected; the large index is scanned without bloom pruning.")
+            None
 
-        // Collect one more than the bound in a single action: enough to tell "within bounds"
-        // from "over bounds" without a separate count job, and without pulling an unbounded
-        // number of values to the driver. The extra row is a probe, never a query value --
-        // over the bound we skip entirely rather than probe a truncated set, which would
-        // prune files holding the dropped values and silently lose rows.
-        // The bound is a Long but `limit` takes an Int; clamping is safe because a bound at
-        // or above Int.MaxValue can never be exceeded by a driver-collectable value set.
-        val collectLimit = math.min(bloomMaxQueryValues + 1L, Int.MaxValue.toLong).toInt
-        val bounded = distinctValuesDf.limit(collectLimit).collect()
+          case Some(values) if values.isEmpty => None
 
-        if (bounded.length > bloomMaxQueryValues) {
-          logger.warn(
-            s"Auto-bloom pre-filter skipped for '$storageColumn': more than $bloomMaxQueryValues distinct query " +
-              s"values exceeds spark.ariadne.bloomMaxQueryValues ($bloomMaxQueryValues). At this probe cardinality " +
-              s"the O(files x values) probe costs more than the join it would accelerate and prunes almost nothing. " +
-              s"Results are unaffected; the large index is scanned without bloom pruning.")
-          None
-        } else {
-          val values = bounded.map(_.get(0))
-          if (values.isEmpty) None
-          else getAutoBloomCandidates(storageColumn, values, indexDf)
+          case Some(values) => getAutoBloomCandidates(storageColumn, values, indexDf)
         }
       }
     }

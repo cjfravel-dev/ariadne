@@ -173,9 +173,8 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
     }
   }
 
-  test("should skip the auto-bloom pre-filter when the query value set exceeds bloomMaxQueryValues") {
+  test("should skip the auto-bloom pre-filter when the query value set exceeds the derived bound") {
     spark.conf.set("spark.ariadne.largeIndexLimit", "1")
-    spark.conf.set("spark.ariadne.bloomMaxQueryValues", "1")
     try {
       val index = Index("auto_bloom_bound_test", testSchema, "csv", Map("header" -> "true"))
       index.addFile(resourcePath("/data/table1_part0.csv"))
@@ -185,24 +184,20 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
 
       val _spark = spark
       import _spark.implicits._
-      // Two distinct join keys exceeds the bound of 1, so the pre-filter is skipped.
-      val queryDf = Seq(2, 4).toDF("Id")
+      // Past the bound derived from the auto-bloom FPR, so the pre-filter is skipped.
+      val overBound = BloomFilterOperations.maxProbeValues(index.autoBloomFpr) + 10
+      val queryDf = Seq.range(1, overBound).toDF("Id")
 
       // Skipping the pre-filter must not change the answer, only the amount of work.
       val ids = index.join(queryDf, Seq("Id")).select("Id").collect().map(_.getInt(0)).toSet
-      ids shouldBe Set(2, 4)
+      ids shouldBe Set(1, 2, 3, 4)
     } finally {
       spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
-      spark.conf.set("spark.ariadne.bloomMaxQueryValues", "1000000")
     }
   }
 
-  test("should apply the auto-bloom pre-filter over the full value set when the count equals bloomMaxQueryValues") {
+  test("should probe every distinct value when the query sits exactly at the derived bound") {
     spark.conf.set("spark.ariadne.largeIndexLimit", "1")
-    // Exactly at the bound: the pre-filter must still run, and it must probe every
-    // distinct value. Bounding the collect must never truncate the probe set, or files
-    // holding the dropped values would be pruned away and rows would silently vanish.
-    spark.conf.set("spark.ariadne.bloomMaxQueryValues", "4")
     try {
       val index = Index("auto_bloom_boundary_test", testSchema, "csv", Map("header" -> "true"))
       index.addFile(resourcePath("/data/table1_part0.csv"))
@@ -212,8 +207,14 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
 
       val _spark = spark
       import _spark.implicits._
-      val queryDf = Seq(1, 2, 3, 4).toDF("Id")
+      // Exactly at the bound the pre-filter must still run, and it must probe every
+      // distinct value. Bounding the collect must never truncate the probe set, or files
+      // holding the dropped values would be pruned away and rows would silently vanish.
+      val bound = BloomFilterOperations.maxProbeValues(index.autoBloomFpr)
+      val exact = Seq.range(0, bound).toDF("Id")
+      index.collectProbeValues(exact, "Id", index.autoBloomFpr).map(_.length) shouldBe Some(bound)
 
+      val queryDf = Seq(1, 2, 3, 4).toDF("Id")
       val ids = index.join(queryDf, Seq("Id")).select("Id").collect().map(_.getInt(0)).toSet
       ids shouldBe Set(1, 2, 3, 4)
 
@@ -223,7 +224,6 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
       all shouldBe union
     } finally {
       spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
-      spark.conf.set("spark.ariadne.bloomMaxQueryValues", "1000000")
     }
   }
 
@@ -236,8 +236,6 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
       index.addIndex("Id")
       index.update
 
-      // Pre-filter active (bound is high enough to broadcast the values).
-      spark.conf.set("spark.ariadne.bloomMaxQueryValues", "1000000")
       val withBloom = index.locateFiles(Map("Id" -> Array(2, 4)))
 
       // Bloom pruning is an optimization: a multi-value probe must match the union of
@@ -247,7 +245,6 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
       withBloom.size shouldBe 2
     } finally {
       spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
-      spark.conf.set("spark.ariadne.bloomMaxQueryValues", "1000000")
     }
   }
 }
