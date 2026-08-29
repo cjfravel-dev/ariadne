@@ -6,7 +6,7 @@ import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.{Column, DataFrame, Row}
 
 /**
  * Trait providing query and file location operations for Index instances.
@@ -22,6 +22,8 @@ import org.apache.spark.sql.{DataFrame, Row}
  */
 trait IndexQueryOperations extends IndexJoinOperations {
   self: Index =>
+
+  import IndexQueryOperations.MaxPerValueRangeProbes
 
   /**
    * Conditionally repartitions a DataFrame if indexRepartitionCount is configured. This helps avoid
@@ -590,7 +592,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
         indexDf
           .select(col("filename"), col(s"$rangeCol.min").alias("file_min"), col(s"$rangeCol.max").alias("file_max"))
           .where(col("file_min").isNotNull && col("file_max").isNotNull)
-          .where(valueConditions.reduce(_ || _))
+          .where(anyOf(valueConditions.toSeq))
           .select("filename")
           .distinct()
 
@@ -796,15 +798,40 @@ trait IndexQueryOperations extends IndexJoinOperations {
   }
 
   /**
+   * Combines predicates with a logical or, as a balanced tree rather than a chain.
+   *
+   * Folding left over `n` predicates produces a tree of depth `n`. Catalyst and Delta's data skipping both walk
+   * predicate trees recursively and overflow the stack well within the number of values the per-value range strategy
+   * admits. Splitting in half instead yields depth `log2(n)`, which stays shallow for any value set that reaches here.
+   *
+   * @param conditions
+   *   predicates to combine; must be non-empty
+   * @return
+   *   a single predicate matching any of `conditions`
+   * @throws IllegalArgumentException
+   *   if `conditions` is empty
+   */
+  private def anyOf(conditions: Seq[Column]): Column = {
+    require(conditions.nonEmpty, "anyOf requires at least one condition")
+    if (conditions.length == 1) {
+      conditions.head
+    } else {
+      val (left, right) = conditions.splitAt(conditions.length / 2)
+      anyOf(left) || anyOf(right)
+    }
+  }
+
+  /**
    * Locates files using range indexes from a DataFrame of values.
    *
-   * Collects up to 10,000 distinct query values. For sets exceeding 1,000 values, falls back to a bounding-box
-   * optimization (query min/max vs file min/max). For smaller sets, checks per-value containment for precise pruning.
+   * Query values drive one of two strategies. At or below `MaxPerValueRangeProbes` distinct values, each value is
+   * checked for containment in a file's stored range, which prunes precisely. Above it, a bounding box built from the
+   * query's own min/max is compared against each file's range, which may admit files whose range overlaps the box but
+   * holds no matching value.
    *
-   * @note
-   *   Distinct values are truncated to 10,000 to avoid driver OOM. For value sets exceeding 1,000, a bounding-box
-   *   optimization is used which may include false-positive files whose ranges overlap but contain no actual matching
-   *   values.
+   * Only enough values to make that choice are brought to the driver: the collect is capped one past the threshold, so
+   * a set large enough to select the bounding box is never materialized. The bounding box is derived by aggregating
+   * over the full DataFrame, not the capped sample, so the result does not depend on which values were collected.
    *
    * @param column
    *   The range index column name
@@ -823,27 +850,23 @@ trait IndexQueryOperations extends IndexJoinOperations {
     if (!indexDf.columns.contains(rangeCol)) {
       Set.empty
     } else {
-      // Collect distinct query values (bounded to avoid driver OOM)
-      val rawCount = valuesDf.select(col(column)).distinct().count()
-      if (rawCount > 10000) {
-        logger.warn(s"Range query on '$column': truncating $rawCount distinct values to 10000 for per-value pruning")
-      }
+      // One value past the threshold is enough to choose a strategy, and bounds the collect.
       val distinctValues =
         valuesDf
           .select(col(column))
           .where(col(column).isNotNull)
           .distinct()
-          .limit(10000)
+          .limit(MaxPerValueRangeProbes + 1)
           .collect()
           .map(_.get(0))
 
       if (distinctValues.isEmpty) {
         Set.empty
       } else {
-        logger.warn(s"Range query on column '$column' with ${distinctValues.length} distinct values")
-
-        if (distinctValues.length > 1000) {
-          logger.warn(s"Range query: large value set (${distinctValues.length}), using bounding box optimization")
+        if (distinctValues.length > MaxPerValueRangeProbes) {
+          logger.warn(
+            s"Range query on column '$column': more than $MaxPerValueRangeProbes distinct values, " +
+              "using bounding box optimization")
           val minMaxRow =
             valuesDf
               .agg(min(col(column)).alias("q_min"), max(col(column)).alias("q_max"))
@@ -874,7 +897,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
             indexDf
               .select(col("filename"), col(s"$rangeCol.min").alias("file_min"), col(s"$rangeCol.max").alias("file_max"))
               .where(col("file_min").isNotNull && col("file_max").isNotNull)
-              .where(valueConditions.reduce(_ || _))
+              .where(anyOf(valueConditions.toSeq))
               .select("filename")
               .distinct()
 
@@ -1000,4 +1023,18 @@ trait IndexQueryOperations extends IndexJoinOperations {
   // scalastyle:off println
   private[ariadne] def printMetadata: Unit = println(metadata)
   // scalastyle:on println
+}
+
+/**
+ * Constants governing range index query strategy selection.
+ */
+private[ariadne] object IndexQueryOperations {
+
+  /**
+   * Largest number of distinct query values checked individually against a file's stored range.
+   *
+   * Each value contributes one disjunct to the pruning predicate, so the predicate grows with the value set. Beyond
+   * this many values the query switches to a bounding box, which is a single comparison regardless of set size.
+   */
+  val MaxPerValueRangeProbes: Int = 1000
 }
