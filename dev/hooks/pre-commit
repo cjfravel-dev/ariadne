@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
-# Run the lint gates that CI enforces, before the commit rather than 20 minutes later.
+# Run the lint gates that CI enforces, against staged Scala sources.
 #
-# CI fails the build on scalafix (RemoveUnused + OrganizeImports) and scalastyle
-# violations, and both run in the `verify` phase behind a full compile and test
-# run. A violation therefore costs a complete CI cycle to discover. These checks
-# take seconds locally, so this hook runs them up front.
+# scalafix (RemoveUnused + OrganizeImports) and scalastyle fail the build, so the
+# hook runs them in check mode and aborts the commit on a violation.
 #
-# scalafmt is handled differently: the build binds `scalafmt:format` to `validate`,
-# so it rewrites sources rather than failing. Unformatted code never breaks CI but
-# does land in history and churn later diffs. The hook formats and re-stages
-# instead, so the committed tree matches what the build would produce.
+# scalafmt is bound to `validate` in the build and rewrites sources rather than
+# failing, so the hook formats and re-stages instead of aborting. The committed
+# tree then matches what the build produces.
 #
 # Each goal is invoked as `plugin:goal@execution-id`, which reuses the execution
 # configuration from pom.xml (check mode, config file locations, source
