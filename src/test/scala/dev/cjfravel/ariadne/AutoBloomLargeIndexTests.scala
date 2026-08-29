@@ -172,4 +172,79 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
       spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
     }
   }
+
+  test("should skip the auto-bloom pre-filter when the query value set exceeds the derived bound") {
+    spark.conf.set("spark.ariadne.largeIndexLimit", "1")
+    try {
+      val index = Index("auto_bloom_bound_test", testSchema, "csv", Map("header" -> "true"))
+      index.addFile(resourcePath("/data/table1_part0.csv"))
+      index.addFile(resourcePath("/data/table1_part1.csv"))
+      index.addIndex("Id")
+      index.update
+
+      val _spark = spark
+      import _spark.implicits._
+      // Past the bound derived from the auto-bloom FPR, so the pre-filter is skipped.
+      val overBound = BloomFilterOperations.maxProbeValues(index.autoBloomFpr) + 10
+      val queryDf = Seq.range(1, overBound).toDF("Id")
+
+      // Skipping the pre-filter must not change the answer, only the amount of work.
+      val ids = index.join(queryDf, Seq("Id")).select("Id").collect().map(_.getInt(0)).toSet
+      ids shouldBe Set(1, 2, 3, 4)
+    } finally {
+      spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
+    }
+  }
+
+  test("should probe every distinct value when the query sits exactly at the derived bound") {
+    spark.conf.set("spark.ariadne.largeIndexLimit", "1")
+    try {
+      val index = Index("auto_bloom_boundary_test", testSchema, "csv", Map("header" -> "true"))
+      index.addFile(resourcePath("/data/table1_part0.csv"))
+      index.addFile(resourcePath("/data/table1_part1.csv"))
+      index.addIndex("Id")
+      index.update
+
+      val _spark = spark
+      import _spark.implicits._
+      // Exactly at the bound the pre-filter must still run, and it must probe every
+      // distinct value. Bounding the collect must never truncate the probe set, or files
+      // holding the dropped values would be pruned away and rows would silently vanish.
+      val bound = BloomFilterOperations.maxProbeValues(index.autoBloomFpr)
+      val exact = Seq.range(0, bound).toDF("Id")
+      index.collectProbeValues(exact, "Id", index.autoBloomFpr).map(_.length) shouldBe Some(bound)
+
+      val queryDf = Seq(1, 2, 3, 4).toDF("Id")
+      val ids = index.join(queryDf, Seq("Id")).select("Id").collect().map(_.getInt(0)).toSet
+      ids shouldBe Set(1, 2, 3, 4)
+
+      // Every value must resolve to the same files it would on its own.
+      val all = index.locateFiles(Map("Id" -> Array(1, 2, 3, 4)))
+      val union = Seq(1, 2, 3, 4).flatMap(v => index.locateFiles(Map("Id" -> Array(v)))).toSet
+      all shouldBe union
+    } finally {
+      spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
+    }
+  }
+
+  test("should return identical results whether or not the auto-bloom pre-filter is applied") {
+    spark.conf.set("spark.ariadne.largeIndexLimit", "1")
+    try {
+      val index = Index("auto_bloom_parity_test", testSchema, "csv", Map("header" -> "true"))
+      index.addFile(resourcePath("/data/table1_part0.csv"))
+      index.addFile(resourcePath("/data/table1_part1.csv"))
+      index.addIndex("Id")
+      index.update
+
+      val withBloom = index.locateFiles(Map("Id" -> Array(2, 4)))
+
+      // Bloom pruning is an optimization: a multi-value probe must match the union of
+      // the single-value probes, with no files dropped.
+      val union = index.locateFiles(Map("Id" -> Array(2))) ++ index.locateFiles(Map("Id" -> Array(4)))
+      withBloom shouldBe union
+      withBloom.size shouldBe 2
+    } finally {
+      spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
+    }
+  }
 }

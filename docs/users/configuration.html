@@ -105,7 +105,7 @@
           <tr>
             <td><code>spark.ariadne.autoBloomFpr</code></td>
             <td><code>0.01</code></td>
-            <td>False-positive rate for the automatic bloom filters built on columns that exceed <code>largeIndexLimit</code>.</td>
+            <td>False-positive rate for the automatic bloom filters built on columns that exceed <code>largeIndexLimit</code>. This also determines how many distinct query-side values are worth probing: a filter prunes <code>(1&nbsp;&minus;&nbsp;fpr)<sup>n</sup></code> of non-matching files, so past roughly <code>1/fpr</code> values it prunes nothing and the pre-filter is skipped automatically. That bound is derived, not configurable.</td>
           </tr>
         </tbody>
       </table>

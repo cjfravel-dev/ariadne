@@ -367,13 +367,14 @@ trait IndexQueryOperations extends IndexJoinOperations {
   /**
    * Gets candidate files from the auto-bloom filter for a specific column.
    *
-   * Collects all bloom filter byte arrays from the index to the driver and tests each value against them. Files whose
-   * bloom filter is null are included as candidates for backward compatibility with indexes built before auto-bloom was
-   * added.
+   * The probe runs as a distributed Spark filter via [[probeBloomFilters]]: candidate values are broadcast to the
+   * executors and only the matching filenames come back to the driver. Files whose bloom filter is null are included as
+   * candidates for backward compatibility with indexes built before auto-bloom was added.
    *
    * @note
-   *   This method collects all (filename, bloom_filter_bytes) rows to the driver. For very large indexes (100k+ files),
-   *   this can cause driver OOM. Monitor driver memory when using auto-bloom on large indexes.
+   *   Auto-bloom filters are built from arrays holding at least `largeIndexLimit` values, so each serialized filter is
+   *   large (~600&nbsp;KB per file per column at the default 500,000 limit and 1% FPR). They are deliberately never
+   *   collected to the driver.
    *
    * @param column
    *   The storage column name to check for auto-bloom filtering
@@ -390,34 +391,9 @@ trait IndexQueryOperations extends IndexJoinOperations {
       val autoBloomCol = s"auto_bloom_$column"
       if (!indexDf.columns.contains(autoBloomCol)) None
       else {
-        val rowCount = indexDf.count()
-        if (rowCount > 100000) {
-          logger.warn(
-            s"getAutoBloomCandidates: collecting $rowCount rows to driver for column '$column' — " +
-              s"risk of driver OOM on very large indexes")
-        }
-
-        val allRows =
-          indexDf
-            .select("filename", autoBloomCol)
-            .collect()
-
-        val candidates =
-          allRows
-            .filter { row =>
-              val bloomBytes = row.getAs[Array[Byte]](autoBloomCol)
-              if (bloomBytes == null) true
-              else values.exists(v => bloomMightContain(bloomBytes, v))
-            }
-            .map(_.getString(0))
-            .toSet
-
-        val totalFiles = allRows.length
-        val reduction =
-          if (totalFiles > 0) 100 - candidates.size * 100 / totalFiles else 0
-        logger.warn(
-          s"Auto-bloom filter for '$column': $totalFiles total files -> " +
-            s"${candidates.size} candidates ($reduction% reduction)")
+        // A null auto-bloom filter means the file predates auto-bloom, so it must stay a candidate.
+        val candidates = probeBloomFilters(indexDf, autoBloomCol, values, includeNullFilters = true)
+        logger.warn(s"Auto-bloom filter for '$column': ${candidates.size} candidate files")
         Some(candidates)
       }
     }
@@ -425,13 +401,17 @@ trait IndexQueryOperations extends IndexJoinOperations {
   /**
    * Gets candidate files from the auto-bloom filter using values extracted from a DataFrame.
    *
-   * Collects distinct non-null values from the given DataFrame column, then delegates to [[getAutoBloomCandidates]] for
-   * the actual bloom filter probing.
+   * Delegates the bounded query-side collect to [[BloomFilterOperations.collectProbeValues]], the same helper the
+   * explicit bloom path uses, then probes via [[getAutoBloomCandidates]]. The two bloom kinds differ only in how a
+   * `null` filter is interpreted: a missing auto-bloom means the file was never large enough to get one and must stay a
+   * candidate, whereas a missing explicit bloom means the file held no values for the column and cannot match.
    *
    * @note
-   *   This method collects distinct values from `valuesDf` to the driver and then delegates to
-   *   [[getAutoBloomCandidates]], which collects all bloom filter rows. Both collections can cause driver OOM on large
-   *   indexes.
+   *   The bound applies to query-side cardinality only; it does not limit how many values an index may hold. Auto-bloom
+   *   is only a pre-filter, so past the bound this returns `None` and the caller proceeds without pruning. Results are
+   *   unaffected — the large index is simply scanned without bloom pruning. The value set is never truncated, since
+   *   dropping probe values would prune away the files holding them and turn a pre-filter into a source of missing
+   *   rows.
    *
    * @param storageColumn
    *   The storage column name in the index (used to look up the auto-bloom)
@@ -442,7 +422,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
    * @param indexDf
    *   The main index DataFrame containing auto-bloom binary columns
    * @return
-   *   Some(set of candidate filenames) if an auto-bloom index exists, None otherwise
+   *   Some(set of candidate filenames) if an auto-bloom index exists and the value set is within bounds, None otherwise
    */
   protected def getAutoBloomCandidatesFromDf(
       storageColumn: String,
@@ -454,16 +434,19 @@ trait IndexQueryOperations extends IndexJoinOperations {
       val autoBloomCol = s"auto_bloom_$storageColumn"
       if (!indexDf.columns.contains(autoBloomCol)) None
       else {
-        val values =
-          valuesDf
-            .select(joinColumn)
-            .where(col(joinColumn).isNotNull)
-            .distinct()
-            .collect()
-            .map(_.get(0))
+        collectProbeValues(valuesDf, joinColumn, autoBloomFpr) match {
+          case None =>
+            logger.warn(
+              s"Auto-bloom pre-filter skipped for '$storageColumn': more than " +
+                s"${BloomFilterOperations.maxProbeValues(autoBloomFpr)} distinct query values, past which a filter " +
+                s"at FPR $autoBloomFpr prunes less than ${BloomFilterOperations.MinPruningFraction} of non-matching " +
+                s"files. Results are unaffected; the large index is scanned without bloom pruning.")
+            None
 
-        if (values.isEmpty) None
-        else getAutoBloomCandidates(storageColumn, values, indexDf)
+          case Some(values) if values.isEmpty => None
+
+          case Some(values) => getAutoBloomCandidates(storageColumn, values, indexDf)
+        }
       }
     }
 
