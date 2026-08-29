@@ -30,8 +30,15 @@ All notable changes to this project are documented here. The format is based on
 
 - Range queries with up to 1,000 probe values no longer build a linear-depth predicate tree that can overflow Delta
   Lake's recursive data-skipping analysis. Predicates are now combined as a balanced tree.
-- Large-index analysis no longer undercounts unrelated regular or exploded fields when another exploded array is null
-  or empty, and temporal cardinality now includes the stored null group.
+- Files whose indexed cardinality falls below `largeIndexLimit` no longer retain stale rows in the corresponding
+  `large_indexes` table after re-indexing.
+- Files are no longer omitted from an update when every indexed column is an exploded field and all of their arrays are
+  null or empty.
+- Large-index analysis no longer undercounts a regular or exploded index when another exploded array is null or empty.
+  The previous mismatch could null the inline index without writing its values to `large_indexes`, causing query-time
+  data loss. Each exploded configuration is now counted independently.
+- Temporal index cardinality now includes the stored null group, preventing a file at the large-index boundary from
+  being classified one value below its actual stored size.
 
 ## [0.1.8-beta]
 
