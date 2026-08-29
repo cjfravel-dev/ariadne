@@ -791,11 +791,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    *   When true, indicates this is a column backfill rather than new file indexing; file sizes will not be re-counted
    *   toward the total
    */
-  private def updateBatched(
-      files: Set[String],
-      lock: IndexLock,
-      correlationId: String,
-      isBackfill: Boolean = false): Unit = {
+  private def updateBatched(files: Set[String], lock: IndexLock, correlationId: String, isBackfill: Boolean): Unit = {
     val updateBatchedStart = System.currentTimeMillis()
     logger.warn(s"Using intelligent batched update for ${files.size} files")
 
@@ -854,7 +850,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    *   When true, indicates this is a column backfill rather than new file indexing; file sizes will not be re-counted
    *   toward the total
    */
-  private def updateSingleBatch(files: Set[String], analyses: Seq[FileAnalysis], isBackfill: Boolean = false): Unit = {
+  private def updateSingleBatch(files: Set[String], analyses: Seq[FileAnalysis], isBackfill: Boolean): Unit = {
     val singleBatchStart = System.currentTimeMillis()
     logger.warn(s"Processing single batch of ${files.size} files")
     val baseDf = createBaseDataFrame(files)
