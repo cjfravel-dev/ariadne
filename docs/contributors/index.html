@@ -108,7 +108,7 @@
 
     <p>This points <code>core.hooksPath</code> at the version-controlled <code>dev/hooks</code> directory, so the hooks stay in sync with the repository rather than being copied into <code>.git/hooks</code> and going stale. Use <code>--check</code> to see the current state and <code>--uninstall</code> to remove it.</p>
 
-    <p>The <code>pre-commit</code> hook exits immediately unless the commit stages Scala sources. When it does, it runs <code>scalafmt:format</code> and re-stages what it reformatted, then compiles and runs scalafix and scalastyle. Files with both staged and unstaged changes are never re-staged automatically — the hook reports them and stops, because <code>git add</code> would sweep in work you deliberately left out of the commit.</p>
+    <p>The <code>pre-commit</code> hook exits immediately unless the commit stages Scala sources. When it does, it runs <code>scalafmt:format</code> and re-stages what it reformatted, then compiles and runs scalafix and scalastyle. Files with both staged and unstaged changes are never re-staged automatically — the hook reports them and stops, because <code>git add</code> would sweep in work you deliberately left out of the commit. scalafmt formats every source directory configured in <code>pom.xml</code> rather than only the staged files, so if it rewrites a Scala file that is not part of your commit the hook names that file and stops, leaving you to stage or revert it.</p>
 
     <dl class="kv">
       <dt><code>git commit --no-verify</code></dt><dd>Skip the hook for one commit.</dd>

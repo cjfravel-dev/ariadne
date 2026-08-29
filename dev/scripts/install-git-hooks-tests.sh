@@ -296,6 +296,58 @@ if [[ "$mode" != "100755" ]]; then
     fail "dev/scripts/install-git-hooks.sh is committed with mode $mode"
 fi
 
+# ---------------------------------------------------------------------------
+# scalafmt formats every configured source directory, not only staged files, so
+# it can rewrite a file the author is not committing. That edit is invisible in
+# the commit and easy to sweep into a later one, so the hook must name it and
+# stop rather than let it pass unremarked.
+# ---------------------------------------------------------------------------
+sandbox=$(make_sandbox)
+out=$(
+    cd "$sandbox/repo"
+    export PATH="$sandbox/bin:$PATH"
+    export MVN_CALLS="$sandbox/calls.txt"
+    : >"$MVN_CALLS"
+    echo "object Other" >src/Other.scala
+    git add src/Other.scala
+    git commit -qm other >/dev/null 2>&1
+    # Staged file is Base; scalafmt reformats Other, which is clean and unstaged.
+    echo "object Base2" >>src/Base.scala
+    git add src/Base.scala
+    export MVN_FORMAT_FILE="src/Other.scala"
+    git commit -qm "collateral" 2>&1
+)
+if [[ $? -eq 0 ]]; then
+    fail "commit succeeded after scalafmt reformatted an unstaged file"
+fi
+if ! grep -q "Other.scala" <<<"$out"; then
+    fail "hook did not name the unstaged file scalafmt reformatted"
+fi
+rm -rf "$sandbox"
+
+# ---------------------------------------------------------------------------
+# The converse must not fire: reformatting a fully staged file is the hook doing
+# its job, and must re-stage and pass rather than trip the collateral check.
+# ---------------------------------------------------------------------------
+sandbox=$(make_sandbox)
+(
+    cd "$sandbox/repo"
+    export PATH="$sandbox/bin:$PATH"
+    export MVN_CALLS="$sandbox/calls.txt"
+    : >"$MVN_CALLS"
+    echo "object Base2" >>src/Base.scala
+    git add src/Base.scala
+    export MVN_FORMAT_FILE="src/Base.scala"
+    git commit -qm "staged reformat" >/dev/null 2>&1
+) >/dev/null 2>&1
+if ! (cd "$sandbox/repo" && git log --oneline | grep -q "staged reformat"); then
+    fail "commit was blocked when scalafmt reformatted a fully staged file"
+fi
+if ! (cd "$sandbox/repo" && git diff --quiet -- src/Base.scala); then
+    fail "scalafmt formatting of a staged file was not re-staged"
+fi
+rm -rf "$sandbox"
+
 if [[ $failures -ne 0 ]]; then
     echo "$failures git hook test(s) failed."
     exit 1

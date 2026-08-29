@@ -41,7 +41,8 @@ if [[ "$MODE" == "uninstall" ]]; then
         exit 0
     fi
     git config --local --unset core.hooksPath
-    echo "Uninstalled: core.hooksPath cleared, git will use .git/hooks again."
+    echo "Uninstalled: local core.hooksPath cleared."
+    echo "Git falls back to .git/hooks unless core.hooksPath is set globally."
     exit 0
 fi
 
@@ -50,7 +51,7 @@ if [[ "$MODE" == "check" ]]; then
         echo "Installed: core.hooksPath = $current"
         exit 0
     fi
-    echo "Not installed (core.hooksPath = ${current:-<unset>}). Run dev/scripts/install-git-hooks.sh" >&2
+    echo "Not installed (local core.hooksPath = ${current:-<unset>}). Run dev/scripts/install-git-hooks.sh" >&2
     exit 1
 fi
 
@@ -90,8 +91,10 @@ git config --local core.hooksPath "$HOOKS_DIR"
 
 echo "Installed: core.hooksPath = $HOOKS_DIR"
 echo
-echo "The pre-commit hook formats staged Scala with scalafmt and fails the commit"
-echo "on scalafix or scalastyle violations, the two lint gates that fail CI."
+echo "The pre-commit hook runs scalafmt, then fails the commit on scalafix or"
+echo "scalastyle violations. scalafmt formats every Scala source directory in"
+echo "pom.xml, not only staged files; it re-stages your staged files and reports"
+echo "any others it rewrote."
 echo
 echo "  git commit --no-verify        skip for one commit"
 echo "  ARIADNE_SKIP_HOOKS=1          disable all hooks"

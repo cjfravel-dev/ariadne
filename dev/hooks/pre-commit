@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Run the lint gates that CI enforces, against staged Scala sources.
+# Run the lint gates that fail the build: scalafmt, scalafix (RemoveUnused +
+# OrganizeImports) and scalastyle.
 #
-# scalafix (RemoveUnused + OrganizeImports) and scalastyle fail the build, so the
-# hook runs them in check mode and aborts the commit on a violation.
+# scalafix and scalastyle run in check mode here and abort the commit on a
+# violation, since only the author can decide the fix.
 #
-# scalafmt is bound to `validate` in the build and rewrites sources rather than
-# failing, so the hook formats and re-stages instead of aborting. The committed
-# tree then matches what the build produces.
+# scalafmt is handled differently. The build's `scalafmt-check` execution runs
+# with `validateOnly=true` and fails on unformatted sources, but the fix is
+# mechanical, so the hook runs the plugin in rewrite mode and re-stages the
+# result instead of aborting. The commit then contains formatted sources.
 #
 # Each goal is invoked as `plugin:goal@execution-id`, which reuses the execution
 # configuration from pom.xml (check mode, config file locations, source
@@ -59,26 +61,37 @@ run_step() {
     return 1
 }
 
-# A file with both staged and unstaged changes cannot be safely re-staged after
-# formatting: `git add` would sweep in the unstaged work the author deliberately
-# left out. Record those up front and leave them alone.
-mapfile -d '' -t PARTIALLY_STAGED < <(
+# Scala files whose working tree copy already differs from the index, recorded
+# before scalafmt runs. Serves two purposes: a staged file in this set is
+# partially staged and cannot be safely re-staged (`git add` would sweep in the
+# unstaged work the author left out), and any file that enters the set during
+# formatting was rewritten by scalafmt rather than by the author.
+mapfile -d '' -t DIRTY_BEFORE_FMT < <(
     git diff --name-only -z -- '*.scala'
 )
 
-# The `${arr[@]+...}` guard keeps `set -u` happy when nothing is partially staged.
-# Paths come from `git -z` and may contain spaces or newlines, so the expansion stays
-# quoted: this decides whether re-staging is safe, and a split path would compare
-# unequal and let `git add` sweep in unstaged work.
-is_partially_staged() {
-    local candidate
-    for candidate in ${PARTIALLY_STAGED[@]+"${PARTIALLY_STAGED[@]}"}; do
-        [[ "$candidate" == "$1" ]] && return 0
+# Paths come from `git -z` and may contain spaces or newlines, so expansions stay
+# quoted: membership gates `git add`, and a split path would compare unequal.
+# The `${arr[@]+...}` guard keeps `set -u` happy when the array is empty.
+contains_path() {
+    local needle="$1" candidate
+    shift
+    for candidate in "$@"; do
+        [[ "$candidate" == "$needle" ]] && return 0
     done
     return 1
 }
 
+is_partially_staged() {
+    contains_path "$1" ${DIRTY_BEFORE_FMT[@]+"${DIRTY_BEFORE_FMT[@]}"}
+}
+
 if run_step "scalafmt (format)" mvn "${MVN_FLAGS[@]}" scalafmt:format; then
+    # Snapshot before re-staging, which would clean the entries this classifies.
+    mapfile -d '' -t DIRTY_AFTER_FMT < <(
+        git diff --name-only -z -- '*.scala'
+    )
+
     reformatted=0
     skipped=0
     for file in "${STAGED_SCALA[@]}"; do
@@ -99,6 +112,22 @@ if run_step "scalafmt (format)" mvn "${MVN_FLAGS[@]}" scalafmt:format; then
     fi
     if [[ $skipped -gt 0 ]]; then
         echo "  NOTE  review the $skipped partially staged file(s) above, then stage the formatting" >&2
+        status=1
+    fi
+
+    # scalafmt formats every source directory configured in pom.xml, so it can
+    # rewrite Scala files outside this commit. Those edits land in the working
+    # tree unmentioned by the commit, so report them and stop. Files already
+    # dirty beforehand are excluded: they are modified in `git status` either way.
+    collateral=0
+    for file in ${DIRTY_AFTER_FMT[@]+"${DIRTY_AFTER_FMT[@]}"}; do
+        contains_path "$file" ${DIRTY_BEFORE_FMT[@]+"${DIRTY_BEFORE_FMT[@]}"} && continue
+        contains_path "$file" ${STAGED_SCALA[@]+"${STAGED_SCALA[@]}"} && continue
+        echo "  WARN  $file was reformatted by scalafmt but is not part of this commit" >&2
+        collateral=$((collateral + 1))
+    done
+    if [[ $collateral -gt 0 ]]; then
+        echo "  NOTE  stage or revert the $collateral file(s) above, then commit again" >&2
         status=1
     fi
 fi
