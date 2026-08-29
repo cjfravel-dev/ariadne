@@ -100,6 +100,22 @@
       <p><strong>Don't upgrade runtime families independently.</strong> Spark 3.5 / Scala 2.12.17 / Java 11 track the deployed Azure Synapse runtime, while Spark 4.1 / Scala 2.13.17 / Java 21 track Fabric Runtime 2.0.</p>
     </div>
 
+    <h3>Git hooks (recommended)</h3>
+
+    <p>scalafix and scalastyle run in the <code>verify</code> phase, behind a full compile and test run, so a stray unused import is only reported after a complete CI cycle. The same checks take a few seconds locally. Install the pre-commit hook to run them before the commit instead:</p>
+
+<pre><code class="language-bash">dev/scripts/install-git-hooks.sh</code></pre>
+
+    <p>This points <code>core.hooksPath</code> at the version-controlled <code>dev/hooks</code> directory, so the hooks stay in sync with the repository rather than being copied into <code>.git/hooks</code> and going stale. Use <code>--check</code> to see the current state and <code>--uninstall</code> to remove it.</p>
+
+    <p>The <code>pre-commit</code> hook exits immediately unless the commit stages Scala sources. When it does, it runs <code>scalafmt:format</code> and re-stages what it reformatted, then compiles and runs scalafix and scalastyle. Files with both staged and unstaged changes are never re-staged automatically — the hook reports them and stops, because <code>git add</code> would sweep in work you deliberately left out of the commit.</p>
+
+    <dl class="kv">
+      <dt><code>git commit --no-verify</code></dt><dd>Skip the hook for one commit.</dd>
+      <dt><code>ARIADNE_SKIP_HOOKS=1</code></dt><dd>Disable the hook entirely.</dd>
+      <dt><code>ARIADNE_HOOK_SKIP_SCALAFIX=1</code></dt><dd>Skip only the compile-dependent scalafix step, which is the slowest part.</dd>
+    </dl>
+
     <h2 id="build">Build &amp; test</h2>
 
 <pre><code class="language-bash"># Run all tests
@@ -118,7 +134,7 @@ mvn package</code></pre>
 
     <h2 id="style">Code style</h2>
     <ul>
-      <li>Format with <strong>scalafmt</strong> (<code>mvn scalafmt:format</code>). Imports are organized and unused code removed by <strong>scalafix</strong> (<code>RemoveUnused</code> + <code>OrganizeImports</code>), and <strong>scalastyle</strong> (adapted from Apache Spark) enforces static checks. All three run in the build and CI, so a violation fails the build.</li>
+      <li>Format with <strong>scalafmt</strong> (<code>mvn scalafmt:format</code>). Imports are organized and unused code removed by <strong>scalafix</strong> (<code>RemoveUnused</code> + <code>OrganizeImports</code>), and <strong>scalastyle</strong> (adapted from Apache Spark) enforces static checks. All three run in the build and CI, so a violation fails the build. Install the <a href="#setup">pre-commit hook</a> to catch violations before they reach CI.</li>
       <li>Standard Scala naming: <code>camelCase</code> for methods/vals, <code>PascalCase</code> for types.</li>
       <li>Expression-oriented style — prefer <code>if/else</code> expressions over <code>return</code>.</li>
       <li>Use <code>import scala.collection.JavaConverters._</code> (the project is Scala 2.12; <code>CollectionConverters</code> is 2.13+).</li>

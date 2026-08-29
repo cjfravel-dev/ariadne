@@ -457,6 +457,19 @@
                         </configuration>
                     </execution>
                     <execution>
+                        <id>test-git-hooks-script</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>dev/scripts/install-git-hooks-tests.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>clean-api-docs-output</id>
                         <phase>prepare-package</phase>
                         <goals>

@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Run the lint gates that CI enforces, before the commit rather than 20 minutes later.
+#
+# CI fails the build on scalafix (RemoveUnused + OrganizeImports) and scalastyle
+# violations, and both run in the `verify` phase behind a full compile and test
+# run. A violation therefore costs a complete CI cycle to discover. These checks
+# take seconds locally, so this hook runs them up front.
+#
+# scalafmt is handled differently: the build binds `scalafmt:format` to `validate`,
+# so it rewrites sources rather than failing. Unformatted code never breaks CI but
+# does land in history and churn later diffs. The hook formats and re-stages
+# instead, so the committed tree matches what the build would produce.
+#
+# Each goal is invoked as `plugin:goal@execution-id`, which reuses the execution
+# configuration from pom.xml (check mode, config file locations, source
+# directories). The hook cannot drift from the build's own settings, and needs no
+# knowledge of plugin versions or of the active Spark/Scala profile.
+#
+# Skip with `git commit --no-verify`, or ARIADNE_SKIP_HOOKS=1 to disable entirely.
+# ARIADNE_HOOK_SKIP_SCALAFIX=1 skips only the compile-dependent scalafix step.
+
+set -uo pipefail
+
+if [[ "${ARIADNE_SKIP_HOOKS:-0}" == "1" ]]; then
+    echo "pre-commit: skipped (ARIADNE_SKIP_HOOKS=1)"
+    exit 0
+fi
+
+REPO_ROOT=$(git rev-parse --show-toplevel) || exit 1
+cd "$REPO_ROOT" || exit 1
+
+# Only Scala changes can violate these checks, so a docs- or config-only commit
+# should not pay for a compile.
+mapfile -d '' -t STAGED_SCALA < <(
+    git diff --cached --name-only --diff-filter=ACMR -z -- '*.scala'
+)
+
+if [[ ${#STAGED_SCALA[@]} -eq 0 ]]; then
+    exit 0
+fi
+
+echo "pre-commit: ${#STAGED_SCALA[@]} Scala file(s) staged, running lint checks..."
+
+# Not offline: a fresh clone has nothing cached, and Maven does not re-check
+# already-resolved release plugins, so the online cost here is negligible.
+MVN_FLAGS=(-q)
+
+status=0
+log=$(mktemp)
+trap 'rm -f "$log"' EXIT
+
+run_step() {
+    local label="$1"
+    shift
+    if "$@" >"$log" 2>&1; then
+        echo "  PASS  $label"
+        return 0
+    fi
+    echo "  FAIL  $label" >&2
+    cat "$log" >&2
+    status=1
+    return 1
+}
+
+# A file with both staged and unstaged changes cannot be safely re-staged after
+# formatting: `git add` would sweep in the unstaged work the author deliberately
+# left out. Record those up front and leave them alone.
+mapfile -d '' -t PARTIALLY_STAGED < <(
+    git diff --name-only -z -- '*.scala'
+)
+
+is_partially_staged() {
+    local candidate
+    for candidate in ${PARTIALLY_STAGED+"${PARTIALLY_STAGED[@]}"}; do
+        [[ "$candidate" == "$1" ]] && return 0
+    done
+    return 1
+}
+
+if run_step "scalafmt (format)" mvn "${MVN_FLAGS[@]}" scalafmt:format; then
+    reformatted=0
+    skipped=0
+    for file in "${STAGED_SCALA[@]}"; do
+        [[ -f "$file" ]] || continue
+        git diff --quiet -- "$file" && continue
+
+        if is_partially_staged "$file"; then
+            echo "  WARN  $file was reformatted but has unstaged changes; not re-staged" >&2
+            skipped=$((skipped + 1))
+        else
+            git add -- "$file"
+            reformatted=$((reformatted + 1))
+        fi
+    done
+
+    if [[ $reformatted -gt 0 ]]; then
+        echo "  NOTE  reformatted and re-staged $reformatted file(s)"
+    fi
+    if [[ $skipped -gt 0 ]]; then
+        echo "  NOTE  review the $skipped partially staged file(s) above, then stage the formatting" >&2
+        status=1
+    fi
+fi
+
+if [[ "${ARIADNE_HOOK_SKIP_SCALAFIX:-0}" == "1" ]]; then
+    echo "  SKIP  scalafix (ARIADNE_HOOK_SKIP_SCALAFIX=1)"
+else
+    # scalafix reads the semanticdb the compiler emits, so stale classes would
+    # lint stale code. Compiling first is what makes the result trustworthy.
+    if run_step "compile (semanticdb for scalafix)" mvn "${MVN_FLAGS[@]}" test-compile; then
+        run_step "scalafix (RemoveUnused, OrganizeImports)" \
+            mvn "${MVN_FLAGS[@]}" scalafix:scalafix@scalafix-check
+    fi
+fi
+
+run_step "scalastyle" mvn "${MVN_FLAGS[@]}" scalastyle:check@scalastyle-check
+
+if [[ $status -ne 0 ]]; then
+    cat >&2 <<'MSG'
+
+pre-commit: checks failed, commit aborted.
+
+  scalafix    apply the fix with `mvn scalafix:scalafix -Dscalafix.mode=IN_PLACE`
+  scalastyle  fix the reported violations by hand (see scalastyle-config.xml)
+
+Commit anyway with `git commit --no-verify` if you believe the check is wrong.
+MSG
+    exit 1
+fi
+
+echo "pre-commit: all checks passed"
+exit 0
