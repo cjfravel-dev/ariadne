@@ -4,8 +4,8 @@ import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 
 import com.google.common.hash.{BloomFilter, Funnels}
-import org.apache.spark.sql.{Encoder, Encoders}
 import org.apache.spark.sql.expressions.Aggregator
+import org.apache.spark.sql.{Encoder, Encoders}
 
 /**
  * Input row for [[BloomFilterAggregator]].

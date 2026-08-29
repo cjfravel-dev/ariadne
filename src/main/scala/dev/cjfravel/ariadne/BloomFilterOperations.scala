@@ -7,9 +7,9 @@ import scala.collection.JavaConverters._
 
 import com.google.common.hash.{BloomFilter, Funnels}
 import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.sql.{Column, DataFrame}
 import org.apache.spark.sql.expressions.UserDefinedFunction
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{Column, DataFrame}
 
 /**
  * Trait providing bloom filter operations for [[Index]] instances.
