@@ -274,4 +274,62 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
     // Bloom index should still be configured
     index2.indexes should contain("Id")
   }
+
+  test("bloom index should round-trip non-string types whose cast differs from toString") {
+    // Guards the build/query string-representation contract. Spark renders a timestamp as
+    // "2024-01-15 10:00:00" while java.sql.Timestamp.toString renders "2024-01-15 10:00:00.0".
+    // If the build side ever switches to cast(StringType), these lookups return nothing —
+    // a false negative, which a bloom filter must never produce.
+    val temporalSchema =
+      StructType(
+        Seq(
+          StructField("Id", IntegerType, nullable = false),
+          StructField("Value", DoubleType, nullable = false),
+          StructField("UpdatedAt", TimestampType, nullable = true)))
+
+    val index = Index("bloom_type_roundtrip_test", temporalSchema, "csv", Map("header" -> "true"))
+    index.addFile(resourcePath("/data/temporal_part0.csv"))
+    index.addBloomIndex("UpdatedAt")
+    index.addBloomIndex("Value")
+    index.update
+
+    val ts = java.sql.Timestamp.valueOf("2024-01-15 10:00:00")
+    index.locateFiles(Map("UpdatedAt" -> Array(ts))) should not be empty
+
+    // Doubles round-trip through the same path.
+    index.locateFiles(Map("Value" -> Array(100.0))) should not be empty
+
+    // A value that was never indexed must still be excluded.
+    val absent = java.sql.Timestamp.valueOf("1999-12-31 23:59:59")
+    index.locateFiles(Map("UpdatedAt" -> Array(absent))) shouldBe empty
+  }
+
+  test("bloom index should size each file's filter independently") {
+    // The streaming aggregator carries per-file expected insertions on each row. If that
+    // regressed to one uniform size, the smaller file's filter would be inflated to match
+    // the larger one's.
+    val index = Index("bloom_per_file_sizing_test", testSchema, "csv", Map("header" -> "true"))
+    index.addFile(resourcePath("/data/table1_part0.csv"))
+    index.addFile(resourcePath("/data/table1_part1.csv"))
+    index.addBloomIndex("Id")
+    index.update
+
+    val rows =
+      spark.read
+        .format("delta")
+        .load(new org.apache.hadoop.fs.Path(index.storagePath, "index").toString)
+        .select("filename", "bloom_Id")
+        .collect()
+
+    rows.length shouldBe 2
+    rows.foreach { r =>
+      val bytes = r.getAs[Array[Byte]]("bloom_Id")
+      bytes should not be null
+      // A filter sized for a handful of values stays tiny; a uniformly oversized one would not.
+      bytes.length should be < 200
+    }
+
+    // Correctness is unaffected by the sizing.
+    index.locateFiles(Map("Id" -> Array(2))).size shouldBe 1
+  }
 }

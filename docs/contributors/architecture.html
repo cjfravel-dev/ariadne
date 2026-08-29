@@ -118,7 +118,7 @@
           <tr>
             <td><code>large_indexes/{column}/</code></td>
             <td>Delta table (per column)</td>
-            <td>One per column that exceeded <code>largeIndexLimit</code> — exploded <code>(filename, value)</code> rows</td>
+            <td>One per column with at least one file at or above <code>largeIndexLimit</code> distinct values — <code>(filename, value)</code> rows</td>
           </tr>
           <tr>
             <td><code>.filelist.lock</code></td>
@@ -202,7 +202,7 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
     <ol class="flow">
       <li><strong>Pre-flight scan.</strong><p><code>analyzeFiles</code> reads distinct counts so the batcher can avoid producing a batch that pushes a column over <code>largeIndexLimit</code>.</p></li>
       <li><strong>Optimal batching.</strong><p><code>createOptimalBatches</code> groups files into batches sized to keep memory bounded and large-index splits predictable.</p></li>
-      <li><strong>Per-batch build.</strong><p>Read files → apply computed indexes → build regular, exploded, bloom, temporal, range, and auto-bloom DataFrame columns → append to <code>staging/</code> and to each <code>large_indexes/{column}</code>.</p></li>
+      <li><strong>Per-batch build.</strong><p>Read files → apply computed indexes → <code>classifyLargeFiles</code> marks the <code>(file, column)</code> pairs that skip inline array storage → build regular, exploded, bloom, temporal, range, and auto-bloom DataFrame columns → append to <code>staging/</code> and stream large pairs into each <code>large_indexes/{column}</code>.</p></li>
       <li><strong>Periodic consolidation.</strong><p>Every <code>stagingConsolidationThreshold</code> batches, <code>consolidateStaging</code> merges staging into the main index via Delta <code>MERGE</code>. If <code>autoCompactThreshold</code> is set and reached, an <code>OPTIMIZE</code> runs too.</p></li>
       <li><strong>Final consolidation.</strong><p>At the end, any remaining staged data is merged in and the staging table is deleted.</p></li>
     </ol>
@@ -231,7 +231,9 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
     <h2 id="features">Key features</h2>
 
     <h3>Large index handling</h3>
-    <p>When a column exceeds <code>largeIndexLimit</code> distinct values, it can no longer live as a Spark array column in the main index — that array would blow memory at query time. Instead, that one column gets its own consolidated Delta table at <code>large_indexes/{column}/</code> containing exploded <code>(filename, value)</code> rows for <em>all</em> files. Delta optimization works cleanly on this shape, and Z-ordering is meaningful.</p>
+    <p>When a file contributes <code>largeIndexLimit</code> or more <em>distinct</em> values to a column, that pair can no longer live as a Spark array column in the main index — the array would blow memory at both build and query time. Instead, the column gets its own consolidated Delta table at <code>large_indexes/{column}/</code> containing <code>(filename, value)</code> rows, and the inline array is left <code>null</code>. Delta optimization works cleanly on this shape, and Z-ordering is meaningful.</p>
+
+    <p>Classification is per <code>(file, column)</code> pair and is driven by the distinct counts already gathered by <code>analyzeFiles</code> (see <code>classifyLargeFiles</code>). It deliberately keys on the <em>distinct</em> value count rather than the row count, so a file with many duplicate rows but few distinct values stays inline. Because largeness is known before aggregation, the values for a large pair are streamed straight into <code>large_indexes/{column}/</code> from the source rows — the giant per-file array is never materialized.</p>
 
     <h3>Staged append + consolidation</h3>
     <p>Merging into the main index on every batch is expensive: each <code>MERGE</code> rewrites Delta files that grow as the index grows, so per-batch merge cost climbs as the update proceeds. Ariadne instead appends every batch to a <code>staging/</code> Delta table and only merges into the main index once per <code>stagingConsolidationThreshold</code> batches (plus a final consolidation at the end). For a 180-batch update with the default threshold of 50, that's 4 merges instead of 180.</p>
@@ -239,13 +241,21 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
     <p>Staging also acts as a checkpoint: a crash mid-update leaves consolidated work in the main index and any in-flight work in staging, which the next <code>update</code> picks up.</p>
 
     <h3>Bloom filter indexes</h3>
-    <p>Stored as binary columns in the main index Delta table with a <code>bloom_</code> prefix. The serialized payload is the raw bytes of a Guava <code>BloomFilter[CharSequence]</code>. Query path deserializes the bloom for each candidate file and tests the join values; matching files proceed to the actual read. Lower <code>fpr</code> = larger filters but fewer wasted file reads.</p>
+    <p>Stored as binary columns in the main index Delta table with a <code>bloom_</code> prefix. The serialized payload is the raw bytes of a Guava <code>BloomFilter[CharSequence]</code>. Lower <code>fpr</code> = larger filters but fewer wasted file reads.</p>
+
+    <p><strong>Build.</strong> Filters are folded with <code>BloomFilterAggregator</code>, a Spark <code>Aggregator</code> whose buffer <em>is</em> the filter: values are hashed in and discarded, so executor memory tracks the filter size (~1.2 bytes per distinct value at 1% FPR) rather than the number of values. Because a bloom column stores only the filter — never the values — this removes the only cardinality ceiling a bloom index had. Each file's filter is sized from that file's own distinct count, which is carried on every input row since an <code>Aggregator</code> cannot see its grouping key.</p>
+
+    <p><strong>Query.</strong> The probe values are broadcast and the filters are tested on the executors, so only matching filenames come back to the driver. Probing is irreducibly <code>O(files × values)</code>, so when the query supplies more than <code>bloomMaxQueryValues</code> distinct values the pre-filter is <em>skipped</em> entirely rather than truncated — truncating would silently drop matching files.</p>
+
+    <p><strong>String representation.</strong> Build and query must agree byte-for-byte on how a value is stringified, or the no-false-negatives guarantee breaks. The query side stringifies driver-side JVM objects with <code>toString</code>, so the build side does the same via <code>canonicalStringColumn</code>. A plain <code>cast(StringType)</code> would <em>not</em> be safe: Spark renders a timestamp as <code>2024-01-01 00:00:00</code> while <code>java.sql.Timestamp.toString</code> renders <code>2024-01-01 00:00:00.0</code>.</p>
 
     <h3>Range indexes</h3>
     <p>Per-file <code>min</code> and <code>max</code> stored as a struct column in the main index with a <code>range_</code> prefix. Range columns are intentionally kept out of the regular <code>storageColumns</code> set — they have their own <code>rangeStorageColumns</code> handling because they're struct-typed, not array-typed. At query time, files whose range doesn't overlap any query value are dropped before reads start.</p>
 
     <h3>Auto-bloom for large indexes</h3>
-    <p>Querying a <code>large_indexes/{column}</code> table is more expensive than reading an array column, because each row is one filename/value pair. Auto-bloom adds a bloom filter (column-prefixed <code>auto_bloom_</code>) to the main index whenever a column's distinct count crosses <code>largeIndexLimit</code>. At query time, the bloom pre-filters candidate files <em>before</em> the more expensive large-index scan — typically reducing I/O by an order of magnitude.</p>
+    <p>Querying a <code>large_indexes/{column}</code> table is more expensive than reading an array column, because each row is one filename/value pair. Auto-bloom adds a bloom filter (column-prefixed <code>auto_bloom_</code>) to the main index the first time any file crosses <code>largeIndexLimit</code> for that column; from then on every file gets a filter. At query time, the bloom pre-filters candidate files <em>before</em> the more expensive large-index scan — typically reducing I/O by an order of magnitude.</p>
+
+    <p>Auto-bloom filters are built from the same source <code>(filename, value)</code> rows that feed <code>large_indexes/</code>, using the streaming aggregator described above. A large file has no inline array to read from, and building from rows means auto-bloom inherits the same absence of a cardinality ceiling.</p>
 
     <p>Build flow is integrated into the staged-append path: bloom filters are added as a binary column to the staging DataFrame, and metadata is only updated after data is safely staged.</p>
 

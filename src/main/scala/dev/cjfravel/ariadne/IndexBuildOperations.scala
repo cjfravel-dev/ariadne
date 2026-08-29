@@ -13,7 +13,7 @@ import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{LongType, StructField}
-import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.util.SerializableConfiguration
 
@@ -30,11 +30,13 @@ import org.apache.spark.util.SerializableConfiguration
  *      below `largeIndexLimit`. Files that individually exceed the limit are isolated into single-file batches.
  *   3. Per-batch processing (in `updateSingleBatch`):
  *      - Read source files, apply computed indexes, add filename column
- *      - Build regular indexes (array aggregation per file)
+ *      - [[classifyLargeFiles]] — Decide, per `(file, column)` pair, whether the file contributes enough distinct
+ *        values to be stored out of line, reusing the counts from step 1
+ *      - Build regular indexes (array aggregation per file, skipping large pairs)
  *      - Build exploded field, bloom filter, temporal, and range indexes
- *      - Build auto-bloom filters for columns exceeding `largeIndexLimit`
- *      - [[appendToStaging]] (small columns to staging Delta table)
- *      - [[appendToLargeIndex]] (large columns to per-column Delta tables)
+ *      - Build auto-bloom filters for columns with at least one large file
+ *      - [[appendToStaging]] (inline columns to staging Delta table)
+ *      - [[appendToLargeIndex]] (large columns streamed to per-column Delta tables)
  *   4. Periodic consolidation — Every `stagingConsolidationThreshold` batches, [[consolidateStaging]] merges staging
  *      into the main index via Delta MERGE (upsert on filename). Auto-compaction may follow via [[maybeAutoCompact]].
  *   5. Final consolidation — After all batches complete, any remaining staged data is consolidated and the staging
@@ -652,6 +654,153 @@ trait IndexBuildOperations extends BloomFilterOperations {
     metadata.range_indexes.asScala.map(c => s"range_${c.column}").toSet
 
   /**
+   * Identifies which files contribute too many distinct values to a column to be stored inline.
+   *
+   * A `(file, column)` pair is "large" when the file contributes at least `largeIndexLimit` distinct values to that
+   * column. Those values are streamed into `large_indexes/{column}` as individual rows instead of being collected into
+   * a per-file array, and the inline array column is left `null`.
+   *
+   * Classification is deliberately based on the '''distinct''' value count rather than the row count, so a file with
+   * many duplicate rows but few distinct values stays inline.
+   *
+   * @param byColumn
+   *   map of column name to the set of filenames that are large for that column; columns with no large files are
+   *   omitted
+   */
+  protected case class LargeFileClassification(byColumn: Map[String, Set[String]]) {
+
+    /**
+     * Returns the filenames that are large for `column`.
+     *
+     * @param column
+     *   the storage column name
+     * @return
+     *   set of filenames, empty when the column has no large files
+     */
+    def filesFor(column: String): Set[String] = byColumn.getOrElse(column, Set.empty)
+
+    /**
+     * Returns the columns that have at least one large file.
+     *
+     * @return
+     *   set of column names
+     */
+    def columns: Set[String] = byColumn.keySet
+
+    /**
+     * Builds a predicate matching rows whose `filename` is large for `column`.
+     *
+     * @param column
+     *   the storage column name
+     * @return
+     *   a boolean column; literal `false` when the column has no large files
+     */
+    def isLarge(column: String): Column = {
+      val files = filesFor(column)
+      if (files.isEmpty) lit(false) else col("filename").isin(files.toSeq: _*)
+    }
+
+    /**
+     * Masks `expr` to `null` for rows belonging to a file that is large for `column`.
+     *
+     * Nulling the value before aggregation is what keeps the giant array from ever being built: `collect_set` skips
+     * nulls, so a large file aggregates to an empty array which is then replaced with `null`.
+     *
+     * @param column
+     *   the storage column name
+     * @param expr
+     *   the value expression to mask
+     * @return
+     *   the masked expression, or `expr` unchanged when the column has no large files
+     */
+    def mask(column: String, expr: Column): Column =
+      if (filesFor(column).isEmpty) expr else when(isLarge(column), lit(null)).otherwise(expr)
+
+    /**
+     * Replaces the aggregated array in `df` with `null` for every file that is large for `column`.
+     *
+     * @param df
+     *   the aggregated DataFrame containing `filename` and `column`
+     * @param column
+     *   the storage column name
+     * @return
+     *   the DataFrame with large files' arrays nulled; unchanged when the column has no large files
+     */
+    def nullOutLargeArrays(df: DataFrame, column: String): DataFrame =
+      if (filesFor(column).isEmpty || !df.columns.contains(column)) df
+      else
+        df.withColumn(column, when(isLarge(column), lit(null).cast(df.schema(column).dataType)).otherwise(col(column)))
+  }
+
+  /**
+   * Classifies each `(file, column)` pair as large or inline using pre-flight distinct counts.
+   *
+   * @param analyses
+   *   per-file analyses produced by [[analyzeFiles]]
+   * @return
+   *   the resulting [[LargeFileClassification]]; empty when no pair reaches `largeIndexLimit`
+   */
+  protected def classifyLargeFiles(analyses: Seq[FileAnalysis]): LargeFileClassification = {
+    val limit = largeIndexLimit
+    val byColumn =
+      storageColumns.toSeq
+        .map(column => column -> analyses.filter(_.distinctCounts.getOrElse(column, 0L) >= limit).map(_.filename).toSet)
+        .toMap
+        .filter { case (_, files) => files.nonEmpty }
+
+    if (byColumn.nonEmpty) {
+      logger.warn(
+        s"Large index classification for '$name' (limit=$limit): " +
+          byColumn.map { case (c, f) => s"$c=${f.size} file(s)" }.mkString(", "))
+    }
+    LargeFileClassification(byColumn)
+  }
+
+  /**
+   * Produces the `(filename, value)` rows for an index column, one row per occurrence.
+   *
+   * This is the streaming equivalent of exploding a `collect_set` array back into rows, and is the source used both for
+   * writing `large_indexes/{column}` and for building auto-bloom filters. Callers are responsible for any `distinct` or
+   * filename filtering they need.
+   *
+   * Regular and computed indexes project the column directly; exploded-field indexes explode the configured nested
+   * path; temporal indexes reduce to one `(value, max_ts)` struct per distinct value.
+   *
+   * @param df
+   *   the base DataFrame with a `filename` column, computed indexes applied, and all source columns present
+   * @param column
+   *   the storage column name
+   * @return
+   *   `Some` DataFrame of `filename` plus `column`, or `None` when `column` is not a known storage column
+   */
+  protected def columnValueRows(df: DataFrame, column: String): Option[DataFrame] = {
+    val explodedConfig = metadata.exploded_field_indexes.asScala.find(_.as_column == column)
+    val temporalConfig = metadata.temporal_indexes.asScala.find(_.column == column)
+    val isRegular =
+      metadata.indexes.contains(column) || metadata.computed_indexes.containsKey(column)
+
+    if (explodedConfig.isDefined) {
+      val config = explodedConfig.get
+      Some(df.select(col("filename"), explode(col(s"${config.array_column}.${config.field_path}")).alias(column)))
+    } else if (temporalConfig.isDefined) {
+      val config = temporalConfig.get
+      val taken = Set("filename", config.column)
+      val tsAlias = uniqueWorkingName("_ariadne_ts", taken)
+      val maxTsAlias = uniqueWorkingName("_ariadne_max_ts", taken)
+      Some(
+        df
+          .select(col("filename"), col(config.column), col(config.timestamp_column).alias(tsAlias))
+          .groupBy("filename", config.column)
+          .agg(max(col(tsAlias)).alias(maxTsAlias))
+          .select(col("filename"), struct(col(config.column).as("value"), col(maxTsAlias).as("max_ts")).alias(column)))
+    } else if (isRegular) {
+      Some(df.select(col("filename"), col(column)))
+    } else {
+      None
+    }
+  }
+
+  /**
    * Case class to hold file analysis results for batching decisions.
    *
    * @param filename
@@ -673,6 +822,12 @@ trait IndexBuildOperations extends BloomFilterOperations {
    * If no storage columns are configured (e.g., only bloom or range indexes), returns trivial analyses with zero
    * distinct counts.
    *
+   * Each column is counted on the same basis its builder uses, because these counts also drive [[classifyLargeFiles]].
+   * Regular, computed, and temporal columns are counted before exploded fields are applied: `applyExplodedFields` uses
+   * an inner `explode`, which drops rows whose array is null or empty and would undercount every other column. Temporal
+   * columns add one for a present null value, matching the `collect_set` of `struct(value, max_ts)` in
+   * [[buildTemporalIndexes]], which retains a struct for the null group.
+   *
    * @note
    *   This method calls `.collect()` to bring per-file distinct counts to the driver. For indexes covering millions of
    *   files with many indexed columns, the collected result set can be large enough to cause driver OOM. Consider
@@ -693,41 +848,75 @@ trait IndexBuildOperations extends BloomFilterOperations {
       if (allStorageColumns.isEmpty) {
         files.map(f => FileAnalysis(f, Map.empty, 0L)).toSeq
       } else {
-        // Read files with just indexed columns + filename
         val baseDf = createBaseDataFrame(files)
         val withComputedIndexes = applyComputedIndexes(baseDf)
-        val withExplodedFields = applyExplodedFields(withComputedIndexes)
-        val withFilename = addFilenameColumn(withExplodedFields, files)
+        val withFilename = addFilenameColumn(withComputedIndexes, files)
 
-        // For each file, count distinct values per indexed column
-        val analysisColumns = allStorageColumns.toSeq
-        val distinctCountExprs =
-          analysisColumns.map(colName => countDistinct(col(colName)).alias(s"${colName}_distinct"))
+        val explodedColumns = metadata.exploded_field_indexes.asScala.map(_.as_column).toSet
+        val temporalColumns = metadata.temporal_indexes.asScala.map(_.column).toSet
+        val directColumns = (allStorageColumns -- explodedColumns).toSeq
 
-        if (distinctCountExprs.isEmpty) {
-          files.map(f => FileAnalysis(f, Map.empty, 0L)).toSeq
-        } else {
-          val fileAnalysisDf =
-            withFilename
-              .groupBy("filename")
-              .agg(distinctCountExprs.head, distinctCountExprs.tail: _*)
+        // Counted on the unexploded rows so a null or empty array elsewhere cannot drop rows here.
+        val directCounts =
+          if (directColumns.isEmpty) None
+          else {
+            val exprs =
+              directColumns.map { colName =>
+                val distinct = countDistinct(col(colName))
+                // collect_set(struct(value, max_ts)) keeps one entry for the null group.
+                val expr =
+                  if (temporalColumns.contains(colName))
+                    distinct + max(when(col(colName).isNull, lit(1L)).otherwise(lit(0L)))
+                  else distinct
+                expr.alias(s"${colName}_distinct")
+              }
+            Some(withFilename.groupBy("filename").agg(exprs.head, exprs.tail: _*))
+          }
 
-          val analysisResults = fileAnalysisDf.collect()
+        // Exploded columns only exist after the explode, so they need their own pass.
+        val explodedTargets = allStorageColumns.intersect(explodedColumns).toSeq
+        val explodedCounts =
+          if (explodedTargets.isEmpty) None
+          else {
+            val exploded = applyExplodedFields(withComputedIndexes)
+            val explodedWithFilename = addFilenameColumn(exploded, files)
+            val exprs =
+              explodedTargets.map(colName => countDistinct(col(colName)).alias(s"${colName}_distinct"))
+            Some(explodedWithFilename.groupBy("filename").agg(exprs.head, exprs.tail: _*))
+          }
 
-          val results =
-            analysisResults.map { row =>
-              val filename = row.getAs[String]("filename")
-              val distinctCounts =
-                analysisColumns.map(colName => colName -> row.getAs[Long](s"${colName}_distinct")).toMap
-              val maxCount =
-                if (distinctCounts.nonEmpty) distinctCounts.values.max else 0L
+        val combined =
+          (directCounts, explodedCounts) match {
+            case (Some(d), Some(e)) => Some(d.join(e, Seq("filename"), "full_outer"))
+            case (Some(d), None) => Some(d)
+            case (None, Some(e)) => Some(e)
+            case (None, None) => None
+          }
 
-              FileAnalysis(filename, distinctCounts, maxCount)
-            }.toSeq
+        combined match {
+          case None => files.map(f => FileAnalysis(f, Map.empty, 0L)).toSeq
+          case Some(fileAnalysisDf) =>
+            val analysisColumns = directColumns ++ explodedTargets
+            val analysisResults = fileAnalysisDf.collect()
 
-          logger.warn(
-            s"Pre-flight analysis of ${files.size} files completed in ${System.currentTimeMillis() - startTime}ms")
-          results
+            val results =
+              analysisResults.map { row =>
+                val filename = row.getAs[String]("filename")
+                val distinctCounts =
+                  analysisColumns.map { colName =>
+                    val field = s"${colName}_distinct"
+                    val value = if (row.isNullAt(row.fieldIndex(field))) 0L else row.getAs[Long](field)
+                    colName -> value
+                  }.toMap
+                val maxCount =
+                  if (distinctCounts.nonEmpty) distinctCounts.values.max else 0L
+
+                FileAnalysis(filename, distinctCounts, maxCount)
+              }.toSeq
+
+            logger.warn(
+              s"Pre-flight analysis of ${files.size} files completed in ${System.currentTimeMillis() - startTime}ms")
+            results
         }
       }
     }
@@ -818,7 +1007,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
    * @return
    *   DataFrame with `filename` plus one array column per regular/computed index
    */
-  protected def buildRegularIndexes(df: DataFrame): DataFrame = {
+  protected def buildRegularIndexes(df: DataFrame, large: LargeFileClassification): DataFrame = {
     val regularIndexes =
       metadata.indexes.asScala.toSet ++
         metadata.computed_indexes.keySet().asScala
@@ -826,11 +1015,16 @@ trait IndexBuildOperations extends BloomFilterOperations {
     logger.debug(s"Building regular indexes for ${regularIndexes.size} columns: ${regularIndexes.mkString(", ")}")
 
     if (regularIndexes.nonEmpty) {
-      val regularCols = (regularIndexes + "filename").toList
-      val selectedDf = df.select(regularCols.map(col): _*).distinct
+      // Masking before the distinct collapses a large file's values to a single null row, so the
+      // giant array is never materialized on an executor. The column is nulled outright afterwards.
+      val selectedDf =
+        df
+          .select(col("filename") +: regularIndexes.toList.map(c => large.mask(c, col(c)).alias(c)): _*)
+          .distinct
       val aggExprs = regularIndexes.toList.map(colName => collect_set(col(colName)).alias(colName))
       // Safe: regularIndexes.nonEmpty guard above guarantees aggExprs.nonEmpty
-      selectedDf.groupBy("filename").agg(aggExprs.head, aggExprs.tail: _*)
+      val grouped = selectedDf.groupBy("filename").agg(aggExprs.head, aggExprs.tail: _*)
+      regularIndexes.foldLeft(grouped)((accumDf, colName) => large.nullOutLargeArrays(accumDf, colName))
     } else {
       df.select("filename").distinct
     }
@@ -849,7 +1043,10 @@ trait IndexBuildOperations extends BloomFilterOperations {
    * @return
    *   DataFrame with exploded field index columns joined via `full_outer`
    */
-  protected def buildExplodedFieldIndexes(baseData: DataFrame, resultDf: DataFrame): DataFrame = {
+  protected def buildExplodedFieldIndexes(
+      baseData: DataFrame,
+      resultDf: DataFrame,
+      large: LargeFileClassification): DataFrame = {
     val explodedFieldMappings = metadata.exploded_field_indexes.asScala.toSeq
 
     logger.debug(s"Building exploded field indexes for ${explodedFieldMappings.size} mapping(s)")
@@ -858,6 +1055,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
       val explodedDf =
         baseData
           .select("filename", explodedField.array_column)
+          .where(not(large.isLarge(explodedField.as_column)))
           .withColumn("temp_exploded", explode(col(s"${explodedField.array_column}.${explodedField.field_path}")))
           .groupBy("filename")
           .agg(collect_set(col("temp_exploded")).alias(explodedField.as_column))
@@ -879,7 +1077,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
    *   DataFrame with `filename` plus one struct-array column per temporal index; filename-only DataFrame if no temporal
    *   indexes are configured
    */
-  protected def buildTemporalIndexes(df: DataFrame): DataFrame = {
+  protected def buildTemporalIndexes(df: DataFrame, large: LargeFileClassification): DataFrame = {
     val temporalConfigs = metadata.temporal_indexes.asScala.toSeq
     if (temporalConfigs.isEmpty) {
       df.select("filename").distinct()
@@ -901,6 +1099,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
         val perFilePerValue =
           df
             .select(col("filename"), col(config.column), col(config.timestamp_column).alias(tsAlias))
+            .where(not(large.isLarge(config.column)))
             .groupBy("filename", config.column)
             .agg(max(col(tsAlias)).alias(maxTsAlias))
 
@@ -947,48 +1146,39 @@ trait IndexBuildOperations extends BloomFilterOperations {
   }
 
   /**
-   * Checks all storage columns for arrays exceeding `largeIndexLimit` and delegates to [[appendToLargeIndex]] for
-   * separation.
+   * Writes the values of every large `(file, column)` pair into its per-column Delta table.
    *
-   * @param df
-   *   the combined index DataFrame with array columns
+   * @param sourceDf
+   *   the base DataFrame with `filename` and all source columns (computed indexes already applied)
+   * @param large
+   *   the classification identifying which files are large for which columns
    */
-  protected def handleLargeIndexes(df: DataFrame): Unit = {
-    val allStorageColumns = storageColumns
-    if (allStorageColumns.nonEmpty) {
-      logger.warn(s"Checking ${allStorageColumns.size} columns for large index separation (limit=$largeIndexLimit)")
-      appendToLargeIndex(df)
+  protected def handleLargeIndexes(sourceDf: DataFrame, large: LargeFileClassification): Unit = {
+    // Columns with an existing table are included even when nothing is large this time, so a file
+    // that shrank below the limit has its stale rows cleaned up.
+    val columns = large.columns ++ largeIndexColumns.intersect(storageColumns)
+    if (columns.nonEmpty) {
+      logger.warn(s"Separating ${columns.size} column(s) into large index storage (limit=$largeIndexLimit)")
+      appendToLargeIndex(sourceDf, large, columns)
     }
   }
 
   /**
    * Appends the processed DataFrame to the staging Delta table.
    *
-   * Before writing, any column whose array size meets or exceeds `largeIndexLimit` is nulled out (those values are
-   * stored separately via [[appendToLargeIndex]]). The DataFrame is written in append mode with schema merge enabled.
+   * Columns belonging to a large `(file, column)` pair are already `null` at this point: the index builders skip them
+   * and their values were streamed to `large_indexes/` instead. Staging deliberately does '''not''' re-derive largeness
+   * from array size. Doing so would be a second, independent decision, and any disagreement with [[classifyLargeFiles]]
+   * would null out an array whose values were never written anywhere else, silently losing them.
    *
    * @param df
    *   the combined index DataFrame to stage
    */
   protected def appendToStaging(df: DataFrame): Unit = {
     val startTime = System.currentTimeMillis()
-    val allStorageColumns = storageColumns
-
-    // Create small grouped DataFrame (filter out large indexes)
-    val smallGroupedDf =
-      if (allStorageColumns.nonEmpty) {
-        allStorageColumns.foldLeft(df) { case (accumDf, colName) =>
-          accumDf.withColumn(
-            colName,
-            when(size(col(colName)) >= largeIndexLimit, null)
-              .otherwise(col(colName)))
-        }
-      } else {
-        df
-      }
 
     val stagedDf =
-      smallGroupedDf
+      df
         .withColumn(StagingTimestampColumn, current_timestamp())
         .withColumn(StagingBatchIdColumn, lit(UUID.randomUUID().toString))
     val rowCount = stagedDf.count()
@@ -1005,70 +1195,70 @@ trait IndexBuildOperations extends BloomFilterOperations {
   /**
    * Appends large index data to per-column Delta tables under `large_indexes/`.
    *
-   * For each storage column, identifies rows where the array size meets or exceeds `largeIndexLimit`, explodes those
-   * arrays into individual rows, and writes them to `large_indexes/{column}/`. Before appending, any existing rows for
-   * the same filenames are removed via Delta MERGE to prevent duplicates (important during column backfill or
-   * re-indexing).
+   * For each column with at least one large file, the values of those files are read straight from the source DataFrame
+   * as distinct `(filename, value)` rows and written to `large_indexes/{column}/`. Values are never collected into a
+   * per-file array first, so a file's cardinality is bounded by what Delta can store rather than by what fits in an
+   * executor-side array. Before appending, any existing rows for the same filenames are removed via Delta MERGE to
+   * prevent duplicates (important during column backfill or re-indexing).
    *
    * @note
    *   The `count()` call before the write is intentional: it materializes the DataFrame to determine whether any
-   *   large-index rows exist for this column, avoiding the overhead of a Delta MERGE + write when no rows qualify. This
+   *   large-index rows exist for this column, avoiding the overhead of a Delta MERGE + write when no rows exist. This
    *   results in a double computation (count + write), but the alternative—writing unconditionally—would create empty
-   *   Delta commits and unnecessary MERGE operations for columns that are within the limit.
+   *   Delta commits and unnecessary MERGE operations.
    *
-   * @param df
-   *   the combined index DataFrame with array columns
+   * @param sourceDf
+   *   the base DataFrame with `filename` and all source columns (computed indexes already applied)
+   * @param large
+   *   the classification identifying which files are large for which columns
+   * @param columns
+   *   the columns to process: those with large files in this batch, plus any with an existing table that may hold stale
+   *   rows for the files being re-indexed
    */
-  protected def appendToLargeIndex(df: DataFrame): Unit = {
+  protected def appendToLargeIndex(sourceDf: DataFrame, large: LargeFileClassification, columns: Set[String]): Unit = {
     val startTime = System.currentTimeMillis()
-    val allStorageColumns = storageColumns
-    if (allStorageColumns.nonEmpty) {
+    if (columns.nonEmpty) {
+      // Dedup covers every file in the batch, not just the large ones: a file that was large on a
+      // previous run but is not this time must still have its stale rows removed.
+      val processedFiles = sourceDf.select("filename").distinct()
 
-      val largeGroupedDf =
-        allStorageColumns.foldLeft(df) { case (accumDf, colName) =>
-          accumDf.withColumn(
-            colName,
-            when(size(col(colName)) < largeIndexLimit, null)
-              .otherwise(col(colName)))
+      columns.foreach { colName =>
+        val columnPath = new Path(largeIndexesFilePath, colName)
+
+        // Remove existing rows for these files to prevent duplicates during re-indexing.
+        delta(columnPath) match {
+          case Some(deltaTable) =>
+            deltaTable
+              .as("target")
+              .merge(processedFiles.as("source"), "target.filename = source.filename")
+              .whenMatched()
+              .delete()
+              .execute()
+          case None => // No existing table, nothing to dedup
         }
 
-      // Collect filenames being processed for dedup
-      val processedFiles = df.select("filename").distinct()
+        if (large.filesFor(colName).nonEmpty) {
+          columnValueRows(sourceDf, colName).foreach { valueRows =>
+            val columnData =
+              valueRows
+                .where(large.isLarge(colName))
+                .where(col(colName).isNotNull)
+                .distinct()
 
-      allStorageColumns.foreach { colName =>
-        val columnData =
-          largeGroupedDf
-            .select("filename", colName)
-            .where(col(colName).isNotNull)
-            .withColumn(colName, explode(col(colName)))
-            .filter(col(colName).isNotNull)
-            .distinct()
+            val count = columnData.count()
+            if (count > 0) {
+              logger.warn(s"Appending $count rows to large index for column '$colName' at $columnPath")
 
-        val count = columnData.count()
-        if (count > 0) {
-          val columnPath = new Path(largeIndexesFilePath, colName)
-          logger.warn(s"Appending $count rows to large index for column '$colName' at $columnPath")
-
-          // Remove existing rows for these files to prevent duplicates during re-indexing
-          delta(columnPath) match {
-            case Some(deltaTable) =>
-              deltaTable
-                .as("target")
-                .merge(processedFiles.as("source"), "target.filename = source.filename")
-                .whenMatched()
-                .delete()
-                .execute()
-            case None => // No existing table, nothing to dedup
+              columnData.write
+                .format("delta")
+                .option("mergeSchema", "true")
+                .mode("append")
+                .save(columnPath.toString)
+            }
           }
-
-          columnData.write
-            .format("delta")
-            .option("mergeSchema", "true")
-            .mode("append")
-            .save(columnPath.toString)
         }
       }
-      logger.warn(s"Large index append completed for '$name' (${allStorageColumns.size} columns) in ${System
+      logger.warn(s"Large index append completed for '$name' (${columns.size} columns) in ${System
           .currentTimeMillis() - startTime}ms")
     }
   }
@@ -1104,86 +1294,65 @@ trait IndexBuildOperations extends BloomFilterOperations {
       metadata.exploded_field_indexes.asScala.map(_.as_column).toSet
 
   /**
-   * Tracks the cached DataFrame from [[buildAutoBloomIndexes]] for deferred cleanup.
+   * Builds auto-bloom filters for columns that have at least one large file.
    *
-   * Set during auto-bloom processing and unpersisted after staging is complete.
-   */
-  @transient protected var lastAutoBloomCache: Option[DataFrame] = None
-
-  /**
-   * Builds auto-bloom filters for columns that exceed the large index limit.
+   * A column becomes auto-bloom the first time any file contributes at least `largeIndexLimit` distinct values to it.
+   * From then on every file gets a filter, stored in the main index under the `auto_bloom_` prefix, so queries can
+   * cheaply skip files before touching `large_indexes/`.
    *
-   * Scans the combined DataFrame to identify columns with any file whose array size meets or exceeds `largeIndexLimit`.
-   * For each such column, a bloom filter is built from the full array and stored in the main index with the
-   * `auto_bloom_` prefix. At query time, these bloom filters enable fast pre-filtering to determine which files need to
-   * load large index data.
-   *
-   * The input DataFrame is cached during processing to avoid redundant computation; the cache reference is stored in
-   * [[lastAutoBloomCache]] for deferred cleanup. If an exception occurs during processing, the cached DataFrame is
-   * unpersisted before the exception is rethrown.
+   * Filters are folded directly from the source `(filename, value)` rows with a streaming aggregator rather than from a
+   * collected array. Large files never have an array to read from, and building from the rows means a column's
+   * cardinality is limited only by what the filter itself costs (~1.2 bytes per distinct value at 1% FPR).
    *
    * @param combinedDf
-   *   the combined index DataFrame with array columns
+   *   the combined index DataFrame, keyed by `filename`
+   * @param sourceDf
+   *   the base DataFrame with `filename` and all source columns (computed indexes already applied)
+   * @param large
+   *   the classification identifying which files are large for which columns
    * @return
-   *   DataFrame with `auto_bloom_{column}` binary columns added for columns exceeding the limit; unchanged DataFrame if
-   *   no columns qualify
+   *   `combinedDf` with an `auto_bloom_{column}` binary column per auto-bloom column; unchanged if none qualify
    */
-  protected def buildAutoBloomIndexes(combinedDf: DataFrame): DataFrame = {
+  protected def buildAutoBloomIndexes(
+      combinedDf: DataFrame,
+      sourceDf: DataFrame,
+      large: LargeFileClassification): DataFrame = {
     val startTime = System.currentTimeMillis()
     val eligible = autoBloomEligibleColumns
     if (eligible.isEmpty) combinedDf
     else {
-      // Cache combinedDf to ensure consistent evaluation when checking column sizes
-      // and building bloom filters
-      val cachedDf = combinedDf.cache()
+      val columnsExceedingLimit = eligible.intersect(large.columns)
+      logger.warn(s"Auto-bloom: checked ${eligible.size} columns, ${columnsExceedingLimit.size} exceed limit")
 
-      try {
-        val columnsExceedingLimit =
-          eligible.filter { colName =>
-            cachedDf.columns.contains(colName) &&
-            cachedDf
-              .select("filename", colName)
-              .where(col(colName).isNotNull)
-              .where(size(col(colName)) >= largeIndexLimit)
-              .count() > 0
-          }
-
-        logger.warn(s"Auto-bloom: checked ${eligible.size} columns, ${columnsExceedingLimit.size} exceed limit")
-
-        columnsExceedingLimit.foreach { colName =>
-          if (!metadata.auto_bloom_indexes.contains(colName)) {
-            metadata.auto_bloom_indexes.add(colName)
-          }
+      columnsExceedingLimit.foreach { colName =>
+        if (!metadata.auto_bloom_indexes.contains(colName)) {
+          metadata.auto_bloom_indexes.add(colName)
         }
+      }
 
-        val autoBloomColumns =
-          metadata.auto_bloom_indexes.asScala.toSet
-            .intersect(eligible)
-            .filter(cachedDf.columns.contains)
+      val autoBloomColumns = metadata.auto_bloom_indexes.asScala.toSet.intersect(eligible)
 
-        if (autoBloomColumns.isEmpty) {
-          cachedDf.unpersist()
-          logger.warn(s"Auto-bloom: no columns to build, completed in ${System.currentTimeMillis() - startTime}ms")
-          combinedDf
-        } else {
-          logger.warn(s"Building auto-bloom filters for columns: ${autoBloomColumns.mkString(", ")}")
-          val fpr = autoBloomFpr
-          val result =
-            autoBloomColumns.foldLeft(cachedDf) { (df, colName) =>
-              logger.warn(s"Auto-bloom: building filter for '$colName' with FPR=$fpr")
-              val bloomColumn = autoBloomColumnPrefix + colName
-              val bloomUdf = createBloomFilterUdf(fpr)
-              df.withColumn(bloomColumn, bloomUdf(col(colName)))
+      if (autoBloomColumns.isEmpty) {
+        logger.warn(s"Auto-bloom: no columns to build, completed in ${System.currentTimeMillis() - startTime}ms")
+        combinedDf
+      } else {
+        logger.warn(s"Building auto-bloom filters for columns: ${autoBloomColumns.mkString(", ")}")
+        val fpr = autoBloomFpr
+        val result =
+          autoBloomColumns.foldLeft(combinedDf) { (df, colName) =>
+            columnValueRows(sourceDf, colName) match {
+              case Some(valueRows) =>
+                logger.warn(s"Auto-bloom: building filter for '$colName' with FPR=$fpr")
+                val bloomColumn = autoBloomColumnPrefix + colName
+                val bloomData = buildStreamingBloomColumn(valueRows, col(colName), bloomColumn, fpr)
+                df.join(bloomData, Seq("filename"), "left")
+              case None =>
+                logger.warn(s"Auto-bloom: skipping '$colName', no value source available")
+                df
             }
-          lastAutoBloomCache = Some(cachedDf)
-          logger.warn(s"Auto-bloom: build completed in ${System.currentTimeMillis() - startTime}ms")
-          result
-        }
-      } catch {
-        case e: Exception =>
-          logger.warn(s"Failed to build auto-bloom indexes for $name: ${e.getMessage}", e)
-          cachedDf.unpersist()
-          throw e
+          }
+        logger.warn(s"Auto-bloom: build completed in ${System.currentTimeMillis() - startTime}ms")
+        result
       }
     }
   }

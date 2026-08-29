@@ -11,6 +11,7 @@ import org.apache.logging.log4j.{LogManager, Logger}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.storage.StorageLevel
 
 /**
  * Represents an Index for managing metadata and file-based indexes in Apache Spark.
@@ -810,7 +811,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
     batches.zipWithIndex.foreach { case (batch, idx) =>
       val batchStart = System.currentTimeMillis()
       logger.warn(s"Processing batch ${idx + 1}/${batches.size} with ${batch.size} files")
-      updateSingleBatch(batch, isBackfill)
+      updateSingleBatch(batch, fileAnalyses.filter(a => batch.contains(a.filename)), isBackfill)
       logger.warn(s"Batch ${idx + 1}/${batches.size} completed in ${System.currentTimeMillis() - batchStart}ms")
       batchesSinceConsolidation += 1
       batchesSinceRefresh += 1
@@ -847,33 +848,37 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    *
    * @param files
    *   Set of files to process in this batch
+   * @param analyses
+   *   pre-flight analyses for the files in this batch, used to classify large columns without materializing arrays
    * @param isBackfill
    *   When true, indicates this is a column backfill rather than new file indexing; file sizes will not be re-counted
    *   toward the total
    */
-  private def updateSingleBatch(files: Set[String], isBackfill: Boolean = false): Unit = {
+  private def updateSingleBatch(files: Set[String], analyses: Seq[FileAnalysis], isBackfill: Boolean = false): Unit = {
     val singleBatchStart = System.currentTimeMillis()
     logger.warn(s"Processing single batch of ${files.size} files")
     val baseDf = createBaseDataFrame(files)
     val withComputedIndexes = applyComputedIndexes(baseDf)
     val withFilename = addFilenameColumn(withComputedIndexes, files)
+    val large = classifyLargeFiles(analyses)
 
     // Compute file sizes from HDFS and add as a column
     val fileSizes = getFileSizes(files)
     val fileSizesBroadcast = spark.sparkContext.broadcast(fileSizes)
+    var batchCache: Option[DataFrame] = None
     try {
       val fileSizeUdf = udf((filename: String) => fileSizesBroadcast.value.getOrElse(filename, 0L))
 
       // Build regular indexes
-      val regularIndexesDf = buildRegularIndexes(withFilename)
+      val regularIndexesDf = buildRegularIndexes(withFilename, large)
       val withExploded =
-        buildExplodedFieldIndexes(withFilename, regularIndexesDf)
+        buildExplodedFieldIndexes(withFilename, regularIndexesDf, large)
 
       // Build bloom filter indexes
       val bloomDf = buildBloomFilterIndexes(withFilename)
 
       // Build temporal indexes (struct arrays with value + max_ts)
-      val temporalDf = buildTemporalIndexes(withFilename)
+      val temporalDf = buildTemporalIndexes(withFilename, large)
 
       // Combine all index types
       var combinedDf = withExploded
@@ -902,12 +907,17 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
       }
 
       // Build auto-bloom filters for columns that exceed largeIndexLimit
-      combinedDf = buildAutoBloomIndexes(combinedDf)
+      combinedDf = buildAutoBloomIndexes(combinedDf, withFilename, large)
 
       combinedDf =
         combinedDf.withColumn("file_size", fileSizeUdf(col("filename")))
 
-      handleLargeIndexes(combinedDf)
+      // One row per file, but producing it runs the whole batch DAG including the bloom
+      // aggregations. appendToStaging counts then writes, so persist to avoid recomputing it.
+      combinedDf = combinedDf.persist(StorageLevel.DISK_ONLY)
+      batchCache = Some(combinedDf)
+
+      handleLargeIndexes(withFilename, large)
       appendToStaging(combinedDf)
 
       // Update total indexed file size (skip for backfill — already counted)
@@ -926,9 +936,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
       logger.warn(
         s"Single batch of ${files.size} files completed in ${System.currentTimeMillis() - singleBatchStart}ms")
     } finally {
-      // Clean up cached DataFrame from auto-bloom processing
-      lastAutoBloomCache.foreach(_.unpersist())
-      lastAutoBloomCache = None
+      batchCache.foreach(_.unpersist())
       safeDestroyBroadcast(fileSizesBroadcast)
     }
   }

@@ -27,6 +27,7 @@ import org.apache.spark.sql.SparkSession
  * spark.ariadne.lockRefreshInterval         (default: 1) Batches between lock refreshes
  * spark.ariadne.autoCompactThreshold        (optional) Delta log file count triggering auto-compact
  * spark.ariadne.autoBloomFpr                (default: 0.01) FPR for auto-bloom filters on large columns
+ * spark.ariadne.bloomMaxQueryValues         (default: 1000000) Max distinct query-side values probed against auto-bloom
  * }}}
  *
  * '''Thread safety:''' Lazy vals are initialized at most once per instance and are safe for concurrent reads after
@@ -407,6 +408,45 @@ trait AriadneContextUser {
         value
       }
     logger.warn(s"autoBloomFpr initialized: $validated")
+    validated
+  }
+
+  /**
+   * Maximum number of distinct '''query-side''' values that will be collected to the driver and broadcast in order to
+   * probe auto-bloom filters.
+   *
+   * This bounds the cardinality of the ''probe'' set (the join keys of the DataFrame being joined against the index).
+   * It has no bearing on how many values an index may hold: index-side cardinality is governed by `largeIndexLimit`,
+   * and a column with billions of indexed values is exactly the case auto-bloom exists to serve.
+   *
+   * The bound exists because a bloom probe is inherently `O(files x probe values)` hash lookups and cannot be turned
+   * into a shuffle. Past a certain probe cardinality the pre-filter stops paying for itself twice over: the probe costs
+   * more than the join it was meant to accelerate, and its pruning power collapses because a probe set that large will
+   * match nearly every file anyway. At that point Spark's ordinary shuffle join over the index is asymptotically
+   * better, so Ariadne skips the pre-filter rather than pay for it.
+   *
+   * Exceeding the bound therefore degrades performance, never correctness, and never disables auto-bloom itself. The
+   * value set is never truncated, because dropping probe values would silently omit matching files.
+   *
+   * Reads from spark.ariadne.bloomMaxQueryValues configuration (default: 1000000).
+   */
+  lazy val bloomMaxQueryValues: Long = {
+    val value =
+      try {
+        spark.conf.get("spark.ariadne.bloomMaxQueryValues", "1000000").toLong
+      } catch {
+        case e: NumberFormatException =>
+          logger.warn(s"Invalid spark.ariadne.bloomMaxQueryValues value, using default 1000000: ${e.getMessage}")
+          1000000L
+      }
+    val validated =
+      if (value <= 0L) {
+        logger.warn(s"spark.ariadne.bloomMaxQueryValues must be positive (got $value), using default 1000000")
+        1000000L
+      } else {
+        value
+      }
+    logger.warn(s"bloomMaxQueryValues initialized: $validated")
     validated
   }
 }
