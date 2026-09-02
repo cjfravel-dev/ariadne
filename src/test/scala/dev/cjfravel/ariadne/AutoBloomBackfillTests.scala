@@ -6,8 +6,8 @@ import scala.collection.JavaConverters._
 
 import com.google.gson.{JsonObject, JsonParser}
 import org.apache.hadoop.fs.Path
-import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.types._
+import org.apache.spark.sql.{DataFrame, Row}
 import org.scalatest.matchers.should.Matchers
 
 /**
@@ -325,6 +325,97 @@ class AutoBloomBackfillTests extends SparkTests with Matchers {
         .count() shouldBe 0
       reopened.locateFiles(Map("Id" -> Array[Any](1, 2, 3, 4, 5, 6))) should contain allElementsOf expected
     }
+  }
+
+  test("an exploded field large index that still uses the legacy inner column name migrates and stays queryable") {
+    val arrayTestSchema =
+      StructType(
+        Seq(
+          StructField("event_id", StringType, nullable = false),
+          StructField(
+            "users",
+            ArrayType(
+              StructType(Seq(
+                StructField("id", IntegerType, nullable = false),
+                StructField("name", StringType, nullable = false)))),
+            nullable = false)))
+
+    val sourcePath = s"${System.getProperty("java.io.tmpdir")}/legacy_exploded_${System.currentTimeMillis()}"
+    spark
+      .createDataFrame(
+        spark.sparkContext.parallelize(
+          Seq(Row("e1", Array(Row(100, "Alice"), Row(101, "Bob"))), Row("e2", Array(Row(102, "Charlie"))))),
+        arrayTestSchema)
+      .write
+      .mode("overwrite")
+      .parquet(sourcePath)
+
+    val index =
+      withSmallLargeIndexLimit {
+        val built = Index("legacy_exploded_large", arrayTestSchema, "parquet")
+        built.addFile(sourcePath)
+        built.addExplodedFieldIndex("users", "id", "user_id")
+        built.update
+        built
+      }
+
+    val expected = index.locateFiles(Map("user_id" -> Array[Any](100)))
+    expected should not be empty
+
+    // Releases before 0.1.1-beta aliased exploded values to the array column name, and the exploded field migration
+    // renames only the large index directory, so a migrated index can hold a table whose value column is still
+    // 'users' inside 'large_indexes/user_id'.
+    val largeIndexPath = new Path(new Path(index.storagePath, "large_indexes"), "user_id")
+    spark.read
+      .format("delta")
+      .load(largeIndexPath.toString)
+      .withColumnRenamed("user_id", "users")
+      .write
+      .format("delta")
+      .mode("overwrite")
+      .option("overwriteSchema", "true")
+      .save(largeIndexPath.toString)
+    spark.read.format("delta").load(largeIndexPath.toString).columns should contain("users")
+
+    stripAutoBloom(index, "user_id")
+
+    val reopened = Index("legacy_exploded_large", arrayTestSchema, "parquet")
+    reopened.locateFiles(Map("user_id" -> Array[Any](100))) shouldBe expected
+    readMetadataJson(reopened).get("storage_format_version").getAsInt shouldBe
+      StorageFormat.AutoBloomBackfillStorageVersion
+  }
+
+  test("backfill covers files whose values are stored inline as well as files in the large index") {
+    val index =
+      withSmallLargeIndexLimit {
+        val first = Index("backfill_mixed", testSchema, "csv", Map("header" -> "true"))
+        first.addFile(resourcePath("/data/table1_part0.csv"))
+        first.addIndex("Id")
+        first.update
+        first
+      }
+
+    // A fresh instance reads the default limit, so this file's values stay inline in the main index.
+    val later = Index("backfill_mixed", testSchema, "csv", Map("header" -> "true"))
+    later.addFile(resourcePath("/data/table1_part1.csv"))
+    later.update
+
+    stripAutoBloom(index, "Id")
+
+    val reopened = Index("backfill_mixed", testSchema, "csv", Map("header" -> "true"))
+    reopened.locateFiles(Map("Id" -> Array[Any](1))) should not be empty
+
+    val table = indexTable(Index("backfill_mixed", testSchema, "csv", Map("header" -> "true")))
+    table.count() shouldBe 2
+    table.where(org.apache.spark.sql.functions.col("auto_bloom_Id").isNull).count() shouldBe 0
+
+    // With every file filtered, a value held by no file yields an empty candidate set, which is what makes the large
+    // index skippable. A single null filter would keep its file a candidate and make the set non-empty.
+    val probed = Index("backfill_mixed", testSchema, "csv", Map("header" -> "true"))
+    val absent = probed.getAutoBloomCandidates("Id", Array[Any](999999), indexTable(probed))
+    absent shouldBe defined
+    absent.get shouldBe empty
+    probed.locateFiles(Map("Id" -> Array[Any](999999))) shouldBe empty
   }
 
   test("a column registered as auto-bloom keeps getting filters when later batches hold no large file") {
