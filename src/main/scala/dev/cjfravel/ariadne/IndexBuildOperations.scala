@@ -801,6 +801,24 @@ trait IndexBuildOperations extends BloomFilterOperations {
   }
 
   /**
+   * Returns the expression selecting the bloom-hashable scalar out of a [[columnValueRows]] row.
+   *
+   * Every column type but temporal yields the value directly. Temporal rows carry a `(value, max_ts)` struct, so the
+   * filter must be folded over the `value` field alone: queries probe with bare scalars, and hashing the struct would
+   * mean no probe ever matched. That failure is silent but not, today, harmful — an empty candidate set makes the
+   * loaders fall back to scanning the whole large index, so results stay correct and only the pruning is lost. It would
+   * stop being harmless if an empty candidate set were ever treated as a definitive no-match.
+   *
+   * @param column
+   *   the storage column name, as produced by [[columnValueRows]]
+   * @return
+   *   the column expression to hash into the filter
+   */
+  protected def autoBloomValueColumn(column: String): Column =
+    if (metadata.temporal_indexes.asScala.exists(_.column == column)) col(column).getField("value")
+    else col(column)
+
+  /**
    * Case class to hold file analysis results for batching decisions.
    *
    * @param filename
@@ -1294,8 +1312,10 @@ trait IndexBuildOperations extends BloomFilterOperations {
   /**
    * Returns the set of columns eligible for auto-bloom filtering.
    *
-   * Eligible columns are regular, computed, and exploded-field indexes. Temporal indexes are excluded because they use
-   * struct arrays rather than simple value arrays.
+   * Eligible columns are regular, computed, exploded-field, and temporal indexes. Temporal columns store
+   * `(value, max_ts)` structs rather than scalars, so their filters are built over the `value` field alone — see
+   * [[autoBloomValueColumn]]. Range indexes remain ineligible: they store only per-file min/max bounds, which the range
+   * predicate already prunes on.
    *
    * @return
    *   set of eligible column names
@@ -1303,7 +1323,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
   private def autoBloomEligibleColumns: Set[String] =
     metadata.indexes.asScala.toSet ++
       metadata.computed_indexes.keySet().asScala ++
-      metadata.exploded_field_indexes.asScala.map(_.as_column).toSet
+      metadata.exploded_field_indexes.asScala.map(_.as_column).toSet ++
+      metadata.temporal_indexes.asScala.map(_.column).toSet
 
   /**
    * Builds auto-bloom filters for columns that have at least one large file.
@@ -1356,7 +1377,8 @@ trait IndexBuildOperations extends BloomFilterOperations {
               case Some(valueRows) =>
                 logger.warn(s"Auto-bloom: building filter for '$colName' with FPR=$fpr")
                 val bloomColumn = autoBloomColumnPrefix + colName
-                val bloomData = buildStreamingBloomColumn(valueRows, col(colName), bloomColumn, fpr)
+                val bloomData =
+                  buildStreamingBloomColumn(valueRows, autoBloomValueColumn(colName), bloomColumn, fpr)
                 df.join(bloomData, Seq("filename"), "left")
               case None =>
                 logger.warn(s"Auto-bloom: skipping '$colName', no value source available")
