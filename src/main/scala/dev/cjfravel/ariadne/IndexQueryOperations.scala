@@ -67,7 +67,8 @@ trait IndexQueryOperations extends IndexJoinOperations {
    *   The storage column name
    * @param bloomCandidateFiles
    *   Optional set of files that passed auto-bloom pre-filtering. When provided, only large index rows for these files
-   *   are included, and an empty set drops the large index entirely.
+   *   are included, and an empty set drops the large index entirely. Both restrictions are skipped while a staging
+   *   table exists; see [[pruneLargeIndexRows]].
    * @return
    *   DataFrame with (filename, colName) scalar rows
    */
@@ -146,7 +147,8 @@ trait IndexQueryOperations extends IndexJoinOperations {
    *   The temporal column name
    * @param bloomCandidateFiles
    *   Optional set of files that passed auto-bloom pre-filtering. When provided, only large index rows for these files
-   *   are included, and an empty set drops the large index entirely.
+   *   are included, and an empty set drops the large index entirely. Both restrictions are skipped while a staging
+   *   table exists; see [[pruneLargeIndexRows]].
    * @return
    *   DataFrame with (filename, _value, _max_ts) rows
    */

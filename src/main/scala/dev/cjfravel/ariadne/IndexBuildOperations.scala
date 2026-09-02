@@ -773,12 +773,13 @@ trait IndexBuildOperations extends BloomFilterOperations {
    */
   private def filesMissingAutoBloom(indexDf: DataFrame, colName: String): Option[DataFrame] = {
     val bloomColumn = autoBloomColumnPrefix + colName
+    // The main table holds one row per file, so no distinct is needed here.
     val unfiltered =
       if (indexDf.columns.contains(bloomColumn))
-        indexDf.where(col(bloomColumn).isNull).select(col("filename")).distinct()
-      else indexDf.select(col("filename")).distinct()
+        indexDf.where(col(bloomColumn).isNull).select(col("filename"))
+      else indexDf.select(col("filename"))
 
-    if (unfiltered.limit(1).count() == 0) None
+    if (unfiltered.take(1).isEmpty) None
     else
       autoBloomValueRows(indexDf, colName, Some(unfiltered)).map { valueRows =>
         valueRows

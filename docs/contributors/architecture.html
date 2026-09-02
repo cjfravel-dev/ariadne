@@ -298,7 +298,7 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
           <tr data-storage-version="1"><td>v1</td><td>Alpha37 compatibility baseline; exploded columns may use <code>array_column</code> and <code>file_size</code> is not required.</td></tr>
           <tr data-storage-version="2"><td>v2</td><td>Main and staging Delta tables contain non-null <code>file_size BIGINT</code>.</td></tr>
           <tr data-storage-version="3"><td>v3</td><td>Exploded columns and large-index paths use canonical <code>as_column</code> names.</td></tr>
-          <tr data-storage-version="4"><td>v4 (current)</td><td>Every column with a <code>large_indexes/</code> table is registered in <code>auto_bloom_indexes</code> and carries a non-null <code>auto_bloom_{column}</code> filter in the main table.</td></tr>
+          <tr data-storage-version="4"><td>v4 (current)</td><td>Every column with a <code>large_indexes/</code> table is registered in <code>auto_bloom_indexes</code>, stores its values under the canonical column name, and carries a non-null <code>auto_bloom_{column}</code> filter in the main table for every file holding at least one non-null value. A file holding no value for the column keeps a null filter and is treated as an unconditional match candidate.</td></tr>
         </tbody>
       </table>
     </div>

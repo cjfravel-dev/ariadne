@@ -87,13 +87,18 @@ class AutoBloomBackfillTests extends SparkTests with Matchers {
     writeMetadataJson(index, json)
   }
 
-  private def withSmallLargeIndexLimit[T](body: => T): T =
+  private def withSmallLargeIndexLimit[T](body: => T): T = {
+    val previous = spark.conf.getOption("spark.ariadne.largeIndexLimit")
     try {
       spark.conf.set("spark.ariadne.largeIndexLimit", "1")
       body
     } finally {
-      spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
+      previous match {
+        case Some(value) => spark.conf.set("spark.ariadne.largeIndexLimit", value)
+        case None => spark.conf.unset("spark.ariadne.largeIndexLimit")
+      }
     }
+  }
 
   val explodedTestSchema =
     StructType(
