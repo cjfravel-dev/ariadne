@@ -114,7 +114,7 @@ index.addIndex("status")</code></pre>
     <p><strong>Use when:</strong> you need exact (no-false-positive) pruning. Regular indexes handle very large numbers of distinct values per column, but the larger that set grows the more work <code>update</code> does to build the index — when you don't need exact pruning, prefer <a href="#bloom">a bloom index</a>.</p>
 
     <div class="callout tip">
-      <p><strong>Auto-bloom kicks in for you.</strong> Once a regular index column grows past <code>spark.ariadne.largeIndexLimit</code> (default 500,000) distinct values, Ariadne automatically adds a bloom filter alongside it to keep lookups fast. You don't have to switch to <code>addBloomIndex</code> manually unless you want to control the FPR.</p>
+      <p><strong>Auto-bloom kicks in for you.</strong> Once an index column grows past <code>spark.ariadne.largeIndexLimit</code> (default 500,000) distinct values, Ariadne automatically adds a bloom filter alongside it to keep lookups fast. This covers regular, computed, exploded-field, and temporal index columns. You don't have to switch to <code>addBloomIndex</code> manually unless you want to control the FPR.</p>
     </div>
 
     <h2 id="bloom">Bloom filter index</h2>
@@ -146,6 +146,8 @@ index.addRangeIndex("amount")</code></pre>
 // only the June row is returned from the join.</code></pre>
 
     <p><strong>Use when:</strong> you have append-only history files but want point-in-time-latest semantics on read. The timestamp column must be present in every file you index.</p>
+
+    <p>Temporal columns are usually high-cardinality entity ids, so they are among the likeliest to pass <code>spark.ariadne.largeIndexLimit</code>. When that happens they get an auto-bloom filter like any other index type, which lets queries skip whole files before reading the large index. Pruning never changes which version wins: only files that hold none of the queried values are skipped, so they could not have supplied the latest row anyway.</p>
 
     <h2 id="computed">Computed index</h2>
     <p>Index a value derived from a SQL expression — the computed column doesn't have to physically exist in your files. Useful for partition-like prefixes, hash buckets, or date-component breakdowns.</p>

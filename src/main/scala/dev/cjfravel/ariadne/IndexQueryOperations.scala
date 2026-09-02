@@ -144,10 +144,16 @@ trait IndexQueryOperations extends IndexJoinOperations {
    *   The main index DataFrame (may be repartitioned)
    * @param colName
    *   The temporal column name
+   * @param bloomCandidateFiles
+   *   Optional set of files that passed auto-bloom pre-filtering. When provided, only large index rows for these files
+   *   are included.
    * @return
    *   DataFrame with (filename, _value, _max_ts) rows
    */
-  protected def loadTemporalColumnIndex(indexDf: DataFrame, colName: String): DataFrame = {
+  protected def loadTemporalColumnIndex(
+      indexDf: DataFrame,
+      colName: String,
+      bloomCandidateFiles: Option[Set[String]] = None): DataFrame = {
     val mainRows =
       indexDf
         .select(col("filename"), explode(col(colName)).alias("_temporal"))
@@ -157,7 +163,13 @@ trait IndexQueryOperations extends IndexJoinOperations {
         val largeRows =
           largeDf
             .select(col("filename"), col(s"$colName.value").alias("_value"), col(s"$colName.max_ts").alias("_max_ts"))
-        mainRows.union(largeRows)
+        bloomCandidateFiles match {
+          case Some(candidates) if candidates.nonEmpty =>
+            logger.warn(s"Filtering large temporal index for $colName to ${candidates.size} bloom-candidate files")
+            mainRows.union(largeRows.where(col("filename").isin(candidates.toSeq: _*)))
+          case _ =>
+            mainRows.union(largeRows)
+        }
       case None => mainRows
     }
   }
@@ -387,9 +399,17 @@ trait IndexQueryOperations extends IndexJoinOperations {
    * @return
    *   Some(set of candidate filenames) if an auto-bloom index exists for the column, None otherwise
    */
-  protected def getAutoBloomCandidates(column: String, values: Array[Any], indexDf: DataFrame): Option[Set[String]] =
+  private[ariadne] def getAutoBloomCandidates(
+      column: String,
+      values: Array[Any],
+      indexDf: DataFrame): Option[Set[String]] =
     if (!metadata.auto_bloom_indexes.asScala.contains(column)) None
-    else {
+    else if (!values.exists(_ != null)) {
+      // Filters are built from non-null values only, so an all-null probe set broadcasts an empty probe array
+      // and can match nothing but null filters, which is not a meaningful pre-filter. Such a query resolves to
+      // an empty result on its own predicate anyway, so skipping here just avoids a pointless probe job.
+      None
+    } else {
       val autoBloomCol = s"auto_bloom_$column"
       if (!indexDf.columns.contains(autoBloomCol)) None
       else {
@@ -512,6 +532,11 @@ trait IndexQueryOperations extends IndexJoinOperations {
    * Uses a window function partitioned by value, ordered by max_ts descending, keeping only rank 1 to ensure only the
    * most recent file per value is returned.
    *
+   * Auto-bloom pre-filtering is applied to the large index side before the window. This is safe despite the window
+   * being a global argmax across files: values are filtered to the query set before ranking, so a file the filter
+   * prunes contributes no surviving rows and could never have held rank 1. Bloom filters have no false negatives, so no
+   * file actually holding a queried value is ever pruned.
+   *
    * @param column
    *   The temporal index value column name
    * @param values
@@ -522,7 +547,8 @@ trait IndexQueryOperations extends IndexJoinOperations {
    *   Set of filenames containing the latest version of any matching value
    */
   private def locateFilesWithTemporal(column: String, values: Array[Any], df: DataFrame): Set[String] = {
-    val allExploded = loadTemporalColumnIndex(df, column)
+    val bloomCandidates = getAutoBloomCandidates(column, values, df)
+    val allExploded = loadTemporalColumnIndex(df, column, bloomCandidates)
 
     // Filter to requested values
     val filtered = allExploded.where(col("_value").isin(values: _*))
@@ -742,6 +768,9 @@ trait IndexQueryOperations extends IndexJoinOperations {
    * Joins the exploded temporal index with distinct query values, then applies a window function to keep only the file
    * with the highest max_ts per value. This ensures joins against temporal indexes always use the most recent data.
    *
+   * Auto-bloom pre-filtering is applied to the large index side before the window, on the same reasoning as
+   * [[locateFilesWithTemporal]]: pruned files hold none of the query values, so they contribute no rows to rank.
+   *
    * @param column
    *   The temporal index value column name
    * @param valuesDf
@@ -755,7 +784,10 @@ trait IndexQueryOperations extends IndexJoinOperations {
       column: String,
       valuesDf: DataFrame,
       indexDf: DataFrame): Set[String] = {
-    val allExploded = loadTemporalColumnIndex(indexDf, column)
+    // Temporal columns are routed here by matching the join column against the storage column name,
+    // so the two are the same name by construction.
+    val bloomCandidates = getAutoBloomCandidatesFromDf(column, column, valuesDf, indexDf)
+    val allExploded = loadTemporalColumnIndex(indexDf, column, bloomCandidates)
 
     // Join with query values
     val distinctValues =
