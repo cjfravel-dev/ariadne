@@ -6,6 +6,7 @@ import scala.collection.JavaConverters._
 
 import com.google.gson.{JsonObject, JsonParser}
 import org.apache.hadoop.fs.Path
+import org.apache.spark.sql.functions.{col, lit}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{DataFrame, Row}
 import org.scalatest.matchers.should.Matchers
@@ -93,6 +94,46 @@ class AutoBloomBackfillTests extends SparkTests with Matchers {
     } finally {
       spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
     }
+
+  val explodedTestSchema =
+    StructType(
+      Seq(
+        StructField("event_id", StringType, nullable = false),
+        StructField(
+          "users",
+          ArrayType(StructType(
+            Seq(StructField("id", IntegerType, nullable = false), StructField("name", StringType, nullable = false)))),
+          nullable = false)))
+
+  private def writeExplodedSource(name: String, rows: Seq[Row]): String = {
+    val path = s"${System.getProperty("java.io.tmpdir")}/${name}_${System.currentTimeMillis()}"
+    spark
+      .createDataFrame(spark.sparkContext.parallelize(rows), explodedTestSchema)
+      .write
+      .mode("overwrite")
+      .parquet(path)
+    path
+  }
+
+  private def largeIndexPathFor(index: Index, column: String): Path =
+    new Path(new Path(index.storagePath, "large_indexes"), column)
+
+  private def largeIndexTable(index: Index, column: String): DataFrame =
+    spark.read.format("delta").load(largeIndexPathFor(index, column).toString)
+
+  /** Rewrites a large index table so its value column uses the name a pre-0.1.1-beta release would have written. */
+  private def renameLargeIndexValueColumn(index: Index, column: String, legacyName: String): Unit = {
+    val path = largeIndexPathFor(index, column)
+    spark.read
+      .format("delta")
+      .load(path.toString)
+      .withColumnRenamed(column, legacyName)
+      .write
+      .format("delta")
+      .mode("overwrite")
+      .option("overwriteSchema", "true")
+      .save(path.toString)
+  }
 
   test("backfill adds an auto-bloom filter to an index whose large index predates it") {
     withSmallLargeIndexLimit {
@@ -328,31 +369,14 @@ class AutoBloomBackfillTests extends SparkTests with Matchers {
   }
 
   test("an exploded field large index that still uses the legacy inner column name migrates and stays queryable") {
-    val arrayTestSchema =
-      StructType(
-        Seq(
-          StructField("event_id", StringType, nullable = false),
-          StructField(
-            "users",
-            ArrayType(
-              StructType(Seq(
-                StructField("id", IntegerType, nullable = false),
-                StructField("name", StringType, nullable = false)))),
-            nullable = false)))
-
-    val sourcePath = s"${System.getProperty("java.io.tmpdir")}/legacy_exploded_${System.currentTimeMillis()}"
-    spark
-      .createDataFrame(
-        spark.sparkContext.parallelize(
-          Seq(Row("e1", Array(Row(100, "Alice"), Row(101, "Bob"))), Row("e2", Array(Row(102, "Charlie"))))),
-        arrayTestSchema)
-      .write
-      .mode("overwrite")
-      .parquet(sourcePath)
+    val sourcePath =
+      writeExplodedSource(
+        "legacy_exploded",
+        Seq(Row("e1", Array(Row(100, "Alice"), Row(101, "Bob"))), Row("e2", Array(Row(102, "Charlie")))))
 
     val index =
       withSmallLargeIndexLimit {
-        val built = Index("legacy_exploded_large", arrayTestSchema, "parquet")
+        val built = Index("legacy_exploded_large", explodedTestSchema, "parquet")
         built.addFile(sourcePath)
         built.addExplodedFieldIndex("users", "id", "user_id")
         built.update
@@ -365,24 +389,80 @@ class AutoBloomBackfillTests extends SparkTests with Matchers {
     // Releases before 0.1.1-beta aliased exploded values to the array column name, and the exploded field migration
     // renames only the large index directory, so a migrated index can hold a table whose value column is still
     // 'users' inside 'large_indexes/user_id'.
-    val largeIndexPath = new Path(new Path(index.storagePath, "large_indexes"), "user_id")
-    spark.read
-      .format("delta")
-      .load(largeIndexPath.toString)
-      .withColumnRenamed("user_id", "users")
+    renameLargeIndexValueColumn(index, "user_id", "users")
+    largeIndexTable(index, "user_id").columns should contain("users")
+
+    stripAutoBloom(index, "user_id")
+
+    val reopened = Index("legacy_exploded_large", explodedTestSchema, "parquet")
+    reopened.locateFiles(Map("user_id" -> Array[Any](100))) shouldBe expected
+    readMetadataJson(reopened).get("storage_format_version").getAsInt shouldBe
+      StorageFormat.AutoBloomBackfillStorageVersion
+  }
+
+  test("an update against a legacy-named large index normalizes the column instead of widening the schema") {
+    val index =
+      withSmallLargeIndexLimit {
+        val built = Index("legacy_widen_guard", explodedTestSchema, "parquet")
+        built.addFile(writeExplodedSource("legacy_widen_first", Seq(Row("e1", Array(Row(100, "Alice"))))))
+        built.addExplodedFieldIndex("users", "id", "user_id")
+        built.update
+        built
+      }
+
+    renameLargeIndexValueColumn(index, "user_id", "users")
+    stripAutoBloom(index, "user_id")
+
+    withSmallLargeIndexLimit {
+      val reopened = Index("legacy_widen_guard", explodedTestSchema, "parquet")
+      reopened.addFile(writeExplodedSource("legacy_widen_second", Seq(Row("e2", Array(Row(200, "Bob"))))))
+      reopened.update
+    }
+
+    val reopened = Index("legacy_widen_guard", explodedTestSchema, "parquet")
+    largeIndexTable(reopened, "user_id").columns should contain theSameElementsAs Seq("filename", "user_id")
+    reopened.locateFiles(Map("user_id" -> Array[Any](100))) should have size 1
+    reopened.locateFiles(Map("user_id" -> Array[Any](200))) should have size 1
+    reopened.locateFiles(Map("user_id" -> Array[Any](100, 200))) should have size 2
+  }
+
+  test("a large index widened into legacy and canonical value columns stays queryable and is normalized") {
+    val index =
+      withSmallLargeIndexLimit {
+        val built = Index("legacy_widened", explodedTestSchema, "parquet")
+        built.addFile(writeExplodedSource("widened_first", Seq(Row("e1", Array(Row(100, "Alice"))))))
+        built.addFile(writeExplodedSource("widened_second", Seq(Row("e2", Array(Row(200, "Bob"))))))
+        built.addExplodedFieldIndex("users", "id", "user_id")
+        built.update
+        built
+      }
+
+    // An append with mergeSchema against a legacy-named table widens it, leaving each row populating exactly one of
+    // the two value columns.
+    val largeIndexPath = largeIndexPathFor(index, "user_id")
+    val current = spark.read.format("delta").load(largeIndexPath.toString)
+    val nullValue = lit(null).cast(IntegerType)
+    current
+      .where(col("user_id") === 100)
+      .select(col("filename"), col("user_id").alias("users"), nullValue.alias("user_id"))
+      .union(current.where(col("user_id") =!= 100).select(col("filename"), nullValue.alias("users"), col("user_id")))
       .write
       .format("delta")
       .mode("overwrite")
       .option("overwriteSchema", "true")
       .save(largeIndexPath.toString)
-    spark.read.format("delta").load(largeIndexPath.toString).columns should contain("users")
+
+    val widened = Index("legacy_widened", explodedTestSchema, "parquet")
+    widened.locateFiles(Map("user_id" -> Array[Any](100))) should have size 1
+    widened.locateFiles(Map("user_id" -> Array[Any](200))) should have size 1
 
     stripAutoBloom(index, "user_id")
 
-    val reopened = Index("legacy_exploded_large", arrayTestSchema, "parquet")
-    reopened.locateFiles(Map("user_id" -> Array[Any](100))) shouldBe expected
-    readMetadataJson(reopened).get("storage_format_version").getAsInt shouldBe
-      StorageFormat.AutoBloomBackfillStorageVersion
+    val reopened = Index("legacy_widened", explodedTestSchema, "parquet")
+    reopened.compact()
+    largeIndexTable(reopened, "user_id").columns should contain theSameElementsAs Seq("filename", "user_id")
+    reopened.locateFiles(Map("user_id" -> Array[Any](100))) should have size 1
+    reopened.locateFiles(Map("user_id" -> Array[Any](200))) should have size 1
   }
 
   test("backfill covers files whose values are stored inline as well as files in the large index") {
