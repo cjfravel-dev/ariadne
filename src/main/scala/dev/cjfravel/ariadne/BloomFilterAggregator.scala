@@ -139,8 +139,7 @@ private[ariadne] class BloomFilterAggregator(fpr: Double)
    * Encoder for the aggregation buffer.
    *
    * Java serialization is used because Guava's `BloomFilter` defines its own `writeReplace` form, which Kryo's
-   * reflective serializer does not honour. Buffers are only serialized at shuffle boundaries, not per row, so the cost
-   * is immaterial.
+   * reflective serializer does not honour. Buffers are serialized at shuffle boundaries, not per row.
    *
    * @return
    *   a Java-serialization encoder for [[BloomFilterBuffer]]

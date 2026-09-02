@@ -7,9 +7,8 @@ package dev.cjfravel.ariadne.exceptions
  * via `IndexPathUtils.remove` and `IndexCatalog.remove` when cleaning up an index whose file list has already been
  * deleted.
  *
- * '''Recovery:''' This is typically non-fatal during cleanup operations. If encountered during `IndexCatalog.remove`,
- * it is caught and logged internally. If encountered directly, the file list has already been deleted and no further
- * action is needed.
+ * '''Recovery:''' If encountered during `IndexCatalog.remove`, it is caught and logged internally. If encountered
+ * directly, the file list has already been deleted and no further action is needed.
  *
  * '''Thread safety:''' Instances are immutable after construction and safe to share across threads.
  *

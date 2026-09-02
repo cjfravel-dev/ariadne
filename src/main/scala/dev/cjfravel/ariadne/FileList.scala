@@ -25,7 +25,7 @@ import org.apache.spark.sql.{DataFrame, Row, SparkSession}
  * external synchronization must be applied.
  *
  * @param name
- *   the name of this file list, typically `"[ariadne_index] {indexName}"`
+ *   the name of this file list; `IndexPathUtils` builds it as `"[ariadne_index] {indexName}"`
  * @param spark
  *   implicit SparkSession for Delta Lake operations
  */

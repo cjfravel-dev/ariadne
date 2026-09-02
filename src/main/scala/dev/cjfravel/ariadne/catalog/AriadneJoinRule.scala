@@ -194,9 +194,9 @@ class AriadneJoinRule(sparkSession: SparkSession) extends Rule[LogicalPlan] {
 
       // Use locateFilesFromDataFrame for distributed file matching.
       // This keeps the heavy value-matching work distributed in Spark —
-      // only the final filename set is collected to the driver, which is
-      // bounded by file count (typically thousands), not join key cardinality
-      // (potentially millions).
+      // only the final filename set is collected to the driver, so the
+      // driver-side size is bounded by file count rather than join key
+      // cardinality.
       val mappingMap = columnMapping.toMap // ariadneCol -> otherCol, deduped
       val valuesDf =
         otherDf.select(mappingMap.map { case (ariadneCol, otherCol) =>

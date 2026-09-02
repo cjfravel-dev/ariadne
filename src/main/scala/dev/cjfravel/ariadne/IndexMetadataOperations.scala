@@ -149,7 +149,7 @@ trait IndexMetadataOperations extends AriadneContextUser {
       if (outputStream != null) outputStream.close()
       if (exists(temporaryPath)) delete(temporaryPath)
     }
-    _metadata = metadata // Update in-memory cache
+    _metadata = metadata
     logger.warn(s"Wrote metadata to ${metadataFilePath.toString}")
     logger.debug(s"Completed writeMetadata for index '$name'")
   }
