@@ -129,8 +129,7 @@ trait BloomFilterOperations extends IndexFileOperations {
    *
    * The aggregation is streaming: values are hashed into the filter and discarded, so executor memory scales with the
    * size of the filter (~1.2 bytes per distinct value at 1% FPR) rather than with the number of values held as boxed
-   * JVM objects. A bloom-backed column is therefore not bounded by what fits in an executor-side array, which is what
-   * makes this safe for the very large, high-cardinality columns auto-bloom targets.
+   * JVM objects. A bloom-backed column is therefore not bounded by what fits in an executor-side array.
    *
    * Values are reduced to distinct `(filename, value)` pairs first, so each value is inserted exactly once.
    *
@@ -242,8 +241,8 @@ trait BloomFilterOperations extends IndexFileOperations {
    * serialized size of the bloom filters.
    *
    * This distinction matters most for auto-bloom columns: those filters are, by construction, built from arrays with at
-   * least `largeIndexLimit` elements (500,000 by default), so a single serialized filter is roughly 600&nbsp;KB at the
-   * default 1% FPR. Collecting them for even a few thousand files exhausts a typical driver heap.
+   * least `largeIndexLimit` elements (500,000 by default), so a single serialized filter is roughly 600 KB at the
+   * default 1% FPR. Collecting one per file would scale driver memory with the number of indexed files.
    *
    * @param indexDf
    *   the index DataFrame containing `filename` and the bloom binary column

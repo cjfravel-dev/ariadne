@@ -43,23 +43,14 @@ class MixedIndexIntersectionTests extends SparkTests with Matchers {
 
     index.update
 
-    // Query: id=1 (present in path1) AND category="Z" (not present in any file)
-    // Expected: Empty set
-    // Bug: If bloom filter returns empty set (no match), it might be ignored, and regular index (id=1) returns path1.
-
-    // We need to use locateFilesFromDataFrame logic, which is used by join() or can be called
-    // directly if we expose it or use locateFiles
-    // locateFiles maps to locateFilesFromDataFrame internally? No, locateFiles maps to locateFilesRegular usually.
-    // Let's check Index.scala locateFiles.
-
+    // id=1 is present in path1 but category="Z" is present in no file, so the intersection of the
+    // regular and bloom index results must be empty.
     val queryDf = Seq((1, "Z")).toDF("id", "category")
 
-    // Using join to trigger locateFilesFromDataFrame
+    // join() routes through locateFilesFromDataFrame, which intersects results across index types.
     val result = index.join(queryDf, Seq("id", "category"), "inner")
 
-    // If the bug exists, result will contain rows from path1 because id=1 matches path1
-    // and the bloom filter constraint (category="Z") returning 0 files is ignored.
-
+    // A bloom result of zero files must not be discarded in favour of the regular index match on id=1.
     val rows = result.collect()
     rows.length shouldBe 0
   }

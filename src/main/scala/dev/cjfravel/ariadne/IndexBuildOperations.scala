@@ -135,12 +135,10 @@ trait IndexBuildOperations extends BloomFilterOperations {
   /**
    * Enforces that a column carries at most one index type.
    *
-   * Each `add*Index` method previously enforced this with its own list of checks, which made the rule depend on
-   * registration order wherever an entry was missing: one order threw and the reverse silently accepted a column
-   * carrying two index types, which yields wrong results at query time rather than an error.
-   *
-   * Checking every type in one place keeps the matrix symmetric by construction, so a new index type cannot reintroduce
-   * a one-directional gap.
+   * Checking every type in one place keeps the matrix symmetric by construction: a column carrying two index types can
+   * produce wrong results at query time rather than an error, and per-method lists of checks make detection depend on
+   * registration order wherever an entry is missing. A new index type therefore cannot reintroduce a one-directional
+   * gap.
    *
    * Callers must invoke this only after confirming the column is not already registered as `newType`, so that re-adding
    * the same index type remains idempotent.
@@ -804,10 +802,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
    * Returns the expression selecting the bloom-hashable scalar out of a [[columnValueRows]] row.
    *
    * Every column type but temporal yields the value directly. Temporal rows carry a `(value, max_ts)` struct, so the
-   * filter must be folded over the `value` field alone: queries probe with bare scalars, and hashing the struct would
-   * mean no probe ever matched. That failure is silent but not, today, harmful — an empty candidate set makes the
-   * loaders fall back to scanning the whole large index, so results stay correct and only the pruning is lost. It would
-   * stop being harmless if an empty candidate set were ever treated as a definitive no-match.
+   * filter is folded over the `value` field alone to match the bare scalars that queries probe with.
    *
    * @param column
    *   the storage column name, as produced by [[columnValueRows]]
@@ -1314,7 +1309,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
    *
    * Eligible columns are regular, computed, exploded-field, and temporal indexes. Temporal columns store
    * `(value, max_ts)` structs rather than scalars, so their filters are built over the `value` field alone — see
-   * [[autoBloomValueColumn]]. Range indexes remain ineligible: they store only per-file min/max bounds, which the range
+   * [[autoBloomValueColumn]]. Range indexes are ineligible: they store only per-file min/max bounds, which the range
    * predicate already prunes on.
    *
    * @return

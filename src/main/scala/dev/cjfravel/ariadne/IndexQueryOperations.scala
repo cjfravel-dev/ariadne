@@ -405,9 +405,8 @@ trait IndexQueryOperations extends IndexJoinOperations {
       indexDf: DataFrame): Option[Set[String]] =
     if (!metadata.auto_bloom_indexes.asScala.contains(column)) None
     else if (!values.exists(_ != null)) {
-      // Filters are built from non-null values only, so an all-null probe set broadcasts an empty probe array
-      // and can match nothing but null filters, which is not a meaningful pre-filter. Such a query resolves to
-      // an empty result on its own predicate anyway, so skipping here just avoids a pointless probe job.
+      // Filters are built from non-null values only, so an all-null probe set can match nothing but null filters,
+      // which is not a meaningful pre-filter.
       None
     } else {
       val autoBloomCol = s"auto_bloom_$column"
@@ -749,13 +748,11 @@ trait IndexQueryOperations extends IndexJoinOperations {
             queriedResults.reduce(_ intersect _)
           }
         val totalMs = System.currentTimeMillis() - locateStart
-        // Add per-type timing (#38) to match locateFiles
         logger.warn(
           s"locateFilesFromDataFrame: ${allFiles.size} files matched in ${totalMs}ms " +
             s"(bloom=${bloomMs}ms, temporal=${temporalMs}ms, range=${rangeMs}ms, regular=${regularMs}ms)")
         if (allFiles.isEmpty) Set.empty else allFiles
       case None =>
-        // Log when index table is None (#33)
         logger.warn(s"locateFilesFromDataFrame: no index table found for index '$name', returning empty result")
         Set.empty
     }
@@ -807,7 +804,6 @@ trait IndexQueryOperations extends IndexJoinOperations {
         .distinct()
 
     val result = collectFilenamesViaStaging(pruned)
-    // Add result logging (#36)
     logger.warn(s"Temporal DF query on column '$column': ${result.size} files matched")
     result
   }
