@@ -2,7 +2,6 @@ package dev.cjfravel.ariadne
 
 import scala.collection.JavaConverters._
 
-import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
@@ -59,48 +58,6 @@ trait IndexQueryOperations extends IndexJoinOperations {
   }
 
   /**
-   * Returns the set of column names that have large index Delta tables.
-   *
-   * @return
-   *   Set of column names with large index storage
-   */
-  protected def largeIndexColumns: Set[String] =
-    if (!exists(largeIndexesFilePath)) Set.empty
-    else {
-      fs.listStatus(largeIndexesFilePath)
-        .filter(_.isDirectory)
-        .map(_.getPath)
-        .filter(path => exists(path) && DeltaTable.isDeltaTable(spark, path.toString))
-        .map(_.getName)
-        .toSet
-    }
-
-  /**
-   * Loads a large index Delta table for a specific column. Large indexes store data in exploded (filename, value) row
-   * form rather than as arrays.
-   *
-   * @param colName
-   *   The column name
-   * @return
-   *   DataFrame with (filename, colName) rows, or None if no large index exists
-   */
-  protected def loadLargeIndex(colName: String): Option[DataFrame] = {
-    val columnPath = new Path(largeIndexesFilePath, colName)
-    try {
-      if (
-        exists(columnPath) && DeltaTable
-          .isDeltaTable(spark, columnPath.toString)
-      )
-        Some(spark.read.format("delta").load(columnPath.toString))
-      else None
-    } catch {
-      case e: Exception =>
-        logger.warn(s"Failed to load large index for column '$colName' in index '$name': ${e.getMessage}")
-        None
-    }
-  }
-
-  /**
    * Returns a unified (filename, colName) DataFrame for a regular index column by exploding the main index arrays and
    * unioning with any large index rows that exist for that column.
    *
@@ -110,7 +67,8 @@ trait IndexQueryOperations extends IndexJoinOperations {
    *   The storage column name
    * @param bloomCandidateFiles
    *   Optional set of files that passed auto-bloom pre-filtering. When provided, only large index rows for these files
-   *   are included.
+   *   are included, and an empty set drops the large index entirely. Both restrictions are skipped while a staging
+   *   table exists; see [[pruneLargeIndexRows]].
    * @return
    *   DataFrame with (filename, colName) scalar rows
    */
@@ -123,18 +81,61 @@ trait IndexQueryOperations extends IndexJoinOperations {
         .select(col("filename"), explode(col(colName)).alias(colName))
     loadLargeIndex(colName) match {
       case Some(largeDf) =>
-        bloomCandidateFiles match {
-          case Some(candidates) if candidates.nonEmpty =>
-            logger.warn(s"Filtering large index for $colName to ${candidates.size} bloom-candidate files")
-            val filteredLarge =
-              largeDf.where(col("filename").isin(candidates.toSeq: _*))
-            mainRows.union(filteredLarge)
-          case _ =>
-            mainRows.union(largeDf)
-        }
+        pruneLargeIndexRows(largeDf, colName, bloomCandidateFiles).map(mainRows.union).getOrElse(mainRows)
       case None => mainRows
     }
   }
+
+  /**
+   * Returns whether the main index is known to list every file present in `large_indexes/`.
+   *
+   * Auto-bloom candidate sets are derived from the main index. During an update, large index rows are written before
+   * the matching main index rows reach staging, and staging is merged into the main index only at consolidation. While
+   * a staging table exists the large index can therefore hold rows for files the main index does not list, so a
+   * candidate set is not an exhaustive allowlist and pruning would drop those files.
+   *
+   * @return
+   *   true when no staging table exists
+   */
+  private[ariadne] def autoBloomCandidatesAreExhaustive: Boolean = !exists(stagingFilePath)
+
+  /**
+   * Applies an auto-bloom candidate allowlist to large index rows.
+   *
+   * `None` means no probe ran, so every row is kept. `Some(candidates)` means a probe ran; bloom filters have no false
+   * negatives, so a file outside the set holds none of the queried values. An empty set is therefore a definitive
+   * no-match and the large index is skipped entirely rather than scanned in full.
+   *
+   * Pruning is skipped while [[autoBloomCandidatesAreExhaustive]] is false.
+   *
+   * @param largeDf
+   *   the large index rows for the column
+   * @param colName
+   *   the storage column name, used for logging
+   * @param bloomCandidateFiles
+   *   the candidate allowlist
+   * @return
+   *   the rows to union with the inline rows, or `None` when the large index cannot contribute a match
+   */
+  private[ariadne] def pruneLargeIndexRows(
+      largeDf: DataFrame,
+      colName: String,
+      bloomCandidateFiles: Option[Set[String]]): Option[DataFrame] =
+    bloomCandidateFiles match {
+      case None => Some(largeDf)
+      case Some(candidates) =>
+        if (!autoBloomCandidatesAreExhaustive) {
+          logger.warn(
+            s"Staging table present for index '$name', skipping auto-bloom pruning of large index for '$colName'")
+          Some(largeDf)
+        } else if (candidates.isEmpty) {
+          logger.warn(s"Auto-bloom matched no files for '$colName', skipping its large index")
+          None
+        } else {
+          logger.warn(s"Filtering large index for $colName to ${candidates.size} bloom-candidate files")
+          Some(largeDf.where(col("filename").isin(candidates.toSeq: _*)))
+        }
+    }
 
   /**
    * Returns a unified (filename, _value, _max_ts) DataFrame for a temporal index column by exploding the main index
@@ -146,7 +147,8 @@ trait IndexQueryOperations extends IndexJoinOperations {
    *   The temporal column name
    * @param bloomCandidateFiles
    *   Optional set of files that passed auto-bloom pre-filtering. When provided, only large index rows for these files
-   *   are included.
+   *   are included, and an empty set drops the large index entirely. Both restrictions are skipped while a staging
+   *   table exists; see [[pruneLargeIndexRows]].
    * @return
    *   DataFrame with (filename, _value, _max_ts) rows
    */
@@ -163,13 +165,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
         val largeRows =
           largeDf
             .select(col("filename"), col(s"$colName.value").alias("_value"), col(s"$colName.max_ts").alias("_max_ts"))
-        bloomCandidateFiles match {
-          case Some(candidates) if candidates.nonEmpty =>
-            logger.warn(s"Filtering large temporal index for $colName to ${candidates.size} bloom-candidate files")
-            mainRows.union(largeRows.where(col("filename").isin(candidates.toSeq: _*)))
-          case _ =>
-            mainRows.union(largeRows)
-        }
+        pruneLargeIndexRows(largeRows, colName, bloomCandidateFiles).map(mainRows.union).getOrElse(mainRows)
       case None => mainRows
     }
   }

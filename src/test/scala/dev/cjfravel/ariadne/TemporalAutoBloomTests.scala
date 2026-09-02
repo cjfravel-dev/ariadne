@@ -12,10 +12,8 @@ import org.scalatest.matchers.should.Matchers
 /**
  * Tests for auto-bloom filtering on temporal index columns.
  *
- * Temporal columns are the likeliest to exceed `largeIndexLimit` — they typically hold high-cardinality entity ids — so
- * they benefit most from skipping `large_indexes/` at query time. Unlike other index types they store `(value, max_ts)`
- * structs, and their file location is a global argmax over `max_ts` rather than a plain membership test, so both the
- * build and query sides are covered here.
+ * Temporal columns store `(value, max_ts)` structs rather than scalars, and their file location is a global argmax over
+ * `max_ts` rather than a plain membership test, so both the build and query sides are covered here.
  *
  * temporal_part0.csv: Id=1,2,3,4 all at 2024-01-15. temporal_part1.csv: Id=1 at 2024-06, Id=2 at 2024-03, Id=5 at
  * 2024-06. Latest version therefore lives in part1 for Id=1,2,5 and in part0 for Id=3,4.
