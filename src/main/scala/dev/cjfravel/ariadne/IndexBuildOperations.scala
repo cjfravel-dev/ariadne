@@ -12,7 +12,7 @@ import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{LongType, StructField}
+import org.apache.spark.sql.types.{BinaryType, LongType, StructField}
 import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.util.SerializableConfiguration
@@ -201,6 +201,48 @@ trait IndexBuildOperations extends BloomFilterOperations {
   protected def indexFilePath: Path = new Path(storagePath, "index")
 
   /**
+   * Returns the set of column names that have large index Delta tables.
+   *
+   * @return
+   *   Set of column names with large index storage
+   */
+  protected def largeIndexColumns: Set[String] =
+    if (!exists(largeIndexesFilePath)) Set.empty
+    else {
+      fs.listStatus(largeIndexesFilePath)
+        .filter(_.isDirectory)
+        .map(_.getPath)
+        .filter(path => exists(path) && DeltaTable.isDeltaTable(spark, path.toString))
+        .map(_.getName)
+        .toSet
+    }
+
+  /**
+   * Loads a large index Delta table for a specific column. Large indexes store data in exploded (filename, value) row
+   * form rather than as arrays.
+   *
+   * @param colName
+   *   The column name
+   * @return
+   *   DataFrame with (filename, colName) rows, or None if no large index exists
+   */
+  private[ariadne] def loadLargeIndex(colName: String): Option[DataFrame] = {
+    val columnPath = new Path(largeIndexesFilePath, colName)
+    try {
+      if (
+        exists(columnPath) && DeltaTable
+          .isDeltaTable(spark, columnPath.toString)
+      )
+        Some(spark.read.format("delta").load(columnPath.toString))
+      else None
+    } catch {
+      case e: Exception =>
+        logger.warn(s"Failed to load large index for column '$colName' in index '$name': ${e.getMessage}")
+        None
+    }
+  }
+
+  /**
    * Hadoop path for the staging Delta table (`{storagePath}/staging/`).
    *
    * The staging table accumulates batch results during [[Index.update update]] and is merged into the main index by
@@ -292,7 +334,7 @@ trait IndexBuildOperations extends BloomFilterOperations {
       val fileSizeMigrationNeeded =
         initialStorageVersion < StorageFormat.FileSizeStorageVersion || needsFileSizeMigration
       val explodedMigrationNeeded =
-        initialStorageVersion < StorageFormat.CurrentStorageVersion || needsExplodedFieldMigration
+        initialStorageVersion < StorageFormat.ExplodedFieldStorageVersion || needsExplodedFieldMigration
 
       if (fileSizeMigrationNeeded) migrateFileSizeColumns(checkHeartbeat)
       checkHeartbeat()
@@ -301,12 +343,20 @@ trait IndexBuildOperations extends BloomFilterOperations {
       checkHeartbeat()
       verifyExplodedFieldColumns()
 
+      // Evaluated after the exploded field migration because it inspects storage column names, which that migration
+      // renames.
+      val autoBloomBackfillNeeded =
+        initialStorageVersion < StorageFormat.AutoBloomBackfillStorageVersion || needsAutoBloomBackfill
+      if (autoBloomBackfillNeeded) migrateAutoBloomFilters(checkHeartbeat)
+      checkHeartbeat()
+      verifyAutoBloomFilters()
+
       val versionChanged =
         metadata.metadata_version == null ||
           metadata.metadata_version != StorageFormat.CurrentMetadataVersion ||
           metadata.storage_format_version == null ||
           metadata.storage_format_version != StorageFormat.CurrentStorageVersion
-      if (versionChanged || fileSizeMigrationNeeded || explodedMigrationNeeded) {
+      if (versionChanged || fileSizeMigrationNeeded || explodedMigrationNeeded || autoBloomBackfillNeeded) {
         val previousMetadataVersion = metadata.metadata_version
         val previousStorageVersion = metadata.storage_format_version
         try {
@@ -623,6 +673,146 @@ trait IndexBuildOperations extends BloomFilterOperations {
       ) {
         throw new StorageMigrationException(
           s"Index '$name' still contains legacy large index path '${mapping.array_column}'")
+      }
+    }
+  }
+
+  /**
+   * Returns files that hold at least one non-null value in the large index for `colName` but carry no auto-bloom filter
+   * in the main table.
+   *
+   * A file whose large-index values are all null contributes nothing to a filter, so it is not reported as missing.
+   *
+   * The main table holds one row per file while the large index holds one row per value, so the file-side check runs
+   * first and returns `None` when every file already carries a filter. This keeps the large index out of the path taken
+   * by every mutating operation once a backfill has completed.
+   *
+   * @param indexDf
+   *   the main index DataFrame
+   * @param colName
+   *   the storage column name
+   * @return
+   *   a single-column `filename` DataFrame, or `None` when no file can be missing a filter
+   */
+  private def filesMissingAutoBloom(indexDf: DataFrame, colName: String): Option[DataFrame] = {
+    val bloomColumn = autoBloomColumnPrefix + colName
+    val unfiltered =
+      if (indexDf.columns.contains(bloomColumn))
+        indexDf.where(col(bloomColumn).isNull).select(col("filename")).distinct()
+      else indexDf.select(col("filename")).distinct()
+
+    if (unfiltered.limit(1).count() == 0) None
+    else
+      loadLargeIndex(colName).map { largeDf =>
+        largeDf
+          .where(autoBloomValueColumn(colName).isNotNull)
+          .join(unfiltered, Seq("filename"), "left_semi")
+          .select(col("filename"))
+          .distinct()
+      }
+  }
+
+  private def autoBloomBackfillColumns: Set[String] =
+    autoBloomEligibleColumns.intersect(largeIndexColumns)
+
+  private def needsAutoBloomBackfill: Boolean = {
+    val candidates = autoBloomBackfillColumns
+    candidates.nonEmpty && migrationDelta(indexFilePath, "main table").exists { table =>
+      val df = table.toDF
+      candidates.exists { colName =>
+        !metadata.auto_bloom_indexes.contains(colName) ||
+        !df.columns.contains(autoBloomColumnPrefix + colName) ||
+        filesMissingAutoBloom(df, colName).exists(_.limit(1).count() > 0)
+      }
+    }
+  }
+
+  /**
+   * Builds auto-bloom filters for columns that already have a `large_indexes/` table but no filter in the main index.
+   *
+   * Filters are folded from the large index rows themselves. A file's values for a column are stored either entirely
+   * inline or entirely in the large index, so the large index alone is a complete value source for the files it covers.
+   *
+   * Metadata is written only after every column has been backfilled, so a failure part way through leaves the storage
+   * version unchanged and the next preflight repeats the work.
+   *
+   * @param checkHeartbeat
+   *   callback that refreshes the update lock and aborts if ownership was lost
+   */
+  protected def migrateAutoBloomFilters(checkHeartbeat: () => Unit): Unit = {
+    val candidates = autoBloomBackfillColumns.toSeq.sorted
+    if (candidates.nonEmpty && exists(indexFilePath)) {
+      val fpr = autoBloomFpr
+      logger.warn(s"Backfilling auto-bloom filters for index '$name': ${candidates.mkString(", ")}")
+      candidates.foreach { colName =>
+        val bloomColumn = autoBloomColumnPrefix + colName
+        checkHeartbeat()
+
+        migrationDelta(indexFilePath, "main table").foreach { table =>
+          if (!table.toDF.columns.contains(bloomColumn)) {
+            logger.warn(s"Adding $bloomColumn to main table for index '$name'")
+            // Evolve the schema by appending an empty, schema-widened DataFrame with mergeSchema enabled. This resolves
+            // through Delta's path-based DataSource writer rather than the analyzer's ResolveRelations rule, so it
+            // never forces HiveExternalCatalog initialization (which fails with "null path" on Synapse). Zero rows are
+            // written; only the table schema evolves.
+            val evolvedSchema = table.toDF.schema.add(StructField(bloomColumn, BinaryType, nullable = true))
+            val emptyWithBloom = spark.createDataFrame(spark.sparkContext.emptyRDD[Row], evolvedSchema)
+            emptyWithBloom.write
+              .format("delta")
+              .mode("append")
+              .option("mergeSchema", "true")
+              .save(indexFilePath.toString)
+          }
+        }
+        checkHeartbeat()
+
+        migrationDelta(indexFilePath, "main table").foreach { table =>
+          filesMissingAutoBloom(table.toDF, colName).foreach { pendingFiles =>
+            loadLargeIndex(colName).foreach { largeDf =>
+              val pendingRows = largeDf.join(pendingFiles, Seq("filename"), "left_semi")
+              val filters = buildStreamingBloomColumn(pendingRows, autoBloomValueColumn(colName), bloomColumn, fpr)
+              checkHeartbeat()
+              table
+                .as("target")
+                .merge(filters.as("source"), "target.filename = source.filename")
+                .whenMatched()
+                .update(Map(bloomColumn -> col(s"source.$bloomColumn")))
+                .execute()
+              checkHeartbeat()
+            }
+          }
+        }
+      }
+
+      val newlyRegistered = candidates.filterNot(metadata.auto_bloom_indexes.contains)
+      if (newlyRegistered.nonEmpty) {
+        newlyRegistered.foreach(metadata.auto_bloom_indexes.add)
+        writeMetadata(metadata)
+        logger.warn(s"Registered auto-bloom columns for index '$name': ${newlyRegistered.mkString(", ")}")
+      }
+    }
+  }
+
+  private def verifyAutoBloomFilters(): Unit = {
+    val candidates = autoBloomBackfillColumns
+    if (candidates.nonEmpty) {
+      migrationDelta(indexFilePath, "main table").foreach { table =>
+        val df = table.toDF
+        candidates.foreach { colName =>
+          val bloomColumn = autoBloomColumnPrefix + colName
+          if (!metadata.auto_bloom_indexes.contains(colName)) {
+            throw new StorageMigrationException(
+              s"Index '$name' has a large index for '$colName' that is not registered as auto-bloom")
+          }
+          if (!df.columns.contains(bloomColumn) || df.schema(bloomColumn).dataType != BinaryType) {
+            throw new StorageMigrationException(
+              s"Main table for index '$name' does not have a binary $bloomColumn column")
+          }
+          if (filesMissingAutoBloom(df, colName).exists(_.limit(1).count() > 0)) {
+            throw new StorageMigrationException(
+              s"Main table for index '$name' still has large index files without an auto-bloom filter for '$colName'")
+          }
+        }
       }
     }
   }

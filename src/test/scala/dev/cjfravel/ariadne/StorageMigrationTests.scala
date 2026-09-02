@@ -105,7 +105,7 @@ class StorageMigrationTests extends SparkTests with Matchers {
 
     val json = readMetadataJson("versioned_new_index")
     json.get("metadata_version").getAsInt shouldBe 10
-    json.get("storage_format_version").getAsInt shouldBe 3
+    json.get("storage_format_version").getAsInt shouldBe 4
   }
 
   test("real alpha37 fixture migrates and remains idempotent") {
@@ -140,7 +140,7 @@ class StorageMigrationTests extends SparkTests with Matchers {
       migrated.where(col("file_size").isNull).count() shouldBe 0L
       val migratedMetadata = readMetadataJson(indexName)
       migratedMetadata.get("metadata_version").getAsInt shouldBe 10
-      migratedMetadata.get("storage_format_version").getAsInt shouldBe 3
+      migratedMetadata.get("storage_format_version").getAsInt shouldBe 4
 
       val metadataAfterMigration = readMetadataString(indexName)
       val historyAfterMigration = DeltaTable.forPath(spark, indexPath.toString).history().count()
@@ -219,7 +219,7 @@ class StorageMigrationTests extends SparkTests with Matchers {
       migrated.columns should contain("file_size")
       migrated.where(col("file_size").isNull).count() shouldBe 0L
     }
-    readMetadataJson("alpha37_query_migration").get("storage_format_version").getAsInt shouldBe 3
+    readMetadataJson("alpha37_query_migration").get("storage_format_version").getAsInt shouldBe 4
 
     val metadataAfterFirstMigration = readMetadataString("alpha37_query_migration")
     val mainHistoryAfterFirstMigration = DeltaTable.forPath(spark, mainPath.toString).history().count()
@@ -453,7 +453,7 @@ class StorageMigrationTests extends SparkTests with Matchers {
     makeUnversioned(indexName)
 
     Index(indexName).locateFiles(Map("users" -> Array[Any](100))) should not be empty
-    readMetadataJson(indexName).get("storage_format_version").getAsInt shouldBe 3
+    readMetadataJson(indexName).get("storage_format_version").getAsInt shouldBe 4
   }
 
   test("mutating lifecycle operations migrate without recursively acquiring the update lock") {
@@ -471,7 +471,7 @@ class StorageMigrationTests extends SparkTests with Matchers {
     operations.foreach { operation =>
       makeUnversioned(indexName)
       operation()
-      readMetadataJson(indexName).get("storage_format_version").getAsInt shouldBe 3
+      readMetadataJson(indexName).get("storage_format_version").getAsInt shouldBe 4
       val lockPath = new Path(new Path(IndexPathUtils.storagePath, indexName), ".update.lock")
       lockPath.getFileSystem(spark.sparkContext.hadoopConfiguration).exists(lockPath) shouldBe false
     }
