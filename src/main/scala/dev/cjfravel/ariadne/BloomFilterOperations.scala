@@ -163,7 +163,7 @@ trait BloomFilterOperations extends IndexFileOperations {
         .groupBy("filename")
         .agg(count(lit(1)).alias(bloomExpectedColumn))
 
-    val bloomAgg = udaf(new BloomFilterAggregator(fpr))
+    val bloomAgg = udaf(new BloomFilterAggregator(fpr), BloomFilterAggregator.inputEncoder)
     distinctValues
       .join(broadcast(expectedPerFile), Seq("filename"), "inner")
       .groupBy("filename")

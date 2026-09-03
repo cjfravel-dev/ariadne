@@ -8,24 +8,6 @@ import org.apache.spark.sql.expressions.Aggregator
 import org.apache.spark.sql.{Encoder, Encoders}
 
 /**
- * Input row for [[BloomFilterAggregator]].
- *
- * `expectedInsertions` is carried on every row rather than supplied to the aggregator's constructor because a Spark
- * `Aggregator` cannot see its grouping key. Carrying the per-file distinct count in the row is what allows each file's
- * bloom filter to be sized individually; a constructor parameter would force one uniform size across every file in the
- * batch, inflating stored index size whenever file cardinalities are skewed.
- *
- * All rows within a single `filename` group carry the same `expectedInsertions`, which is what makes buffer merging
- * safe (see [[BloomFilterAggregator.merge]]).
- *
- * @param value
- *   the indexed value, already converted to its canonical string form
- * @param expectedInsertions
- *   the number of distinct values for the file this row belongs to
- */
-private[ariadne] case class BloomAggInput(value: String, expectedInsertions: Long)
-
-/**
  * Mutable aggregation buffer wrapping a Guava bloom filter.
  *
  * The filter starts as `null` because its size depends on `expectedInsertions`, which is only known once the first
@@ -49,13 +31,19 @@ private[ariadne] class BloomFilterBuffer(var filter: BloomFilter[CharSequence]) 
  * `BloomFilterOperations.canonicalStringColumn`. Mismatched string forms would produce false negatives, which a bloom
  * filter is otherwise guaranteed never to yield.
  *
+ * Input rows are `(value, expectedInsertions)` tuples. The expected count is carried on every row rather than supplied
+ * to the constructor because a Spark `Aggregator` cannot see its grouping key, and it is what allows each file's filter
+ * to be sized individually; a constructor parameter would force one uniform size across every file in the batch,
+ * inflating stored index size whenever file cardinalities are skewed. All rows within a single `filename` group carry
+ * the same count, which is what makes buffer merging safe (see [[BloomFilterAggregator.merge]]).
+ *
  * @param fpr
  *   desired false positive rate, strictly between 0 and 1
  * @throws IllegalArgumentException
  *   if `fpr` is outside the range (0, 1)
  */
 private[ariadne] class BloomFilterAggregator(fpr: Double)
-    extends Aggregator[BloomAggInput, BloomFilterBuffer, Array[Byte]] {
+    extends Aggregator[(String, Long), BloomFilterBuffer, Array[Byte]] {
   require(fpr > 0.0 && fpr < 1.0, s"False positive rate must be between 0 and 1 (exclusive), got: $fpr")
 
   private val falsePositiveRate: Double = fpr
@@ -74,21 +62,22 @@ private[ariadne] class BloomFilterAggregator(fpr: Double)
    * @param buffer
    *   the buffer to fold into
    * @param input
-   *   the input row; null rows and null values are ignored
+   *   the `(value, expectedInsertions)` row; null rows and null values are ignored
    * @return
    *   the same buffer instance, mutated
    */
-  def reduce(buffer: BloomFilterBuffer, input: BloomAggInput): BloomFilterBuffer =
-    if (input == null || input.value == null) {
+  def reduce(buffer: BloomFilterBuffer, input: (String, Long)): BloomFilterBuffer =
+    if (input == null || input._1 == null) {
       buffer
     } else {
+      val (value, expectedInsertions) = input
       if (buffer.filter == null) {
         // Guava requires a positive expected insertion count; degrade gracefully if the
         // pre-count is missing or nonsensical rather than failing the whole update.
-        val expected = math.max(input.expectedInsertions, 1L)
+        val expected = math.max(expectedInsertions, 1L)
         buffer.filter = BloomFilter.create(Funnels.stringFunnel(StandardCharsets.UTF_8), expected, falsePositiveRate)
       }
-      buffer.filter.put(input.value)
+      buffer.filter.put(value)
       buffer
     }
 
@@ -154,4 +143,23 @@ private[ariadne] class BloomFilterAggregator(fpr: Double)
    *   the binary encoder
    */
   def outputEncoder: Encoder[Array[Byte]] = Encoders.BINARY
+}
+
+/**
+ * Companion holding the aggregator's input encoder.
+ */
+private[ariadne] object BloomFilterAggregator {
+
+  /**
+   * Encoder for the aggregator's input rows.
+   *
+   * Built from primitive encoders rather than derived from a case class, because derivation resolves the input type
+   * through Scala reflection. Scala's pickled type signatures still name the type's original package after a build
+   * relocates Ariadne's classes, so the reflective lookup finds nothing and the index update fails with
+   * `ENCODER_NOT_FOUND`. Tuples and primitives are resolved from the standard library, which relocation never rewrites.
+   *
+   * @return
+   *   an encoder for `(value, expectedInsertions)` rows
+   */
+  val inputEncoder: Encoder[(String, Long)] = Encoders.tuple(Encoders.STRING, Encoders.scalaLong)
 }
