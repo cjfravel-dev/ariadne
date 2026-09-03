@@ -56,13 +56,16 @@ assert_contains .github/workflows/publish.yml "-Dcentral.autoPublish=false"
 assert_contains .github/workflows/publish.yml "-Dcentral.waitUntil=validated"
 
 # Staging skips test execution because the tagged commit was already tested by CI on main. That tradeoff is only sound
-# while the provenance gate below runs first, so the two must be kept together.
+# while the provenance gate runs first, and -DskipTests also suppresses the governance scripts bound to the test phase
+# (exec-maven-plugin inherits <skip>${skipTests}</skip>), so the workflow must run them explicitly. All three pieces
+# must be kept together.
 assert_contains .github/workflows/publish.yml "-DskipTests"
 assert_contains .github/workflows/publish.yml "Verify the release commit passed CI"
 assert_contains .github/workflows/publish.yml "commits/\$sha/check-runs"
 assert_contains .github/workflows/publish.yml "Build & Test (Spark 3.5)"
 assert_contains .github/workflows/publish.yml "Build & Test (Spark 4.1)"
 assert_contains .github/workflows/publish.yml "checks: read"
+assert_contains .github/workflows/publish.yml "dev/scripts/run-governance-checks.sh"
 assert_contains .github/workflows/publish.yml "set +e"
 assert_contains .github/workflows/publish.yml "state35=UNKNOWN"
 assert_contains .github/workflows/publish.yml "state41=UNKNOWN"
