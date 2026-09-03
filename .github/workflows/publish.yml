@@ -124,9 +124,9 @@ jobs:
                     // (.id | tostring)
                 '
             )
-            # A check run produced by Actions carries the id of the job behind it, and the job points back at the same
-            # check run. Confirm the job's name matches before reading its steps, so the gate fails rather than
-            # judging the wrong job if that ever stops holding.
+            # The id above comes from details_url, or from the check run itself if that was not usable. Confirm the
+            # job's name matches either way, so a wrong id stops the release rather than being judged against
+            # another job.
             job_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$job")
             job_name=$(printf '%s' "$job_json" | jq -r '.name // ""')
             if [[ "$job_name" != "$name" ]]; then

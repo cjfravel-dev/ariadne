@@ -91,8 +91,8 @@ while IFS= read -r step; do
 done < <(grep -oE '^ *"Build & Test \(Spark [0-9.]+\)\|[^"]+"' .github/workflows/publish.yml | sed 's/.*|//; s/"$//')
 
 assert_contains .github/workflows/publish.yml "actions/jobs/"
-# The job behind a check run is looked up by the check run's own id. Confirm the job's name before trusting its
-# steps, so a mismatch fails the release instead of judging some other job.
+# The job is located from the check run's details_url, falling back to the check run's own id. Confirm the job's name
+# before trusting its steps, so a mismatch fails the release instead of judging some other job.
 assert_contains .github/workflows/publish.yml 'if [[ "$job_name" != "$name" ]]'
 assert_contains .github/workflows/publish.yml "set +e"
 assert_contains .github/workflows/publish.yml "state35=UNKNOWN"
