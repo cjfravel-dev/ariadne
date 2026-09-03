@@ -12,7 +12,7 @@ import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{BinaryType, LongType, StructField}
+import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.util.SerializableConfiguration
@@ -1674,7 +1674,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
    * predicate already prunes on.
    *
    * Binary-typed columns are eligible here but excluded later, in [[buildAutoBloomIndexes]], where the source
-   * DataFrame's schema is available to establish the type — see [[hasBinaryValueType]].
+   * DataFrame's schema is available to establish the type — see [[hasBinaryValueType]]. Note that exploded-field
+   * aliases appear in this set but never as columns on that DataFrame, so establishing their type requires resolving
+   * the mapping back through `array_column.field_path`.
    *
    * @return
    *   set of eligible column names
@@ -1693,20 +1695,43 @@ trait IndexBuildOperations extends BloomFilterOperations {
    * means files are silently pruned away from query results. Columns reported here are therefore excluded from
    * auto-bloom rather than indexed with a filter that cannot work.
    *
-   * A column absent from the DataFrame is reported as non-binary: its type cannot be established here, and excluding it
-   * would drop auto-bloom coverage on a column that is most likely fine.
+   * Exploded-field aliases need indirection. `sourceDf` carries the source columns plus computed indexes, but an
+   * exploded alias such as `user_id` is never a column on it — it is produced later, inside
+   * [[buildExplodedFieldIndexes]], from `array_column.field_path`. Looking the alias up directly would find nothing and
+   * wrongly report it as non-binary, so the mapping is consulted first and the underlying path resolved through the
+   * array.
+   *
+   * A column that still cannot be resolved is reported as non-binary: its type cannot be established here, and
+   * excluding it would drop auto-bloom coverage on a column that is most likely fine.
    *
    * @param df
    *   the DataFrame whose schema defines the column's type
    * @param column
-   *   the column name to inspect
+   *   the eligible column name to inspect, which may be an exploded-field alias
    * @return
-   *   true if the column exists and its type contains a binary type at any depth
+   *   true if the column resolves and its type contains a binary type at any depth
    */
   private def hasBinaryValueType(df: DataFrame, column: String): Boolean =
-    df.schema.fields
-      .find(_.name == column)
-      .exists(field => SchemaHelper.containsBinaryType(field.dataType))
+    autoBloomValueType(df, column).exists(SchemaHelper.containsBinaryType)
+
+  /**
+   * Resolves the type of the values an auto-bloom filter would hash for `column`.
+   *
+   * Exploded-field aliases resolve through their `array_column.field_path` mapping; every other eligible column is a
+   * plain top-level column on `df`.
+   *
+   * @param df
+   *   the DataFrame whose schema defines the types
+   * @param column
+   *   the eligible column name, which may be an exploded-field alias
+   * @return
+   *   `Some(dataType)` if the column resolves, `None` otherwise
+   */
+  private def autoBloomValueType(df: DataFrame, column: String): Option[DataType] =
+    metadata.exploded_field_indexes.asScala
+      .find(_.as_column == column)
+      .flatMap(mapping => SchemaHelper.nestedFieldType(df.schema, s"${mapping.array_column}.${mapping.field_path}"))
+      .orElse(SchemaHelper.fieldType(df.schema, column))
 
   /**
    * Builds auto-bloom filters for columns that have at least one large file.

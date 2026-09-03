@@ -72,6 +72,46 @@ object SchemaHelper {
   }
 
   /**
+   * Resolves a dotted field path to its data type, descending through structs and arrays of structs.
+   *
+   * This mirrors Spark's dotted column access. `col("users.id")` on an `array<struct<id: long>>` column selects the
+   * `id` field of every element, so array levels are traversed transparently rather than terminating the path. The type
+   * returned is the '''element''' type at the end of the path (`LongType` in that example), not the array that Spark
+   * would wrap it in, because callers care about the type of the values themselves.
+   *
+   * Used to establish the type behind an exploded-field index alias, which exists only as a mapping in metadata and
+   * never as a top-level column on the source DataFrame — [[fieldType]] cannot see it.
+   *
+   * @param schema
+   *   The root `StructType` schema to search. Must not be null.
+   * @param path
+   *   The dotted path, e.g. `"users.id"`. Must not be null or blank.
+   * @return
+   *   `Some(dataType)` if the whole path resolves, `None` if any segment is missing or a non-descendable type is
+   *   encountered before the path is consumed
+   * @throws IllegalArgumentException
+   *   if schema is null or path is null/blank
+   */
+  def nestedFieldType(schema: StructType, path: String): Option[DataType] = {
+    require(schema != null, "schema must not be null")
+    require(path != null && path.trim.nonEmpty, "path must not be null or blank")
+
+    def descend(dataType: DataType, remaining: List[String]): Option[DataType] =
+      remaining match {
+        case Nil => Some(dataType)
+        case head :: tail =>
+          dataType match {
+            case struct: StructType =>
+              struct.fields.find(_.name == head).flatMap(field => descend(field.dataType, tail))
+            case ArrayType(elementType, _) => descend(elementType, remaining)
+            case _ => None
+          }
+      }
+
+    descend(schema, path.split("\\.").toList)
+  }
+
+  /**
    * Reports whether a data type is, or transitively contains, a [[org.apache.spark.sql.types.BinaryType]].
    *
    * Spark materializes `BinaryType` as a JVM `Array[Byte]`, whose `toString` is identity-based (`[B@1b6d3586`) rather
