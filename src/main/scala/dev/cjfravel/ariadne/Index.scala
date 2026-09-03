@@ -996,7 +996,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    * @param usingColumns
    *   The column names to join on (must be indexed columns)
    * @param joinType
-   *   The Spark join type. Supported here: "inner", "cross", "left_semi", "right", "right_outer" (default: "inner")
+   *   The Spark join type. Supported here: "inner", "left_semi", "right", "right_outer" (default: "inner")
    * @return
    *   The joined DataFrame
    * @throws IllegalArgumentException
@@ -1358,8 +1358,8 @@ object Index {
      * @param usingColumns
      *   Column names to join on (must be indexed columns)
      * @param joinType
-     *   Spark join type. Supported here: "inner", "cross", "left_semi", "left", "left_outer", "left_anti" (default
-     *   "inner"). To keep every row of the indexed dataset regardless of matches, read the data files directly.
+     *   Spark join type. Supported here: "inner", "left_semi", "left", "left_outer", "left_anti" (default "inner"). To
+     *   keep every row of the indexed dataset regardless of matches, read the data files directly.
      * @return
      *   The joined DataFrame
      * @throws ColumnNotFoundException

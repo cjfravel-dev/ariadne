@@ -151,6 +151,28 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
     }
   }
 
+  test("cross join type is accepted and degenerates to inner") {
+    val index =
+      Index("join_cross_test", indexSchema, "csv", Map("header" -> "true"))
+
+    index.addFile(resourcePath("/data/table1_part0.csv"))
+    index.addIndex("Id")
+    index.update
+
+    val queryData =
+      spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(1, 1), Row(2, 1))), querySchema)
+
+    // Both entry points always supply join columns, so Spark attaches an equi-join condition
+    // and `cross` produces exactly the inner-join result. Pinned because the scaladoc says so.
+    val collectRows = (df: org.apache.spark.sql.DataFrame) => df.collect().map(_.toString).sorted.toSeq
+
+    collectRows(index.join(queryData, Seq("Id"), "cross")) should
+      contain theSameElementsAs collectRows(index.join(queryData, Seq("Id"), "inner"))
+
+    collectRows(queryData.join(index, Seq("Id"), "cross")) should
+      contain theSameElementsAs collectRows(queryData.join(index, Seq("Id"), "inner"))
+  }
+
   test("should handle joins with single column") {
     val index =
       Index("join_single_test", indexSchema, "csv", Map("header" -> "true"))

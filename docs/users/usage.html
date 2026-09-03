@@ -81,12 +81,14 @@ val b = index.join(customerDf, Seq("customer_id"), "inner")</code></pre>
     <table>
       <thead><tr><th>Call</th><th>Index side</th><th>Supported</th><th>Rejected</th></tr></thead>
       <tbody>
-        <tr><td><code>index.join(df, …)</code></td><td>left</td><td><code>inner</code>, <code>cross</code>, <code>left_semi</code>, <code>right</code>, <code>right_outer</code></td><td><code>left</code>, <code>left_outer</code>, <code>left_anti</code>, <code>full</code>, <code>full_outer</code>, <code>outer</code></td></tr>
-        <tr><td><code>df.join(index, …)</code></td><td>right</td><td><code>inner</code>, <code>cross</code>, <code>left_semi</code>, <code>left</code>, <code>left_outer</code>, <code>left_anti</code></td><td><code>right</code>, <code>right_outer</code>, <code>full</code>, <code>full_outer</code>, <code>outer</code></td></tr>
+        <tr><td><code>index.join(df, …)</code></td><td>left</td><td><code>inner</code>, <code>left_semi</code>, <code>right</code>, <code>right_outer</code></td><td><code>left</code>, <code>left_outer</code>, <code>left_anti</code>, <code>full</code>, <code>full_outer</code>, <code>outer</code></td></tr>
+        <tr><td><code>df.join(index, …)</code></td><td>right</td><td><code>inner</code>, <code>left_semi</code>, <code>left</code>, <code>left_outer</code>, <code>left_anti</code></td><td><code>right</code>, <code>right_outer</code>, <code>full</code>, <code>full_outer</code>, <code>outer</code></td></tr>
       </tbody>
     </table>
 
     <p>The two directions are mirror images: whichever side the index occupies, the outer join that preserves <em>your</em> DataFrame is available and the one that preserves the index is not. Aliases and casing are normalized, so <code>left_outer</code>, <code>leftouter</code> and <code>LEFT_OUTER</code> behave identically.</p>
+
+    <p><code>cross</code> is accepted but not listed above. Both entry points always take join columns, so Spark attaches an equi-join condition and the result is identical to <code>inner</code> — it is not a separate capability.</p>
 
 <pre><code class="language-scala">// Keep every customerDf row, matched or not — index on the left
 index.join(customerDf, Seq("customer_id"), "right")

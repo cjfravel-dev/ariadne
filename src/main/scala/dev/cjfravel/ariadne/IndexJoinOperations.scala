@@ -450,8 +450,8 @@ trait IndexJoinOperations extends IndexBuildOperations {
    * @param usingColumns
    *   The column names to join on (must be indexed columns)
    * @param joinType
-   *   The Spark join type. Supported here: "inner", "cross", "left_semi", "right", "right_outer" (default: "inner"). To
-   *   keep every row of the indexed dataset regardless of matches, read the data files directly.
+   *   The Spark join type. Supported here: "inner", "left_semi", "right", "right_outer" (default: "inner"). To keep
+   *   every row of the indexed dataset regardless of matches, read the data files directly.
    * @return
    *   The joined DataFrame
    * @throws dev.cjfravel.ariadne.exceptions.ColumnNotFoundException
@@ -502,6 +502,10 @@ trait IndexJoinOperations extends IndexBuildOperations {
  *
  * Join types whose result is defined by those rows therefore have no stable meaning and are rejected up front rather
  * than returning a file-layout-dependent answer.
+ *
+ * `"cross"` is accepted but deliberately not advertised. Both entry points always supply join columns, so Spark
+ * attaches an equi-join condition and the result is identical to `"inner"` — it is not a distinct capability, and
+ * listing it would imply otherwise. Verified by `IndexJoinOperationsTests`.
  */
 object IndexJoinOperations {
 
@@ -556,6 +560,6 @@ object IndexJoinOperations {
   def supportedFor(indexSide: String): Seq[String] = {
     val dataFrameSideOuter =
       if (indexSide == "left") Seq("right", "right_outer") else Seq("left", "left_outer", "left_anti")
-    Seq("inner", "cross", "left_semi") ++ dataFrameSideOuter
+    Seq("inner", "left_semi") ++ dataFrameSideOuter
   }
 }

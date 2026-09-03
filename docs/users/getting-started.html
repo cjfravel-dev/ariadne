@@ -140,8 +140,8 @@ val result = index.join(customerDf, Seq("customer_id"), "inner")</code></pre>
     <table>
       <thead><tr><th>Call</th><th>Index side</th><th>Supported</th><th>Rejected</th></tr></thead>
       <tbody>
-        <tr><td><code>index.join(df, …)</code></td><td>left</td><td><code>inner</code>, <code>cross</code>, <code>left_semi</code>, <code>right</code>, <code>right_outer</code></td><td><code>left</code>, <code>left_outer</code>, <code>left_anti</code>, <code>full</code>, <code>full_outer</code>, <code>outer</code></td></tr>
-        <tr><td><code>df.join(index, …)</code></td><td>right</td><td><code>inner</code>, <code>cross</code>, <code>left_semi</code>, <code>left</code>, <code>left_outer</code>, <code>left_anti</code></td><td><code>right</code>, <code>right_outer</code>, <code>full</code>, <code>full_outer</code>, <code>outer</code></td></tr>
+        <tr><td><code>index.join(df, …)</code></td><td>left</td><td><code>inner</code>, <code>left_semi</code>, <code>right</code>, <code>right_outer</code></td><td><code>left</code>, <code>left_outer</code>, <code>left_anti</code>, <code>full</code>, <code>full_outer</code>, <code>outer</code></td></tr>
+        <tr><td><code>df.join(index, …)</code></td><td>right</td><td><code>inner</code>, <code>left_semi</code>, <code>left</code>, <code>left_outer</code>, <code>left_anti</code></td><td><code>right</code>, <code>right_outer</code>, <code>full</code>, <code>full_outer</code>, <code>outer</code></td></tr>
       </tbody>
     </table>
 
