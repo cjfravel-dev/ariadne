@@ -421,4 +421,23 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
       spark.conf.unset("spark.ariadne.indexRepartitionCount")
     }
   }
+
+  test("join-type validation rejects an unrecognized index side instead of guessing") {
+    // Both helpers branch on indexSide; defaulting an unknown value to one side would silently apply the wrong
+    // rejection set and name the wrong alternatives in the resulting error message.
+    val validateFailure =
+      intercept[IllegalArgumentException] {
+        IndexJoinOperations.validateJoinType("inner", "middle")
+      }
+    validateFailure.getMessage should include("middle")
+
+    val supportedFailure =
+      intercept[IllegalArgumentException] {
+        IndexJoinOperations.supportedFor("neither")
+      }
+    supportedFailure.getMessage should include("neither")
+
+    IndexJoinOperations.supportedFor("left") should contain("right_outer")
+    IndexJoinOperations.supportedFor("right") should contain("left_outer")
+  }
 }

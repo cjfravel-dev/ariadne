@@ -515,6 +515,28 @@ object IndexJoinOperations {
   /** Join types that surface unmatched rows from the right operand. */
   private val RightPreservingJoinTypes = Set("right", "rightouter", "full", "fullouter", "outer")
 
+  /** Identifies the index-located data as the left operand of the join, as in `Index.join`. */
+  private val IndexSideLeft = "left"
+
+  /** Identifies the index-located data as the right operand of the join, as in `df.join(index, …)`. */
+  private val IndexSideRight = "right"
+
+  /**
+   * Rejects an unrecognized `indexSide`.
+   *
+   * Both public entry points branch on `indexSide` to pick which join types to reject. Defaulting an unrecognized value
+   * to one of the two sides would apply the wrong rejection set silently, so it is rejected instead.
+   *
+   * @param indexSide
+   *   the caller-supplied side
+   * @throws IllegalArgumentException
+   *   if `indexSide` is anything other than `"left"` or `"right"`
+   */
+  private def requireKnownIndexSide(indexSide: String): Unit =
+    require(
+      indexSide == IndexSideLeft || indexSide == IndexSideRight,
+      s"""indexSide must be "$IndexSideLeft" or "$IndexSideRight", got: $indexSide""")
+
   /**
    * Normalizes a Spark join type for comparison by lowercasing and stripping underscores, so that `left_outer`,
    * `leftOuter` and `leftouter` all compare equal.
@@ -537,13 +559,14 @@ object IndexJoinOperations {
    * @throws dev.cjfravel.ariadne.exceptions.UnsupportedJoinTypeException
    *   if the join type's result would be defined by unmatched index-side rows
    * @throws IllegalArgumentException
-   *   if `joinType` is null or blank
+   *   if `joinType` is null or blank, or `indexSide` is neither `"left"` nor `"right"`
    */
   def validateJoinType(joinType: String, indexSide: String): Unit = {
     require(joinType != null && joinType.trim.nonEmpty, "joinType must not be null or empty")
+    requireKnownIndexSide(indexSide)
     val normalized = normalize(joinType)
     val rejected =
-      if (indexSide == "left") LeftPreservingJoinTypes else RightPreservingJoinTypes
+      if (indexSide == IndexSideLeft) LeftPreservingJoinTypes else RightPreservingJoinTypes
     if (rejected.contains(normalized)) {
       throw UnsupportedJoinTypeException(joinType, indexSide, supportedFor(indexSide))
     }
@@ -556,10 +579,13 @@ object IndexJoinOperations {
    *   the side the index-located data occupies, `"left"` or `"right"`
    * @return
    *   the supported join types, for use in error messages and documentation
+   * @throws IllegalArgumentException
+   *   if `indexSide` is neither `"left"` nor `"right"`
    */
   def supportedFor(indexSide: String): Seq[String] = {
+    requireKnownIndexSide(indexSide)
     val dataFrameSideOuter =
-      if (indexSide == "left") Seq("right", "right_outer") else Seq("left", "left_outer", "left_anti")
+      if (indexSide == IndexSideLeft) Seq("right", "right_outer") else Seq("left", "left_outer", "left_anti")
     Seq("inner", "left_semi") ++ dataFrameSideOuter
   }
 }

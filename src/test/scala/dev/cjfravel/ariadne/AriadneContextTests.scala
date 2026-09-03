@@ -1,7 +1,31 @@
 package dev.cjfravel.ariadne
 
+import java.io.FileNotFoundException
+import java.net.URI
+
 import dev.cjfravel.ariadne.exceptions.InvalidDeltaTableException
-import org.apache.hadoop.fs.Path
+import org.apache.hadoop.fs.{FileStatus, Path, RawLocalFileSystem}
+
+/**
+ * Test-only filesystem that simulates a path deleted by another process between an existence check and the inspection
+ * that follows it.
+ *
+ * Only the directory literally named `vanished_dir` is affected, so every other path — including the `_delta_log` probe
+ * performed by Delta — behaves normally. Instances are created by Hadoop through a no-argument constructor and hold no
+ * mutable state, so they are safe for concurrent test lookups.
+ */
+class VanishingPathFileSystem extends RawLocalFileSystem {
+  override def getUri: URI = URI.create("vanishing:///")
+
+  private def hasVanished(path: Path): Boolean = path.getName == "vanished_dir"
+
+  override def exists(path: Path): Boolean =
+    hasVanished(path) || super.exists(path)
+
+  override def getFileStatus(path: Path): FileStatus =
+    if (hasVanished(path)) throw new FileNotFoundException(s"Injected vanished path: $path")
+    else super.getFileStatus(path)
+}
 
 /**
  * Tests for [[AriadneContextUser]] verifying storage path configuration is correctly read from the SparkSession, and
@@ -54,5 +78,26 @@ class AriadneContextTests extends SparkTests {
       }
     assert(thrown.getMessage.contains(path.toString))
     assert(fs.exists(payload), "the offending path must be left untouched for the caller to inspect")
+  }
+
+  test("delta reports a path deleted mid-inspection as absent rather than failing") {
+    // delta() checks existence, then inspects. Another process can delete the path in between; a concurrently
+    // deleted path is an absent path, which delta already contracts to return None for.
+    val storageKey = "spark.ariadne.storagePath"
+    val originalStoragePath = spark.conf.get(storageKey)
+    val hadoopConf = spark.sparkContext.hadoopConfiguration
+    hadoopConf.set("fs.vanishing.impl", classOf[VanishingPathFileSystem].getName)
+    hadoopConf.setBoolean("fs.vanishing.impl.disable.cache", true)
+    val vanishingStoragePath = s"vanishing://${tempDir.toAbsolutePath}"
+    spark.conf.set(storageKey, vanishingStoragePath)
+
+    try {
+      assert(contextUser.delta(new Path(s"$vanishingStoragePath/vanished_dir")).isEmpty)
+    } finally {
+      spark.conf.set(storageKey, originalStoragePath)
+      hadoopConf.unset("fs.vanishing.impl")
+      hadoopConf.unset("fs.vanishing.impl.disable.cache")
+      org.apache.hadoop.fs.FileSystem.closeAll()
+    }
   }
 }

@@ -1,6 +1,6 @@
 package dev.cjfravel.ariadne
 
-import java.io.Closeable
+import java.io.{Closeable, FileNotFoundException}
 
 import dev.cjfravel.ariadne.exceptions.InvalidDeltaTableException
 import io.delta.tables.DeltaTable
@@ -273,7 +273,7 @@ trait AriadneContextUser {
     } else if (DeltaTable.isDeltaTable(spark, path.toString)) {
       Some(DeltaTable.forPath(spark, path.toString))
     } else if (isEmptyDirectory(path)) {
-      logger.warn(s"Path $path is an empty directory — treating as an absent Delta table")
+      logger.warn(s"Path $path is empty or absent — treating as an absent Delta table")
       None
     } else {
       logger.warn(s"Path $path exists and is not a Delta table — refusing to delete it; caller must clean it up")
@@ -291,24 +291,34 @@ trait AriadneContextUser {
    * arbitrarily large foreign directories: materializing their full listing purely to test emptiness would be both slow
    * and a driver memory hazard.
    *
+   * A path that disappears between [[delta]]'s existence check and this inspection is reported as empty rather than
+   * raising. That race is unavoidable — no filesystem Ariadne targets offers an atomic exists-and-inspect — and a
+   * concurrently deleted path is an absent path, which [[delta]] already contracts to return `None` for.
+   *
    * @param path
    *   The Hadoop Path to inspect
    * @return
-   *   true if the path is a directory with no children, false if it is a file or a non-empty directory
+   *   true if the path is a directory with no children or has since been deleted, false if it is a file or a non-empty
+   *   directory
    */
-  private def isEmptyDirectory(path: Path): Boolean = {
-    val status = fs.getFileStatus(path)
-    if (!status.isDirectory) false
-    else {
-      val entries = fs.listStatusIterator(path)
-      try !entries.hasNext
-      finally
-        entries match {
-          case closeable: Closeable => closeable.close()
-          case _ => ()
-        }
+  private def isEmptyDirectory(path: Path): Boolean =
+    try {
+      val status = fs.getFileStatus(path)
+      if (!status.isDirectory) false
+      else {
+        val entries = fs.listStatusIterator(path)
+        try !entries.hasNext
+        finally
+          entries match {
+            case closeable: Closeable => closeable.close()
+            case _ => ()
+          }
+      }
+    } catch {
+      case e: FileNotFoundException =>
+        logger.warn(s"Path $path disappeared while being inspected — treating as absent: ${e.getMessage}")
+        true
     }
-  }
 
   /**
    * Seconds since `lastRefreshedAt` before a lock is considered stale and eligible for auto-heal (forcible acquisition
