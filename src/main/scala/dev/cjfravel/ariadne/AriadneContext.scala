@@ -1,5 +1,7 @@
 package dev.cjfravel.ariadne
 
+import java.io.Closeable
+
 import dev.cjfravel.ariadne.exceptions.InvalidDeltaTableException
 import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.FSDataInputStream
@@ -284,6 +286,11 @@ trait AriadneContextUser {
    * Used by [[delta]] to separate a harmless "directory created but never written" state from a directory holding
    * unreadable or foreign data.
    *
+   * Emptiness is decided from an iterator rather than `listStatus`, so at most one directory entry is read. This
+   * matters because the caller reaches this method precisely when a path is ''not'' a Delta table, which includes
+   * arbitrarily large foreign directories: materializing their full listing purely to test emptiness would be both slow
+   * and a driver memory hazard.
+   *
    * @param path
    *   The Hadoop Path to inspect
    * @return
@@ -291,7 +298,16 @@ trait AriadneContextUser {
    */
   private def isEmptyDirectory(path: Path): Boolean = {
     val status = fs.getFileStatus(path)
-    status.isDirectory && fs.listStatus(path).isEmpty
+    if (!status.isDirectory) false
+    else {
+      val entries = fs.listStatusIterator(path)
+      try !entries.hasNext
+      finally
+        entries match {
+          case closeable: Closeable => closeable.close()
+          case _ => ()
+        }
+    }
   }
 
   /**
