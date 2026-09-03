@@ -87,7 +87,7 @@ jobs:
           # read as missing and stop a release that should have gone ahead.
           checks=$(
             gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100" |
-              jq '{check_runs: (map(.check_runs) | add)}'
+              jq '{check_runs: (map(.check_runs) | add // [])}'
           )
           for pair in \
             "Build & Test (Spark 3.5)|Build and test with coverage" \
