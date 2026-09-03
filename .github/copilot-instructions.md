@@ -125,7 +125,7 @@ The mechanism: the Maven Shade Plugin rewrites bytecode constant-pool references
 Rules:
 
 - **Never use an Ariadne-defined case class as a Spark `Dataset` or encoder element type.** Use a `DataFrame` with an explicit `StructType`, or construct the encoder explicitly (`Encoders.tuple`, `Encoders.STRING`, …).
-- **Prefer the two-argument `udaf(aggregator, inputEncoder)` overload.** The single-argument overload derives the input encoder reflectively. See `BloomFilterOperations.scala:166` passing `BloomFilterAggregator.inputEncoder`.
+- **Prefer the two-argument `udaf(aggregator, inputEncoder)` overload.** The single-argument overload derives the input encoder reflectively. See `buildStreamingBloomColumn` in `BloomFilterOperations`, which passes `BloomFilterAggregator.inputEncoder` explicitly.
 - `.as[T]`, `.toDS()` and `emptyDataset[T]` are safe **only** for standard-library types (`String`, tuples of primitives), which relocation never rewrites. They are not safe for Ariadne types.
 - `Encoders.javaSerialization[T]` and `Encoders.kryo[T]` are safe: they take a `ClassTag`, which compiles to a `classOf` bytecode reference that shade *does* rewrite. Only `TypeTag`-based derivation (`Encoders.product`, `implicits.newProductEncoder`) is unsafe.
 - **Never hardcode the `dev.cjfravel.ariadne` package name in a string used for lookup** — `Class.forName`, Spark extension/config keys, service-loader entries. Relocation rewrites the class but not the string. Hardcoded package names inside scaladoc examples are fine.
