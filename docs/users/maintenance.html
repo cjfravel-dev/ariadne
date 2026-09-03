@@ -113,7 +113,7 @@ IndexCatalog.remove("myIndex")   // same — equivalent</code></pre>
 
 <pre><code class="language-bash">Index pruning: loaded 42 of 10000 files (1.23 GB of 45.67 GB) — 97% data pruned</code></pre>
 
-    <p>The numbers are exact (not estimates). If you're seeing 0% pruned consistently, your join probably isn't on an indexed column, or every key matches every file — see <a href="troubleshooting.html">Troubleshooting</a>.</p>
+    <p>The file counts are exact. The byte figures are not: the total-bytes denominator comes from a running total maintained across <code>update</code> and <code>deleteFiles</code>, so it can drift slightly if files change size in place, which makes the percentage approximate. If you're seeing 0% pruned consistently, your join probably isn't on an indexed column, or every key matches every file — see <a href="troubleshooting.html">Troubleshooting</a>.</p>
 
     <p>For more detail, enable debug logging:</p>
 

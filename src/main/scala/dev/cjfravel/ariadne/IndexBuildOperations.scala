@@ -12,7 +12,7 @@ import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{BinaryType, LongType, StructField}
+import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.util.SerializableConfiguration
@@ -26,9 +26,9 @@ import org.apache.spark.util.SerializableConfiguration
  * Update pipeline (data flow):
  *   1. [[analyzeFiles]] — Pre-flight scan that computes per-file distinct value counts for all indexed columns. This
  *      information drives batching decisions.
- *   2. [[createOptimalBatches]] — Groups files into batches so that the sum of `maxDistinctCount` per batch stays at or
+ *   1. [[createOptimalBatches]] — Groups files into batches so that the sum of `maxDistinctCount` per batch stays at or
  *      below `largeIndexLimit`. Files that individually exceed the limit are isolated into single-file batches.
- *   3. Per-batch processing (in `updateSingleBatch`):
+ *   1. Per-batch processing (in `updateSingleBatch`):
  *      - Read source files, apply computed indexes, add filename column
  *      - [[classifyLargeFiles]] — Decide, per `(file, column)` pair, whether the file contributes enough distinct
  *        values to be stored out of line, reusing the counts from step 1
@@ -37,9 +37,9 @@ import org.apache.spark.util.SerializableConfiguration
  *      - Build auto-bloom filters for columns with at least one large file
  *      - [[appendToStaging]] (inline columns to staging Delta table)
  *      - [[appendToLargeIndex]] (large columns streamed to per-column Delta tables)
- *   4. Periodic consolidation — Every `stagingConsolidationThreshold` batches, [[consolidateStaging]] merges staging
+ *   1. Periodic consolidation — Every `stagingConsolidationThreshold` batches, [[consolidateStaging]] merges staging
  *      into the main index via Delta MERGE (upsert on filename). Auto-compaction may follow via [[maybeAutoCompact]].
- *   5. Final consolidation — After all batches complete, any remaining staged data is consolidated and the staging
+ *   1. Final consolidation — After all batches complete, any remaining staged data is consolidated and the staging
  *      table is deleted.
  *
  * Batching strategy: Files are sorted by `maxDistinctCount` (largest first) and packed sequentially into batches. This
@@ -97,6 +97,35 @@ trait IndexBuildOperations extends BloomFilterOperations {
       s"Nested column '$column' cannot be used as the value column for $indexType. Index columns " +
         "are stored under their own name, so only top-level columns are supported. Project the " +
         "nested field to a top-level column before indexing.")
+
+  /**
+   * Rejects a column whose values cannot be canonicalized into a stable bloom filter token.
+   *
+   * Bloom filters hash the `toString` form of each value. Spark materializes `BinaryType` as a JVM `Array[Byte]`, whose
+   * `toString` is identity-based (`[B@1b6d3586`), so the same bytes produce a different token on every occurrence —
+   * even for two references to the same object read at different times. A filter built over such a column is internally
+   * consistent but matches nothing, so every query prunes away every file. Nested binary is rejected for the same
+   * reason.
+   *
+   * The check is skipped when no schema is stored, matching the surrounding column validations: the type cannot be
+   * established without one.
+   *
+   * @param column
+   *   the candidate bloom index column name
+   * @throws IllegalArgumentException
+   *   if the column's type is, or contains, a binary type
+   */
+  protected def requireBloomCompatibleType(column: String): Unit =
+    if (metadata.schema != null) {
+      SchemaHelper.fieldType(storedSchema, column).foreach { dataType =>
+        require(
+          !SchemaHelper.containsBinaryType(dataType),
+          s"Column '$column' has type ${dataType.simpleString} and cannot be bloom indexed. Bloom filters hash the " +
+            "string form of each value, and binary values render as an identity such as '[B@1b6d3586' that differs " +
+            "on every occurrence, so the filter would never match. Use addIndex to build a regular index on this " +
+            "column instead.")
+      }
+    }
 
   /**
    * Derives a transient working column name that cannot collide with columns already in play.
@@ -862,8 +891,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
    * Builds auto-bloom filters for columns that already have a `large_indexes/` table but no filter in the main index.
    *
    * Filters are folded from [[autoBloomValueRows]], covering files whose values are inline as well as those in the
-   * large index. Every file that holds a value ends up with a filter, which is what lets a query treat an empty
-   * candidate set as a definitive no-match.
+   * large index. Files that hold at least one non-null value for the column end up with a filter. Files that hold none
+   * keep a null filter, which the query side treats as an unconditional candidate (`includeNullFilters = true`), so
+   * every file is still represented and a query can treat an empty candidate set as a definitive no-match.
    *
    * Metadata is written only after every column has been backfilled, so a failure part way through leaves the storage
    * version unchanged and the next preflight repeats the work.
@@ -1554,6 +1584,15 @@ trait IndexBuildOperations extends BloomFilterOperations {
    *   results in a double computation (count + write), but the alternative—writing unconditionally—would create empty
    *   Delta commits and unnecessary MERGE operations.
    *
+   * @note
+   *   '''Crash consistency:''' The MERGE that clears stale rows and the append that writes replacements are separate
+   *   Delta commits, and this method runs before the matching main-index rows reach staging. A crash between any two of
+   *   those commits therefore breaks the "inline or large, never both" invariant that [[loadLargeIndex]] readers rely
+   *   on. For a file not yet in the main index this is self-correcting — it stays unindexed and the next update
+   *   reprocesses it — but for a backfill over an already-indexed file the deletion can survive without its
+   *   replacement, silently removing that column's values for that file. See [[Index.update]] for the user-facing
+   *   statement of this limitation.
+   *
    * @param sourceDf
    *   the base DataFrame with `filename` and all source columns (computed indexes already applied)
    * @param large
@@ -1634,6 +1673,11 @@ trait IndexBuildOperations extends BloomFilterOperations {
    * [[autoBloomValueColumn]]. Range indexes are ineligible: they store only per-file min/max bounds, which the range
    * predicate already prunes on.
    *
+   * Binary-typed columns are eligible here but excluded later, in [[buildAutoBloomIndexes]], where the source
+   * DataFrame's schema is available to establish the type — see [[hasBinaryValueType]]. Note that exploded-field
+   * aliases appear in this set but never as columns on that DataFrame, so establishing their type requires resolving
+   * the mapping back through `array_column.field_path`.
+   *
    * @return
    *   set of eligible column names
    */
@@ -1642,6 +1686,52 @@ trait IndexBuildOperations extends BloomFilterOperations {
       metadata.computed_indexes.keySet().asScala ++
       metadata.exploded_field_indexes.asScala.map(_.as_column).toSet ++
       metadata.temporal_indexes.asScala.map(_.column).toSet
+
+  /**
+   * Reports whether a column's values are, or contain, binary data in the given DataFrame.
+   *
+   * Bloom filters canonicalize a value with `toString` before hashing, and Spark materializes `BinaryType` as a JVM
+   * `Array[Byte]` whose `toString` is identity-based. A filter over such a column matches nothing, which for auto-bloom
+   * means files are silently pruned away from query results. Columns reported here are therefore excluded from
+   * auto-bloom rather than indexed with a filter that cannot work.
+   *
+   * Exploded-field aliases need indirection. `sourceDf` carries the source columns plus computed indexes, but an
+   * exploded alias such as `user_id` is never a column on it — it is produced later, inside
+   * [[buildExplodedFieldIndexes]], from `array_column.field_path`. Looking the alias up directly would find nothing and
+   * wrongly report it as non-binary, so the mapping is consulted first and the underlying path resolved through the
+   * array.
+   *
+   * A column that still cannot be resolved is reported as non-binary: its type cannot be established here, and
+   * excluding it would drop auto-bloom coverage on a column that is most likely fine.
+   *
+   * @param df
+   *   the DataFrame whose schema defines the column's type
+   * @param column
+   *   the eligible column name to inspect, which may be an exploded-field alias
+   * @return
+   *   true if the column resolves and its type contains a binary type at any depth
+   */
+  private def hasBinaryValueType(df: DataFrame, column: String): Boolean =
+    autoBloomValueType(df, column).exists(SchemaHelper.containsBinaryType)
+
+  /**
+   * Resolves the type of the values an auto-bloom filter would hash for `column`.
+   *
+   * Exploded-field aliases resolve through their `array_column.field_path` mapping; every other eligible column is a
+   * plain top-level column on `df`.
+   *
+   * @param df
+   *   the DataFrame whose schema defines the types
+   * @param column
+   *   the eligible column name, which may be an exploded-field alias
+   * @return
+   *   `Some(dataType)` if the column resolves, `None` otherwise
+   */
+  private def autoBloomValueType(df: DataFrame, column: String): Option[DataType] =
+    metadata.exploded_field_indexes.asScala
+      .find(_.as_column == column)
+      .flatMap(mapping => SchemaHelper.nestedFieldType(df.schema, s"${mapping.array_column}.${mapping.field_path}"))
+      .orElse(SchemaHelper.fieldType(df.schema, column))
 
   /**
    * Builds auto-bloom filters for columns that have at least one large file.
@@ -1668,7 +1758,14 @@ trait IndexBuildOperations extends BloomFilterOperations {
       sourceDf: DataFrame,
       large: LargeFileClassification): DataFrame = {
     val startTime = System.currentTimeMillis()
-    val eligible = autoBloomEligibleColumns
+    val allEligible = autoBloomEligibleColumns
+    val binaryColumns = allEligible.filter(colName => hasBinaryValueType(sourceDf, colName))
+    if (binaryColumns.nonEmpty) {
+      logger.warn(
+        s"Auto-bloom: excluding binary-typed column(s) ${binaryColumns.toSeq.sorted.mkString(", ")} — byte arrays " +
+          s"canonicalize by identity, so a filter over them would never match and would hide files from queries")
+    }
+    val eligible = allEligible.diff(binaryColumns)
     if (eligible.isEmpty) combinedDf
     else {
       val columnsExceedingLimit = eligible.intersect(large.columns)
@@ -1831,8 +1928,9 @@ trait IndexBuildOperations extends BloomFilterOperations {
    * Consolidates the main staging table into the main index via Delta MERGE.
    *
    * Performs an upsert (match on `filename`): existing rows are updated, new rows are inserted. Creates the main index
-   * if it does not yet exist by writing the staging data directly. Schema auto-merge is temporarily enabled to support
-   * new columns added since the index was first created.
+   * if it does not yet exist by writing the staging data directly. Schema evolution is enabled per-merge via
+   * `withSchemaEvolution()` to support new columns added since the index was first created; no shared session config is
+   * set or restored.
    *
    * After successful merge, the staging Delta table is deleted.
    */

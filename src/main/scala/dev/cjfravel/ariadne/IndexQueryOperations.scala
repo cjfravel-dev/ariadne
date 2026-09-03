@@ -382,9 +382,11 @@ trait IndexQueryOperations extends IndexJoinOperations {
    * candidates for backward compatibility with indexes built before auto-bloom was added.
    *
    * @note
-   *   Auto-bloom filters are built from arrays holding at least `largeIndexLimit` values, so each serialized filter is
-   *   large (~600&nbsp;KB per file per column at the default 500,000 limit and 1% FPR). They are deliberately never
-   *   collected to the driver.
+   *   Once any single file crosses `largeIndexLimit` distinct values for a column, a filter is built for '''every'''
+   *   file in that column, each sized from that file's own distinct count (Guava, ~1.2 bytes per value at 1% FPR). A
+   *   file sitting at the default 500,000 limit therefore yields roughly 585&nbsp;KiB, and smaller files yield
+   *   proportionally smaller filters. The binary column is deliberately never collected to the driver; only matching
+   *   filenames are.
    *
    * @param column
    *   The storage column name to check for auto-bloom filtering
@@ -485,7 +487,9 @@ trait IndexQueryOperations extends IndexJoinOperations {
     if (indexes.isEmpty) {
       Set.empty
     } else {
-      // Filter null values from each column — isin() throws on an empty array
+      // Drop nulls: isin(null) can never match under SQL three-valued logic, so null entries only add
+      // noise. isin() on an empty array does not throw — it yields an always-false predicate — but a
+      // column with no non-null values cannot match anything, which is short-circuited below.
       val filteredIndexes =
         indexes.map { case (column, values) =>
           column -> values.filter(_ != null)

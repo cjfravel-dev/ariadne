@@ -4,9 +4,9 @@ import java.nio.file.Files
 
 import dev.cjfravel.ariadne.Index.DataFrameOps
 import dev.cjfravel.ariadne.exceptions._
-import org.apache.spark.sql.Row
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
+import org.apache.spark.sql.{DataFrame, Row}
 
 /**
  * Tests for the [[Index]] case class covering schema validation, index type mutual exclusivity, idempotent add
@@ -178,16 +178,48 @@ class IndexTests extends SparkTests {
         .csv(resourcePath("/data/table2_part0.csv"))
 
     assert(table2.join(index, Seq("Version", "Id"), "left_semi").count === 1)
-    assert(table2.join(index, Seq("Version"), "fullouter").count === 4)
-    // AND semantics: intersection reads only part1 (4 rows), so fullouter = 4
-    assert(table2.join(index, Seq("Version", "Id"), "fullouter").count === 4)
+    // "fullouter" would be defined by unmatched index rows, which the index prunes at file granularity.
+    assertThrows[UnsupportedJoinTypeException](table2.join(index, Seq("Version"), "fullouter"))
+    assertThrows[UnsupportedJoinTypeException](table2.join(index, Seq("Version", "Id"), "right"))
     assert(normalizeSchema(table2.join(index, Seq("Version"), "left_semi").schema) === normalizeSchema(table2Schema))
 
     assert(index.join(table2, Seq("Version", "Id"), "left_semi").count === 1)
-    assert(index.join(table2, Seq("Version"), "fullouter").count === 4)
-    // AND semantics: intersection reads only part1 (4 rows), so fullouter = 4
-    assert(index.join(table2, Seq("Version", "Id"), "fullouter").count === 4)
+    assertThrows[UnsupportedJoinTypeException](index.join(table2, Seq("Version"), "fullouter"))
+    assertThrows[UnsupportedJoinTypeException](index.join(table2, Seq("Version", "Id"), "left"))
     assert(normalizeSchema(index.join(table2, Seq("Version"), "left_semi").schema) === normalizeSchema(table1Schema))
+
+    // Outer joins must preserve every DataFrame row whether or not the index matched it. The CSV fixture cannot
+    // demonstrate that on its own -- its single row matches -- so probe with a row no indexed file contains.
+    val probe =
+      spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(1, 3), Row(99, 99))), table2Schema)
+
+    // Counts are asserted as lower bounds. An outer join legitimately multiplies rows when the other side holds
+    // several matches for a key, so preservation is checked by value rather than by an exact count.
+    def versionsIn(df: DataFrame): Set[Int] =
+      df.select("Version").distinct().collect().map(_.getInt(0)).toSet
+
+    def keysIn(df: DataFrame): Set[(Int, Int)] =
+      df.select("Id", "Version").distinct().collect().map(r => (r.getInt(0), r.getInt(1))).toSet
+
+    // Index on the right: "left" keeps every DataFrame row, matched or not.
+    val leftOnVersion = probe.join(index, Seq("Version"), "left")
+    assert(leftOnVersion.count >= probe.count)
+    assert(versionsIn(leftOnVersion) === Set(3, 99))
+    val unmatched = leftOnVersion.filter(col("Version") === 99).head
+    assert(unmatched.isNullAt(unmatched.fieldIndex("Value")), "an unmatched DataFrame row must survive with nulls")
+
+    val leftOnBoth = probe.join(index, Seq("Version", "Id"), "left")
+    assert(leftOnBoth.count >= probe.count)
+    assert(keysIn(leftOnBoth) === Set((1, 3), (99, 99)))
+
+    // Index on the left: "right" keeps every DataFrame row, matched or not.
+    val rightOnVersion = index.join(probe, Seq("Version"), "right")
+    assert(rightOnVersion.count >= probe.count)
+    assert(versionsIn(rightOnVersion) === Set(3, 99))
+
+    val rightOnBoth = index.join(probe, Seq("Version", "Id"), "right")
+    assert(rightOnBoth.count >= probe.count)
+    assert(keysIn(rightOnBoth) === Set((1, 3), (99, 99)))
   }
 
   test("index exists") {

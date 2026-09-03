@@ -1,5 +1,8 @@
 package dev.cjfravel.ariadne
 
+import java.io.{Closeable, FileNotFoundException}
+
+import dev.cjfravel.ariadne.exceptions.InvalidDeltaTableException
 import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.FSDataInputStream
 import org.apache.hadoop.fs.{FileSystem, Path}
@@ -25,7 +28,7 @@ import org.apache.spark.sql.SparkSession
  * spark.ariadne.lockRetryInterval           (default: 60) Base seconds between lock retries
  * spark.ariadne.lockMaxWait                 (default: 3600) Max seconds to wait for a lock
  * spark.ariadne.lockRefreshInterval         (default: 1) Batches between lock refreshes
- * spark.ariadne.autoCompactThreshold        (optional) Delta log file count triggering auto-compact
+ * spark.ariadne.autoCompactThreshold        (optional) Update batches between automatic compactions
  * spark.ariadne.autoBloomFpr                (default: 0.01) FPR for auto-bloom filters on large columns
  * }}}
  *
@@ -244,25 +247,77 @@ trait AriadneContextUser {
   /**
    * Returns a [[io.delta.tables.DeltaTable]] if the path exists and contains valid Delta metadata.
    *
-   * If the path exists but is ''not'' a valid Delta table (e.g., leftover partial write), the directory is deleted and
-   * `None` is returned so it can be recreated cleanly on the next write.
+   * Three outcomes are possible:
+   *   - the path holds a valid Delta table — `Some(DeltaTable)`;
+   *   - the path is absent, or exists but is an empty directory — `None`, so the caller may create the table there;
+   *   - the path exists, is non-empty, and holds no readable Delta metadata —
+   *     [[dev.cjfravel.ariadne.exceptions.InvalidDeltaTableException]].
+   *
+   * The third case is reported rather than repaired. Ariadne cannot distinguish an abandoned partial write of its own
+   * from data written by something else, so it never deletes the directory; cleanup is left to the caller, who can
+   * inspect the contents first. An empty directory is treated as absent because there is nothing to inspect and nothing
+   * to lose.
    *
    * @param path
    *   The Hadoop Path to check for a Delta table
    * @return
-   *   `Some(DeltaTable)` if a valid Delta table exists, `None` otherwise
+   *   `Some(DeltaTable)` if a valid Delta table exists, `None` if the path is absent or an empty directory
+   * @throws dev.cjfravel.ariadne.exceptions.InvalidDeltaTableException
+   *   if the path exists and is non-empty but is not a readable Delta table
+   * @throws IllegalArgumentException
+   *   if path is null
    */
   def delta(path: Path): Option[DeltaTable] =
-    if (exists(path)) {
-      if (DeltaTable.isDeltaTable(spark, path.toString)) {
-        Some(DeltaTable.forPath(spark, path.toString))
-      } else {
-        logger.warn(s"Path $path exists but is not a Delta table — deleting to allow re-creation")
-        delete(path)
-        None
-      }
-    } else {
+    if (!exists(path)) {
       None
+    } else if (DeltaTable.isDeltaTable(spark, path.toString)) {
+      Some(DeltaTable.forPath(spark, path.toString))
+    } else if (isEmptyDirectory(path)) {
+      logger.warn(s"Path $path is empty or absent — treating as an absent Delta table")
+      None
+    } else {
+      logger.warn(s"Path $path exists and is not a Delta table — refusing to delete it; caller must clean it up")
+      throw InvalidDeltaTableException(path)
+    }
+
+  /**
+   * Reports whether a path is a directory containing no entries.
+   *
+   * Used by [[delta]] to separate a harmless "directory created but never written" state from a directory holding
+   * unreadable or foreign data.
+   *
+   * Emptiness is decided from an iterator rather than `listStatus`, so at most one directory entry is read. This
+   * matters because the caller reaches this method precisely when a path is ''not'' a Delta table, which includes
+   * arbitrarily large foreign directories: materializing their full listing purely to test emptiness would be both slow
+   * and a driver memory hazard.
+   *
+   * A path that disappears between [[delta]]'s existence check and this inspection is reported as empty rather than
+   * raising. That race is unavoidable — no filesystem Ariadne targets offers an atomic exists-and-inspect — and a
+   * concurrently deleted path is an absent path, which [[delta]] already contracts to return `None` for.
+   *
+   * @param path
+   *   The Hadoop Path to inspect
+   * @return
+   *   true if the path is a directory with no children or has since been deleted, false if it is a file or a non-empty
+   *   directory
+   */
+  private def isEmptyDirectory(path: Path): Boolean =
+    try {
+      val status = fs.getFileStatus(path)
+      if (!status.isDirectory) false
+      else {
+        val entries = fs.listStatusIterator(path)
+        try !entries.hasNext
+        finally
+          entries match {
+            case closeable: Closeable => closeable.close()
+            case _ => ()
+          }
+      }
+    } catch {
+      case e: FileNotFoundException =>
+        logger.warn(s"Path $path disappeared while being inspected — treating as absent: ${e.getMessage}")
+        true
     }
 
   /**
@@ -348,9 +403,10 @@ trait AriadneContextUser {
   }
 
   /**
-   * Optional threshold for auto-compaction. When set, the main index Delta table is compacted after an update if the
-   * number of Delta log JSON files meets or exceeds this value. Reads from spark.ariadne.autoCompactThreshold
-   * configuration (default: not set).
+   * Optional threshold for auto-compaction. When set, every Delta table backing the index (main index and each large
+   * index) is compacted during an update once the persisted batches-since-compact counter meets or exceeds this value.
+   * The counter tracks update batches, not Delta log files. Reads from spark.ariadne.autoCompactThreshold configuration
+   * (default: not set).
    */
   lazy val autoCompactThreshold: Option[Int] = {
     val value =

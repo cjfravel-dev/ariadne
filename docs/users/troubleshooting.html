@@ -87,6 +87,7 @@ try {
           <tr><td><code>FileListNotFoundException</code></td><td>Removing a file list that doesn't exist.</td></tr>
           <tr><td><code>UnsupportedStorageFormatVersionException</code></td><td>The index declares a newer <code>storage_format_version</code> than this Ariadne build supports.</td></tr>
           <tr><td><code>UnsupportedMetadataVersionException</code></td><td>The index declares a newer <code>metadata_version</code> than this Ariadne build supports.</td></tr>
+          <tr><td><code>UnsupportedJoinTypeException</code></td><td>The requested join type depends on unmatched index-side rows — see <a href="usage.html#join-types">Supported join types</a>.</td></tr>
         </tbody>
       </table>
     </div>
@@ -143,7 +144,7 @@ spark.conf.set("spark.ariadne.repartitionDataFiles", "true")</code></pre>
 <pre><code class="language-scala">spark.conf.set("spark.ariadne.largeIndexLimit", "100000")</code></pre>
       </li>
       <li>
-        <strong>Switch to bloom indexes</strong> for the offending column — bloom filters use a fixed, predictable amount of memory per file:
+        <strong>Switch to bloom indexes</strong> for the offending column — a bloom filter is sized from that file's own distinct count (roughly 1.2 bytes per distinct value at the default 1% FPR), so memory stays proportional to cardinality rather than growing with the full value array:
 <pre><code class="language-scala">index.addBloomIndex("high_cardinality_col", fpr = 0.01)</code></pre>
       </li>
     </ol>
@@ -167,7 +168,7 @@ val index = Index("myIndex", schema, "parquet")
 
     <ul>
       <li><strong>You're not joining on an indexed column.</strong> Check <code>index.indexes</code> and confirm the join key is in the set.</li>
-      <li><strong>Your join type isn't optimizable.</strong> <code>full_outer</code> always reads every file. Use <code>inner</code> or <code>left_semi</code> for pruning.</li>
+      <li><strong>Your join type isn't optimizable.</strong> Pruning runs for every accepted join type, so this is no longer a cause on its own — but join types that depend on unmatched index rows (<code>full_outer</code>, and <code>left_anti</code>/<code>left</code> or <code>right</code> depending on direction) are now rejected outright with <code>UnsupportedJoinTypeException</code>. See <a href="usage.html#join-types">Supported join types</a>.</li>
       <li><strong>Through the SQL catalog: not an INNER equi-join.</strong> Catalyst only pre-prunes for INNER equi-joins on same-name fully-indexed columns. Other shapes fall back to full scan.</li>
       <li><strong>Every file genuinely contains every key.</strong> If your data is small or your keys are very common, there's nothing to prune.</li>
     </ul>

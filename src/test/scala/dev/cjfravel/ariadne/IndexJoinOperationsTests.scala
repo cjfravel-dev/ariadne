@@ -1,5 +1,6 @@
 package dev.cjfravel.ariadne
 import dev.cjfravel.ariadne.Index.DataFrameOps
+import dev.cjfravel.ariadne.exceptions.UnsupportedJoinTypeException
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.types._
 import org.scalatest.matchers.should.Matchers
@@ -79,7 +80,7 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
     result.columns should not contain "Value" // Semi join should only return left side columns
   }
 
-  test("should perform full outer join correctly") {
+  test("should preserve unmatched query rows with a right join") {
     val index =
       Index("join_outer_test", indexSchema, "csv", Map("header" -> "true"))
 
@@ -97,9 +98,86 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
           )),
         querySchema)
 
-    val result = index.join(queryData, Seq("Id"), "fullouter")
-    result.count() should be >= queryData.count()
+    // The index is on the left, so "right" preserves every query row including the unmatched one.
+    val result = index.join(queryData, Seq("Id"), "right")
     result.columns should contain allOf ("Id", "Version", "Value")
+
+    // Assert by value rather than by count. The join key is Id alone and the fixture holds two Id=1 rows, so the one
+    // matched query row already fans out to two results; a count assertion would pass even if Id=999 were dropped.
+    // Value comes only from the index side, so it is unambiguous here and must be null for the unmatched row.
+    val unmatched = result.filter("Id = 999").select("Value").collect()
+    unmatched.length shouldBe 1
+    unmatched.head.isNullAt(0) shouldBe true
+    result.filter("Id = 1").count() shouldBe 2
+
+    // "fullouter" would additionally require index rows with no query match. Those are pruned at file granularity,
+    // so the answer would depend on file layout rather than on the data.
+    a[UnsupportedJoinTypeException] should be thrownBy index.join(queryData, Seq("Id"), "fullouter")
+  }
+
+  test("should reject join types defined by unmatched index rows") {
+    val index =
+      Index("join_reject_test", indexSchema, "csv", Map("header" -> "true"))
+
+    index.addFile(resourcePath("/data/table1_part0.csv"))
+    index.addIndex("Id")
+    index.update
+
+    val queryData =
+      spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(1, 1))), querySchema)
+
+    // index.join puts the index on the left, so left-preserving types are rejected in every alias spelling.
+    Seq(
+      "left",
+      "left_outer",
+      "leftouter",
+      "LEFT_OUTER",
+      "left_anti",
+      "leftanti",
+      "anti",
+      "full",
+      "fullouter",
+      "full_outer",
+      "outer").foreach { joinType =>
+      withClue(s"index.join should reject '$joinType': ") {
+        a[UnsupportedJoinTypeException] should be thrownBy index.join(queryData, Seq("Id"), joinType)
+      }
+    }
+
+    // df.join(index) puts the index on the right, so right-preserving types are rejected instead.
+    Seq("right", "right_outer", "rightouter", "RIGHT", "full", "fullouter", "full_outer", "outer").foreach { joinType =>
+      withClue(s"df.join(index) should reject '$joinType': ") {
+        a[UnsupportedJoinTypeException] should be thrownBy queryData.join(index, Seq("Id"), joinType)
+      }
+    }
+
+    // The mirror-image types stay available on each side.
+    Seq("inner", "left_semi", "right").foreach(joinType => index.join(queryData, Seq("Id"), joinType).count())
+    Seq("inner", "left_semi", "left", "left_anti").foreach { joinType =>
+      queryData.join(index, Seq("Id"), joinType).count()
+    }
+  }
+
+  test("cross join type is accepted and degenerates to inner") {
+    val index =
+      Index("join_cross_test", indexSchema, "csv", Map("header" -> "true"))
+
+    index.addFile(resourcePath("/data/table1_part0.csv"))
+    index.addIndex("Id")
+    index.update
+
+    val queryData =
+      spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(1, 1), Row(2, 1))), querySchema)
+
+    // Both entry points always supply join columns, so Spark attaches an equi-join condition
+    // and `cross` produces exactly the inner-join result. Pinned because the scaladoc says so.
+    val collectRows = (df: org.apache.spark.sql.DataFrame) => df.collect().map(_.toString).sorted.toSeq
+
+    collectRows(index.join(queryData, Seq("Id"), "cross")) should
+      contain theSameElementsAs collectRows(index.join(queryData, Seq("Id"), "inner"))
+
+    collectRows(queryData.join(index, Seq("Id"), "cross")) should
+      contain theSameElementsAs collectRows(queryData.join(index, Seq("Id"), "inner"))
   }
 
   test("should handle joins with single column") {
@@ -349,5 +427,24 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
     } finally {
       spark.conf.unset("spark.ariadne.indexRepartitionCount")
     }
+  }
+
+  test("join-type validation rejects an unrecognized index side instead of guessing") {
+    // Both helpers branch on indexSide; defaulting an unknown value to one side would silently apply the wrong
+    // rejection set and name the wrong alternatives in the resulting error message.
+    val validateFailure =
+      intercept[IllegalArgumentException] {
+        IndexJoinOperations.validateJoinType("inner", "middle")
+      }
+    validateFailure.getMessage should include("middle")
+
+    val supportedFailure =
+      intercept[IllegalArgumentException] {
+        IndexJoinOperations.supportedFor("neither")
+      }
+    supportedFailure.getMessage should include("neither")
+
+    IndexJoinOperations.supportedFor("left") should contain("right_outer")
+    IndexJoinOperations.supportedFor("right") should contain("left_outer")
   }
 }

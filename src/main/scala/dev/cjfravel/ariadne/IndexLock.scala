@@ -31,13 +31,26 @@ case class LockInfo(correlationId: String, acquiredAt: String, lastRefreshedAt: 
 /**
  * File-based distributed lock for index operations.
  *
- * Provides mutual exclusion for index operations (update, compact, vacuum) using lock files on HDFS or cloud-compatible
- * filesystems. Lock files are JSON documents containing a [[LockInfo]] payload.
+ * Provides mutual exclusion for index operations (update, compact, vacuum) using lock files on the configured Hadoop
+ * `FileSystem`. Lock files are JSON documents containing a [[LockInfo]] payload.
  *
  * ==Concurrency semantics==
- * Lock acquisition is atomic at the filesystem level: the lock file is created with `overwrite = false`, so only one
- * writer can succeed. If another process already holds the lock, acquisition enters a retry loop with exponential
- * back-off (capped at 60 s) up to `lockMaxWait` seconds.
+ * Mutual exclusion rests on a single filesystem primitive: the lock file is created with `overwrite = false`, which
+ * HDFS resolves atomically. Exactly one concurrent writer creates the file; every other writer is rejected with
+ * `FileAlreadyExistsException` and enters a retry loop with exponential back-off (capped at 60 s) up to `lockMaxWait`
+ * seconds.
+ *
+ * ==Filesystem requirements==
+ * That guarantee is HDFS semantics, and Ariadne relies on the configured `FileSystem` implementation to honour them.
+ * Any filesystem that resolves create-if-absent atomically inherits the same mutual exclusion; any filesystem that does
+ * not — because it emulates the check client-side, or reports metadata only eventually — weakens it, and two callers
+ * may believe they hold the same lock. Ariadne cannot detect or compensate for this from above the `FileSystem`
+ * interface, so locking is '''best effort''': each filesystem is responsible for the atomicity of its own
+ * create-if-absent operation, and correctness under concurrency is only as strong as that operation.
+ *
+ * Stale-lock healing is not atomic on any filesystem, including HDFS. Deleting the stale file and creating a
+ * replacement are separate operations, so two processes that both judge a lock stale can both delete and one can
+ * overwrite the other's fresh lock. Only the create step is protected; see the TOCTOU note on `handleExistingLock`.
  *
  * ==Stale lock healing==
  * If the `lastRefreshedAt` timestamp is older than `lockTimeout` seconds, the lock is considered stale. A stale lock is
@@ -138,8 +151,8 @@ case class IndexLock(lockPath: Path, indexName: String)(implicit val spark: Spar
    *
    * '''TOCTOU note:''' There is an inherent race between reading the lock, determining it is stale, deleting it, and
    * re-creating it. A third process could create a new lock between the delete and the re-acquire. The `depth` guard
-   * limits recursion, and the filesystem's atomic-create semantics (`overwrite = false`) ensure at most one writer
-   * succeeds.
+   * limits recursion, and create-if-absent (`overwrite = false`) ensures at most one writer succeeds on a filesystem
+   * that resolves it atomically — the delete itself is unguarded on every filesystem.
    *
    * @param correlationId
    *   unique identifier for the new lock request

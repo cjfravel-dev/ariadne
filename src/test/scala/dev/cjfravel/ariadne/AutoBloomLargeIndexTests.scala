@@ -5,6 +5,8 @@ import java.nio.charset.StandardCharsets
 import scala.collection.JavaConverters._
 
 import org.apache.hadoop.fs.Path
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.functions.{col, explode_outer}
 import org.apache.spark.sql.types._
 import org.scalatest.matchers.should.Matchers
 
@@ -246,5 +248,79 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
     } finally {
       spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
     }
+  }
+
+  test("auto-bloom skips a binary exploded field but keeps its non-binary sibling") {
+    val explodedSchema =
+      StructType(
+        Seq(
+          StructField("event_id", StringType, nullable = true),
+          StructField(
+            "users",
+            ArrayType(StructType(
+              Seq(StructField("id", LongType, nullable = true), StructField("token", BinaryType, nullable = true)))),
+            nullable = true)))
+
+    val dataPath = new Path(tempDir.toString, "auto_bloom_binary_exploded.parquet").toString
+    val rows =
+      Seq(
+        Row("e1", Seq(Row(1L, "alpha".getBytes(StandardCharsets.UTF_8)))),
+        Row("e2", Seq(Row(2L, "beta".getBytes(StandardCharsets.UTF_8)))))
+    spark
+      .createDataFrame(spark.sparkContext.parallelize(rows), explodedSchema)
+      .coalesce(1)
+      .write
+      .mode("overwrite")
+      .parquet(dataPath)
+
+    // largeIndexLimit=1 forces every column into the large-index path, so both exploded
+    // aliases become auto-bloom candidates.
+    spark.conf.set("spark.ariadne.largeIndexLimit", "1")
+    try {
+      val index = Index("auto_bloom_binary_exploded_test", explodedSchema, "parquet", Map.empty[String, String])
+      index.addFile(dataPath)
+      index.addExplodedFieldIndex("users", "id", "user_id")
+      index.addExplodedFieldIndex("users", "token", "user_token")
+      index.update
+
+      val indexDf = spark.read.format("delta").load(new Path(index.storagePath, "index").toString)
+
+      // user_token resolves through users.token to BinaryType, whose toString is an identity
+      // hash, so a filter over it would never match and would silently hide files.
+      indexDf.columns should not contain "auto_bloom_user_token"
+      readMetadata(index).auto_bloom_indexes.asScala should not contain "user_token"
+
+      // The sibling field is a plain long and must keep its filter — the exclusion has to be
+      // per column, not per array.
+      indexDf.columns should contain("auto_bloom_user_id")
+      readMetadata(index).auto_bloom_indexes.asScala should contain("user_id")
+    } finally {
+      spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
+    }
+  }
+
+  test("nestedFieldType returns the type an exploded field alias actually gets") {
+    val schema =
+      StructType(
+        Seq(
+          StructField("event_id", StringType),
+          StructField(
+            "users",
+            ArrayType(StructType(Seq(StructField("id", LongType), StructField("token", BinaryType)))))))
+    val df = spark.createDataFrame(spark.sparkContext.emptyRDD[Row], schema)
+
+    // Spark's dotted access over an array of structs produces an ARRAY of the extracted field.
+    df.select(col("users.id")).schema.head.dataType should be(ArrayType(LongType))
+    df.select(col("users.token")).schema.head.dataType should be(ArrayType(BinaryType))
+
+    // buildExplodedFieldIndexes wraps that in explode_outer, which unwraps it to the element type. That is the type
+    // the alias column ends up with, and the type nestedFieldType is contracted to report.
+    df.select(explode_outer(col("users.id"))).schema.head.dataType should be(LongType)
+    df.select(explode_outer(col("users.token"))).schema.head.dataType should be(BinaryType)
+    SchemaHelper.nestedFieldType(schema, "users.id") should be(Some(LongType))
+    SchemaHelper.nestedFieldType(schema, "users.token") should be(Some(BinaryType))
+
+    // A path ending AT the array has no segment left to extract, so helper and col() agree there.
+    SchemaHelper.nestedFieldType(schema, "users") should be(Some(df.select(col("users")).schema.head.dataType))
   }
 }

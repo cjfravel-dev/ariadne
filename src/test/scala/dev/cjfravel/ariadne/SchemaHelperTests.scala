@@ -25,4 +25,55 @@ class SchemaHelperTests extends AnyFunSuite {
     assert(SchemaHelper.fieldExists(schema, "phone") === false)
   }
 
+  test("containsBinaryType detects binary at every depth") {
+    assert(SchemaHelper.containsBinaryType(BinaryType))
+    assert(SchemaHelper.containsBinaryType(ArrayType(BinaryType)))
+    assert(SchemaHelper.containsBinaryType(MapType(StringType, BinaryType)))
+    assert(SchemaHelper.containsBinaryType(MapType(BinaryType, StringType)))
+    assert(SchemaHelper.containsBinaryType(StructType(Seq(StructField("bytes", BinaryType)))))
+    assert(SchemaHelper.containsBinaryType(ArrayType(StructType(Seq(StructField("bytes", BinaryType))))))
+  }
+
+  test("containsBinaryType passes types that canonicalize by value") {
+    assert(!SchemaHelper.containsBinaryType(StringType))
+    assert(!SchemaHelper.containsBinaryType(IntegerType))
+    assert(!SchemaHelper.containsBinaryType(TimestampType))
+    assert(!SchemaHelper.containsBinaryType(ArrayType(StringType)))
+    assert(!SchemaHelper.containsBinaryType(StructType(Seq(StructField("id", LongType)))))
+  }
+
+  test("nestedFieldType resolves through arrays of structs") {
+    val schema =
+      StructType(
+        Seq(
+          StructField("event_id", StringType),
+          StructField(
+            "users",
+            ArrayType(StructType(Seq(StructField("id", LongType), StructField("token", BinaryType))))),
+          StructField("meta", StructType(Seq(StructField("origin", StringType))))))
+
+    // The helper returns the ELEMENT field type when segments remain past an array. That is the type an exploded
+    // field index alias ends up with, since buildExplodedFieldIndexes materialises it as explode_outer(col(path)).
+    // It is NOT what col("users.id") alone returns in Spark — that is array<long>; the explode supplies the unwrap.
+    // Pinned against a live SparkSession in AutoBloomLargeIndexTests.
+    assert(SchemaHelper.nestedFieldType(schema, "users.id") === Some(LongType))
+    assert(SchemaHelper.nestedFieldType(schema, "users.token") === Some(BinaryType))
+    assert(SchemaHelper.nestedFieldType(schema, "meta.origin") === Some(StringType))
+    assert(SchemaHelper.nestedFieldType(schema, "event_id") === Some(StringType))
+
+    assert(SchemaHelper.nestedFieldType(schema, "users.missing") === None)
+    assert(SchemaHelper.nestedFieldType(schema, "missing.id") === None)
+    // event_id is a leaf, so it cannot be descended into.
+    assert(SchemaHelper.nestedFieldType(schema, "event_id.nope") === None)
+
+    // An array reached at the end of a path has no remaining segment to extract, so it is returned as the array type.
+    // This is the one case that does coincide with col("users") in Spark. Arrays are only unwrapped when segments
+    // remain to resolve against the element type.
+    val terminalArray = SchemaHelper.nestedFieldType(schema, "users")
+    assert(
+      terminalArray === Some(ArrayType(StructType(Seq(StructField("id", LongType), StructField("token", BinaryType))))))
+    // Binary detection is unaffected by that distinction, because containsBinaryType descends arrays.
+    assert(terminalArray.exists(SchemaHelper.containsBinaryType))
+  }
+
 }

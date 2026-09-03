@@ -444,4 +444,37 @@ class BloomFilterOperationsTests extends SparkTests with Matchers {
     actual shouldBe oracle
     actual should not be empty
   }
+
+  test("addBloomIndex rejects a binary column") {
+    // Spark materializes BinaryType as Array[Byte], whose toString is identity-based, so the
+    // canonical token differs on every occurrence and the filter could never match anything.
+    val binarySchema =
+      StructType(
+        Seq(StructField("Id", IntegerType, nullable = false), StructField("Payload", BinaryType, nullable = true)))
+    val index = Index("bloom_binary_rejected", binarySchema, "parquet")
+
+    val error =
+      the[IllegalArgumentException] thrownBy {
+        index.addBloomIndex("Payload")
+      }
+
+    error.getMessage should include("cannot be bloom indexed")
+    index.indexes should not contain "Payload"
+
+    // A regular index on the same column compares values, not their string form, and is allowed.
+    index.addIndex("Payload")
+    index.indexes should contain("Payload")
+  }
+
+  test("addBloomIndex rejects a column containing nested binary") {
+    val nestedBinarySchema =
+      StructType(
+        Seq(
+          StructField("Id", IntegerType, nullable = false),
+          StructField("Wrapper", StructType(Seq(StructField("Bytes", BinaryType, nullable = true))), nullable = true)))
+    val index = Index("bloom_nested_binary_rejected", nestedBinarySchema, "parquet")
+
+    a[IllegalArgumentException] should be thrownBy index.addBloomIndex("Wrapper")
+    index.indexes should not contain "Wrapper"
+  }
 }
