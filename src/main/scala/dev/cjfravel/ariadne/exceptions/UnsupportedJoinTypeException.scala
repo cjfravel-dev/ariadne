@@ -12,8 +12,8 @@ package dev.cjfravel.ariadne.exceptions
  * rejected rather than silently returning a file-layout-dependent answer. Which types those are depends on which side
  * the index is on:
  *
- *   - [[dev.cjfravel.ariadne.IndexJoinOperations.join]] places the index on the '''left''', so `left`, `full` and
- *     `left_anti` are rejected.
+ *   - [[dev.cjfravel.ariadne.Index.join]] places the index on the '''left''', so `left`, `full` and `left_anti` are
+ *     rejected.
  *   - [[dev.cjfravel.ariadne.Index.DataFrameOps.join]] places the index on the '''right''', so `right` and `full` are
  *     rejected.
  *

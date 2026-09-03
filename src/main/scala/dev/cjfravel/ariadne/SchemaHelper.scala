@@ -5,9 +5,9 @@ import org.apache.spark.sql.types._
 /**
  * Utility object for Spark schema introspection.
  *
- * Provides methods for validating field existence within [[org.apache.spark.sql.types.StructType]] schemas, including
- * support for nested field paths using dot notation. Used throughout Ariadne to validate that indexed columns exist in
- * the user-supplied schema before persisting metadata.
+ * Provides methods for validating field existence within `StructType` schemas, including support for nested field paths
+ * using dot notation. Used throughout Ariadne to validate that indexed columns exist in the user-supplied schema before
+ * persisting metadata.
  *
  * '''Thread safety:''' All methods are pure functions with no mutable state; safe to call concurrently from any thread.
  */
@@ -116,7 +116,7 @@ object SchemaHelper {
   }
 
   /**
-   * Reports whether a data type is, or transitively contains, a [[org.apache.spark.sql.types.BinaryType]].
+   * Reports whether a data type is, or transitively contains, a `BinaryType`.
    *
    * Spark materializes `BinaryType` as a JVM `Array[Byte]`, whose `toString` is identity-based (`[B@1b6d3586`) rather
    * than value-based. Any Ariadne feature that canonicalizes a value by calling `toString` therefore produces a
