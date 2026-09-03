@@ -114,8 +114,18 @@ jobs:
                   [.check_runs[] | select(.name == $name)] | sort_by(.started_at // "") | last | .id
                 '
             )
+            # A check run produced by Actions carries the id of the job behind it, and the job points back at the same
+            # check run. Confirm the job's name matches before reading its steps, so the gate fails rather than
+            # judging the wrong job if that ever stops holding.
+            job_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$job")
+            job_name=$(printf '%s' "$job_json" | jq -r '.name // ""')
+            if [[ "$job_name" != "$name" ]]; then
+              echo "Expected job $job to be \"$name\" but found \"$job_name\"." >&2
+              echo "The gate could not identify the job that produced the check run, so the release cannot be verified." >&2
+              exit 1
+            fi
             step_conclusion=$(
-              gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$job" |
+              printf '%s' "$job_json" |
                 jq -r --arg step "$step" '
                   [.steps[]? | select(.name == $step)]
                   | if length == 0 then "missing" else (last | .conclusion // "incomplete") end
