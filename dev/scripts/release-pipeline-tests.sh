@@ -70,7 +70,22 @@ assert_contains .github/workflows/publish.yml "dev/scripts/run-governance-checks
 # time. A re-run adds a second check run with the same name, so reading only one attempt could accept a stale success.
 # Failing closed on an unfinished attempt keeps that safe without depending on how a pending run fills in timestamps.
 assert_contains .github/workflows/publish.yml 'any(.[]; .status != "completed")'
-assert_contains .github/workflows/publish.yml "sort_by(.started_at"
+# The gate reads the conclusion of the build step inside each CI job, because a job can report success while its build
+# steps were skipped. It names those steps literally, so a rename in ci.yml would break the release. Check the names
+# still resolve.
+assert_ci_step_exists() {
+    local step="$1"
+    if ! grep -Fq -- "- name: $step" .github/workflows/ci.yml; then
+        echo ".github/workflows/publish.yml gates on CI step \"$step\", which no longer exists in .github/workflows/ci.yml"
+        exit 1
+    fi
+}
+
+while IFS= read -r step; do
+    assert_ci_step_exists "$step"
+done < <(grep -oE '^ *"Build & Test \(Spark [0-9.]+\)\|[^"]+"' .github/workflows/publish.yml | sed 's/.*|//; s/"$//')
+
+assert_contains .github/workflows/publish.yml "actions/jobs/"
 assert_contains .github/workflows/publish.yml "set +e"
 assert_contains .github/workflows/publish.yml "state35=UNKNOWN"
 assert_contains .github/workflows/publish.yml "state41=UNKNOWN"
