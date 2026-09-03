@@ -100,8 +100,15 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
 
     // The index is on the left, so "right" preserves every query row including the unmatched one.
     val result = index.join(queryData, Seq("Id"), "right")
-    result.count() should be >= queryData.count()
     result.columns should contain allOf ("Id", "Version", "Value")
+
+    // Assert by value rather than by count. The join key is Id alone and the fixture holds two Id=1 rows, so the one
+    // matched query row already fans out to two results; a count assertion would pass even if Id=999 were dropped.
+    // Value comes only from the index side, so it is unambiguous here and must be null for the unmatched row.
+    val unmatched = result.filter("Id = 999").select("Value").collect()
+    unmatched.length shouldBe 1
+    unmatched.head.isNullAt(0) shouldBe true
+    result.filter("Id = 1").count() shouldBe 2
 
     // "fullouter" would additionally require index rows with no query match. Those are pruned at file granularity,
     // so the answer would depend on file layout rather than on the data.
