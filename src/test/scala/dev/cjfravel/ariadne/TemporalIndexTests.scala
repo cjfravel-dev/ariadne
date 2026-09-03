@@ -557,4 +557,60 @@ class TemporalIndexTests extends SparkTests with Matchers {
 
     index.indexes shouldBe empty
   }
+
+  test("temporal dedup does not promote a stale row when pruning drops the newest file") {
+    // A second indexed column narrows the file set by intersection, which can exclude the file
+    // holding an entity's current version. Ranking only the rows that survived would then crown a
+    // superseded row as "latest" and emit it as current.
+    val mixedSchema =
+      StructType(
+        Seq(
+          StructField("Id", IntegerType, nullable = false),
+          StructField("Category", StringType, nullable = false),
+          StructField("Value", DoubleType, nullable = false),
+          StructField("UpdatedAt", TimestampType, nullable = true)))
+
+    // stale.parquet holds Id=1's old version (Category A) and Id=4's current version (Category A).
+    // current.parquet holds Id=1's current version, which moved to Category B.
+    val stale =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(
+          Seq(
+            Row(1, "A", 100.0, java.sql.Timestamp.valueOf("2024-01-15 10:00:00")),
+            Row(4, "A", 400.0, java.sql.Timestamp.valueOf("2024-06-15 12:00:00")))),
+        mixedSchema)
+    val current =
+      spark.createDataFrame(
+        spark.sparkContext.parallelize(Seq(Row(1, "B", 150.0, java.sql.Timestamp.valueOf("2024-06-15 12:00:00")))),
+        mixedSchema)
+
+    val stalePath = s"${System.getProperty("java.io.tmpdir")}/temporal_stale_${System.currentTimeMillis()}"
+    val currentPath = s"${System.getProperty("java.io.tmpdir")}/temporal_current_${System.currentTimeMillis()}"
+    stale.coalesce(1).write.mode("overwrite").parquet(stalePath)
+    current.coalesce(1).write.mode("overwrite").parquet(currentPath)
+
+    try {
+      val index = Index("temporal_stale_promotion", mixedSchema, "parquet")
+      index.addFile(stalePath, currentPath)
+      index.addTemporalIndex("Id", "UpdatedAt")
+      index.addIndex("Category")
+      index.update
+
+      // Category=A prunes to stale.parquet alone, even though Id=1's current version lives elsewhere.
+      val queryData =
+        spark.createDataFrame(
+          spark.sparkContext.parallelize(Seq(Row(1, "A"), Row(4, "A"))),
+          StructType(Seq(StructField("Id", IntegerType, nullable = false), StructField("Category", StringType, false))))
+
+      val result = index.join(queryData, Seq("Id", "Category"), "inner")
+      val rows = result.select("Id", "Value").collect().toSeq.map(r => (r.getInt(0), r.getDouble(1)))
+
+      // Id=1's current version is Category B, so it must not match a Category A query at all.
+      rows should contain theSameElementsAs Seq((4, 400.0))
+    } finally {
+      val fs = org.apache.hadoop.fs.FileSystem.get(spark.sparkContext.hadoopConfiguration)
+      fs.delete(new org.apache.hadoop.fs.Path(stalePath), true)
+      fs.delete(new org.apache.hadoop.fs.Path(currentPath), true)
+    }
+  }
 }

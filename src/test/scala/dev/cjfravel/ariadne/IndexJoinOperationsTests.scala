@@ -1,5 +1,6 @@
 package dev.cjfravel.ariadne
 import dev.cjfravel.ariadne.Index.DataFrameOps
+import dev.cjfravel.ariadne.exceptions.UnsupportedJoinTypeException
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.types._
 import org.scalatest.matchers.should.Matchers
@@ -79,7 +80,7 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
     result.columns should not contain "Value" // Semi join should only return left side columns
   }
 
-  test("should perform full outer join correctly") {
+  test("should preserve unmatched query rows with a right join") {
     val index =
       Index("join_outer_test", indexSchema, "csv", Map("header" -> "true"))
 
@@ -97,9 +98,57 @@ class IndexJoinOperationsTests extends SparkTests with Matchers {
           )),
         querySchema)
 
-    val result = index.join(queryData, Seq("Id"), "fullouter")
+    // The index is on the left, so "right" preserves every query row including the unmatched one.
+    val result = index.join(queryData, Seq("Id"), "right")
     result.count() should be >= queryData.count()
     result.columns should contain allOf ("Id", "Version", "Value")
+
+    // "fullouter" would additionally require index rows with no query match. Those are pruned at file granularity,
+    // so the answer would depend on file layout rather than on the data.
+    a[UnsupportedJoinTypeException] should be thrownBy index.join(queryData, Seq("Id"), "fullouter")
+  }
+
+  test("should reject join types defined by unmatched index rows") {
+    val index =
+      Index("join_reject_test", indexSchema, "csv", Map("header" -> "true"))
+
+    index.addFile(resourcePath("/data/table1_part0.csv"))
+    index.addIndex("Id")
+    index.update
+
+    val queryData =
+      spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(1, 1))), querySchema)
+
+    // index.join puts the index on the left, so left-preserving types are rejected in every alias spelling.
+    Seq(
+      "left",
+      "left_outer",
+      "leftouter",
+      "LEFT_OUTER",
+      "left_anti",
+      "leftanti",
+      "anti",
+      "full",
+      "fullouter",
+      "full_outer",
+      "outer").foreach { joinType =>
+      withClue(s"index.join should reject '$joinType': ") {
+        a[UnsupportedJoinTypeException] should be thrownBy index.join(queryData, Seq("Id"), joinType)
+      }
+    }
+
+    // df.join(index) puts the index on the right, so right-preserving types are rejected instead.
+    Seq("right", "right_outer", "rightouter", "RIGHT", "full", "fullouter", "full_outer", "outer").foreach { joinType =>
+      withClue(s"df.join(index) should reject '$joinType': ") {
+        a[UnsupportedJoinTypeException] should be thrownBy queryData.join(index, Seq("Id"), joinType)
+      }
+    }
+
+    // The mirror-image types stay available on each side.
+    Seq("inner", "left_semi", "right").foreach(joinType => index.join(queryData, Seq("Id"), joinType).count())
+    Seq("inner", "left_semi", "left", "left_anti").foreach { joinType =>
+      queryData.join(index, Seq("Id"), joinType).count()
+    }
   }
 
   test("should handle joins with single column") {

@@ -70,4 +70,33 @@ object SchemaHelper {
     require(fieldName != null && fieldName.trim.nonEmpty, "fieldName must not be null or blank")
     schema.fields.find(_.name == fieldName).map(_.dataType)
   }
+
+  /**
+   * Reports whether a data type is, or transitively contains, a [[org.apache.spark.sql.types.BinaryType]].
+   *
+   * Spark materializes `BinaryType` as a JVM `Array[Byte]`, whose `toString` is identity-based (`[B@1b6d3586`) rather
+   * than value-based. Any Ariadne feature that canonicalizes a value by calling `toString` therefore produces a
+   * different token for every occurrence of the same bytes, including two references to the same content. Callers use
+   * this to reject such columns up front instead of building a structure that can never match.
+   *
+   * Arrays, maps (both key and value types) and structs are descended into, so a struct holding a binary field is
+   * reported just as a bare binary column is.
+   *
+   * @param dataType
+   *   The data type to inspect. Must not be null.
+   * @return
+   *   `true` if the type is `BinaryType` or contains one at any depth, `false` otherwise
+   * @throws IllegalArgumentException
+   *   if dataType is null
+   */
+  def containsBinaryType(dataType: DataType): Boolean = {
+    require(dataType != null, "dataType must not be null")
+    dataType match {
+      case BinaryType => true
+      case ArrayType(elementType, _) => containsBinaryType(elementType)
+      case MapType(keyType, valueType, _) => containsBinaryType(keyType) || containsBinaryType(valueType)
+      case struct: StructType => struct.fields.exists(field => containsBinaryType(field.dataType))
+      case _ => false
+    }
+  }
 }

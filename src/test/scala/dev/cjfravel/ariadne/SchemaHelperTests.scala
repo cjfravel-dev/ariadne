@@ -25,4 +25,21 @@ class SchemaHelperTests extends AnyFunSuite {
     assert(SchemaHelper.fieldExists(schema, "phone") === false)
   }
 
+  test("containsBinaryType detects binary at every depth") {
+    assert(SchemaHelper.containsBinaryType(BinaryType))
+    assert(SchemaHelper.containsBinaryType(ArrayType(BinaryType)))
+    assert(SchemaHelper.containsBinaryType(MapType(StringType, BinaryType)))
+    assert(SchemaHelper.containsBinaryType(MapType(BinaryType, StringType)))
+    assert(SchemaHelper.containsBinaryType(StructType(Seq(StructField("bytes", BinaryType)))))
+    assert(SchemaHelper.containsBinaryType(ArrayType(StructType(Seq(StructField("bytes", BinaryType))))))
+  }
+
+  test("containsBinaryType passes types that canonicalize by value") {
+    assert(!SchemaHelper.containsBinaryType(StringType))
+    assert(!SchemaHelper.containsBinaryType(IntegerType))
+    assert(!SchemaHelper.containsBinaryType(TimestampType))
+    assert(!SchemaHelper.containsBinaryType(ArrayType(StringType)))
+    assert(!SchemaHelper.containsBinaryType(StructType(Seq(StructField("id", LongType)))))
+  }
+
 }

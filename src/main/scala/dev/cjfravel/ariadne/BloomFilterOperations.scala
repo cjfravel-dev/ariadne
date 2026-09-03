@@ -34,8 +34,8 @@ import org.apache.spark.sql.{Column, DataFrame}
  *
  * Execution mechanics: filters are built by `BloomFilterAggregator` and probed by `bloomProbeUdf`, both of which run on
  * worker nodes. Neither ever collects filters or values to the driver, so memory scales with the size of a single
- * filter rather than with the data. The false positive rate is captured as a local `Double` to ensure serializability
- * across the Spark closure boundary.
+ * filter rather than with the data. The probe UDF captures only a local `Boolean` and the broadcast handle, so the
+ * closure never drags `this` — and with it the non-serializable `SparkSession` — across the task boundary.
  *
  * @see
  *   [[BloomIndexConfig]] for per-column configuration
@@ -176,7 +176,12 @@ trait BloomFilterOperations extends IndexFileOperations {
    * only if the same value hashes to the same string in both places. The query side stringifies driver-side JVM objects
    * with `toString`, so this wraps the value in a single-element array and applies `toString` inside a UDF. Spark
    * converts array elements to the same external JVM types (`java.sql.Timestamp`, `java.math.BigDecimal`, and so on)
-   * that the driver sees, making the two paths byte-identical for every column type.
+   * that the driver sees, making the two paths byte-identical for '''scalar''' types.
+   *
+   * This does '''not''' hold for types whose `toString` is not value-based. `Array[Byte].toString` is an identity hash,
+   * so two equal binary values stringify differently on the build and query sides and every probe misses. Binary
+   * columns are therefore rejected by [[Index.addBloomIndex]] and excluded from auto-bloom. Nested array and map types
+   * are untested and carry the same risk.
    *
    * A plain `cast(StringType)` would '''not''' be safe here — Spark renders a timestamp as `2024-01-01 00:00:00` while
    * `java.sql.Timestamp.toString` renders `2024-01-01 00:00:00.0`, which would silently produce false negatives.
@@ -240,9 +245,10 @@ trait BloomFilterOperations extends IndexFileOperations {
    * returned to the driver. Driver memory is therefore bounded by the number of matching files rather than by the total
    * serialized size of the bloom filters.
    *
-   * This distinction matters most for auto-bloom columns: those filters are, by construction, built from arrays with at
-   * least `largeIndexLimit` elements (500,000 by default), so a single serialized filter is roughly 600 KB at the
-   * default 1% FPR. Collecting one per file would scale driver memory with the number of indexed files.
+   * This distinction matters most for auto-bloom columns. Once any one file crosses `largeIndexLimit` distinct values
+   * (500,000 by default), '''every''' file in that column gets a filter, each sized from that file's own distinct
+   * count; the largest can reach roughly 585 KiB at the default 1% FPR. Collecting one per file would scale driver
+   * memory with the number of indexed files.
    *
    * @param indexDf
    *   the index DataFrame containing `filename` and the bloom binary column
@@ -322,9 +328,10 @@ trait BloomFilterOperations extends IndexFileOperations {
    * @note
    *   This method collects the distinct candidate values from `valuesDf` to the driver so they can be broadcast for the
    *   probe. Bloom filter binary data is '''not''' collected — see [[probeBloomFilters]]. Driver memory is therefore
-   *   bounded by the join-key cardinality of `valuesDf`. Unlike auto-bloom, this value set cannot be truncated or
-   *   skipped: for an explicit bloom index the result is the authoritative file set, so dropping values would silently
-   *   omit matching files.
+   *   bounded by the join-key cardinality of `valuesDf`. This value set is never '''truncated''': dropping probe values
+   *   would prune away files that hold them and silently omit matching rows. When the probe bound is exceeded the
+   *   pre-filter is '''skipped''' instead, returning every indexed file — a safe superset that the subsequent read and
+   *   join narrow correctly.
    *
    * @param column
    *   the source column name (without `bloom_` prefix)
@@ -432,8 +439,9 @@ trait BloomFilterOperations extends IndexFileOperations {
  * A bloom pre-filter only earns its keep while it still prunes files. A file that holds '''none''' of the probe values
  * survives the probe with probability `1 - (1 - fpr)^n`, so the fraction of non-matching files actually pruned is
  * `(1 - fpr)^n` and decays geometrically as the probe set grows. At the default 1% FPR that fraction is 90% at 10 probe
- * values, 37% at 100, 4.9% at 300, and 0.004% at 1000 — past roughly `1/fpr` values the pre-filter provably prunes
- * nothing while still requiring every distinct value to be collected to the driver and broadcast cluster-wide.
+ * values, 37% at 100, 4.9% at 300, and 0.004% at 1000 — past roughly `ln(MinPruningFraction) / ln(1 - fpr)` values (458
+ * at the default 1% FPR) the pre-filter prunes less than [[MinPruningFraction]] of non-matching files while still
+ * requiring every distinct value to be collected to the driver and broadcast cluster-wide.
  *
  * The useful ceiling is therefore a property of the filter, not a user preference, and is derived here rather than
  * configured. Exposing it as a setting invites tuning it into the regime where it cannot help.
@@ -455,8 +463,8 @@ private[ariadne] object BloomFilterOperations {
   /**
    * Hard ceiling on probe values regardless of FPR.
    *
-   * The derivation grows as `1/fpr`, so an extreme FPR would otherwise authorize collecting an effectively unbounded
-   * value set to the driver. This is a driver-safety backstop, not a tuning parameter.
+   * The derivation grows without bound as `fpr` approaches 0, so an extreme FPR would otherwise authorize collecting an
+   * effectively unbounded value set to the driver. This is a driver-safety backstop, not a tuning parameter.
    */
   val AbsoluteMaxProbeValues: Int = 1000000
 

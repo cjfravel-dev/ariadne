@@ -259,6 +259,12 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    *   - Configurable false positive rate (if filter says "yes", value MIGHT be present)
    *   - Space-efficient storage (approximately 10 bits per element at 1% FPR)
    *
+   * Binary columns cannot be bloom-indexed. Values are canonicalized to a string before hashing, and Spark materializes
+   * `BinaryType` as a JVM `Array[Byte]` whose `toString` is identity-based (`[B@1b6d3586`), so the same bytes hash to a
+   * different token on every occurrence. Such a filter would match nothing, ever. Columns that contain a binary field
+   * at any depth are rejected for the same reason. Use [[addIndex]] on the column instead — regular indexes compare
+   * values, not their string form, and work correctly on binary data.
+   *
    * @example
    *   {{{
    * index.addBloomIndex("sessionId")
@@ -270,8 +276,8 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    * @param fpr
    *   False positive rate between 0.0 and 1.0 (default 0.01 = 1%)
    * @throws IllegalArgumentException
-   *   if column is null/blank, FPR out of range, column is a nested path, or column is already indexed by any other
-   *   type
+   *   if column is null/blank, FPR out of range, column is a nested path, column is of a binary type, or column is
+   *   already indexed by any other type
    * @throws ColumnNotFoundException
    *   if column doesn't exist in schema
    */
@@ -292,6 +298,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
         throw new ColumnNotFoundException(s"Column '$column' not found in schema")
       }
 
+      requireBloomCompatibleType(column)
       val config = BloomIndexConfig(column, fpr)
       metadata.bloom_indexes.add(config)
       writeMetadata(metadata)
@@ -622,6 +629,22 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    * Processes all unindexed files registered via [[addFile]], using intelligent batching based on pre-flight analysis.
    * Also backfills existing files when new index columns have been added since the last update.
    *
+   * ==Consistency==
+   * A column's values for a given file live in exactly one place: inline in the main index table, or — once the file
+   * contributes at least `largeIndexLimit` distinct values — in `large_indexes/{column}/`. Queries read both and union
+   * the results, so this exclusivity is what keeps a file from being counted twice or missed entirely.
+   *
+   * That invariant is guaranteed '''for an update that completes successfully'''. The two stores are separate Delta
+   * tables written in separate commits, so an update killed part-way can leave them disagreeing about a file. In the
+   * usual case the file is then still absent from the main index, so it remains unindexed and the next `update`
+   * reprocesses it and restores consistency by itself. The exception is a column backfill over a file that was already
+   * indexed: its stale large-index rows are deleted before the replacements are written, and a crash in that window
+   * leaves the file present in the main index — hence not reprocessed — with its large values gone. Re-running the
+   * update does not detect this; rebuilding the index does.
+   *
+   * This is a known and accepted limitation, recorded here rather than worked around. Callers that cannot tolerate it
+   * should treat an interrupted `update` as a signal to rebuild rather than resume.
+   *
    * @example
    *   {{{
    * val index = Index("myIndex", schema, "parquet")
@@ -748,6 +771,17 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    * Vacuums all Delta tables belonging to this index to remove old files. Acquires the update lock to prevent
    * concurrent modifications.
    *
+   * A `retentionHours` of zero or less additionally disables Delta's retention safety check
+   * (`spark.databricks.delta.retentionDurationCheck.enabled`) for the duration of the call, because Delta otherwise
+   * refuses any retention below 168 hours. That check exists to stop a vacuum from deleting files a concurrent reader
+   * or writer is still using, so `vacuum(0)` is only safe when nothing else is touching the index — the update lock
+   * excludes other Ariadne writers, but not readers and not non-Ariadne access to the same paths.
+   *
+   * @note
+   *   '''Thread-safety:''' The retention check is a `SparkSession`-wide setting. It is restored in a `finally` block,
+   *   but while a `vacuum(0)` is in flight any other Delta operation on the same `SparkSession` also runs without the
+   *   guardrail.
+   *
    * @example
    *   {{{
    * index.vacuum()          // default 7 days retention
@@ -755,7 +789,7 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    *   }}}
    *
    * @param retentionHours
-   *   number of hours of history to retain (default 168 = 7 days)
+   *   number of hours of history to retain (default 168 = 7 days); zero or less bypasses Delta's retention check
    * @throws IndexLockException
    *   if the update lock cannot be acquired within the configured timeout
    */
@@ -943,11 +977,18 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    * Locates relevant data files via the index, reads them, applies temporal deduplication if configured, and joins the
    * result with the provided DataFrame.
    *
+   * '''What this returns:''' the minimal complete dataset for the join. Every indexed value that matches `df` is found,
+   * and index-side rows absent from `df` are discarded. Because pruning selects whole files, unmatched index-side rows
+   * that share a file with a match are still read, so the result can include incidental rows and can change after
+   * [[Index.compact]]. Join types whose result is defined by those rows — `left`, `full` and `left_anti`, since the
+   * index is on the left here — are rejected rather than returning a file-layout-dependent answer.
+   *
    * @example
    *   {{{
    * val lookupDf = spark.read.parquet("/data/lookups")
    * val result = index.join(lookupDf, Seq("userId"))
-   * val leftResult = index.join(lookupDf, Seq("userId"), "left_outer")
+   * // Keep every row of lookupDf, matched or not:
+   * val rightResult = index.join(lookupDf, Seq("userId"), "right_outer")
    *   }}}
    *
    * @param df
@@ -955,11 +996,13 @@ case class Index private (name: String, schema: Option[StructType])(implicit val
    * @param usingColumns
    *   The column names to join on (must be indexed columns)
    * @param joinType
-   *   The Spark join type (default: "inner")
+   *   The Spark join type. Supported here: "inner", "cross", "left_semi", "right", "right_outer" (default: "inner")
    * @return
    *   The joined DataFrame
    * @throws IllegalArgumentException
    *   if df is null or usingColumns is null/empty
+   * @throws dev.cjfravel.ariadne.exceptions.UnsupportedJoinTypeException
+   *   if `joinType` is "left", "full" or "left_anti" (or an alias), which depend on unmatched index-side rows
    */
   override def join(df: DataFrame, usingColumns: Seq[String], joinType: String = "inner"): DataFrame = {
     require(df != null, "DataFrame must not be null")
@@ -1221,11 +1264,10 @@ object Index {
                 }
               }
               // Validate computed indexes
-              metadata.computed_indexes.keySet().asScala.foreach { _ =>
-                // Computed indexes use SQL expressions, not schema fields directly
-                // We validate the output column name exists conceptually but
-                // cannot validate the expression references without executing it
-              }
+              // Computed indexes are deliberately not validated here: their SQL expressions can
+              // reference arbitrary columns, and the references cannot be checked without evaluating
+              // the expression against the data. A computed index that no longer resolves fails at
+              // the next `update` or read instead.
               logger.warn(s"Index '$name': schema evolved (allowSchemaMismatch=true)")
               metadata.schema = s.json
               metadataChanged = true
@@ -1305,20 +1347,30 @@ object Index {
      * Locates relevant data files via the index, reads them, applies temporal deduplication if configured, and joins
      * the result with this DataFrame.
      *
+     * '''What this returns:''' the minimal complete dataset for the join. Every indexed value that matches this
+     * DataFrame is found, and index-side rows absent from it are discarded. Because pruning selects whole files,
+     * unmatched index-side rows that share a file with a match are still read, so the result can include incidental
+     * rows and can change after [[Index.compact]]. Join types whose result is defined by those rows — `right` and
+     * `full`, since the index is on the right here — are rejected rather than returning a file-layout-dependent answer.
+     *
      * @param index
      *   The Index instance to join against
      * @param usingColumns
      *   Column names to join on (must be indexed columns)
      * @param joinType
-     *   Spark join type: "inner", "left_outer", etc. (default "inner")
+     *   Spark join type. Supported here: "inner", "cross", "left_semi", "left", "left_outer", "left_anti" (default
+     *   "inner"). To keep every row of the indexed dataset regardless of matches, read the data files directly.
      * @return
      *   The joined DataFrame
      * @throws ColumnNotFoundException
      *   if join columns are not in the schema or indexes
+     * @throws dev.cjfravel.ariadne.exceptions.UnsupportedJoinTypeException
+     *   if `joinType` is "right" or "full" (or an alias), which depend on unmatched index-side rows
      */
     def join(index: Index, usingColumns: Seq[String], joinType: String = "inner"): DataFrame = {
       require(index != null, "index must not be null")
       require(usingColumns != null && usingColumns.nonEmpty, "usingColumns must not be null or empty")
+      IndexJoinOperations.validateJoinType(joinType, "right")
       logger.warn(s"DataFrameOps.join: $joinType join on columns ${usingColumns
           .mkString(", ")} against index '${index.name}'")
       val indexDf = index.joinDf(df, usingColumns)

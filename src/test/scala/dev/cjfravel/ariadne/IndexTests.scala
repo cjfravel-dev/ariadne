@@ -178,15 +178,20 @@ class IndexTests extends SparkTests {
         .csv(resourcePath("/data/table2_part0.csv"))
 
     assert(table2.join(index, Seq("Version", "Id"), "left_semi").count === 1)
-    assert(table2.join(index, Seq("Version"), "fullouter").count === 4)
-    // AND semantics: intersection reads only part1 (4 rows), so fullouter = 4
-    assert(table2.join(index, Seq("Version", "Id"), "fullouter").count === 4)
+    // Index on the right: "left" keeps every DataFrame row, matched or not.
+    assert(table2.join(index, Seq("Version"), "left").count === table2.count)
+    assert(table2.join(index, Seq("Version", "Id"), "left").count === table2.count)
+    // "fullouter" would be defined by unmatched index rows, which the index prunes at file granularity.
+    assertThrows[UnsupportedJoinTypeException](table2.join(index, Seq("Version"), "fullouter"))
+    assertThrows[UnsupportedJoinTypeException](table2.join(index, Seq("Version", "Id"), "right"))
     assert(normalizeSchema(table2.join(index, Seq("Version"), "left_semi").schema) === normalizeSchema(table2Schema))
 
     assert(index.join(table2, Seq("Version", "Id"), "left_semi").count === 1)
-    assert(index.join(table2, Seq("Version"), "fullouter").count === 4)
-    // AND semantics: intersection reads only part1 (4 rows), so fullouter = 4
-    assert(index.join(table2, Seq("Version", "Id"), "fullouter").count === 4)
+    // Index on the left: "right" keeps every DataFrame row, matched or not.
+    assert(index.join(table2, Seq("Version"), "right").count === table2.count)
+    assert(index.join(table2, Seq("Version", "Id"), "right").count === table2.count)
+    assertThrows[UnsupportedJoinTypeException](index.join(table2, Seq("Version"), "fullouter"))
+    assertThrows[UnsupportedJoinTypeException](index.join(table2, Seq("Version", "Id"), "left"))
     assert(normalizeSchema(index.join(table2, Seq("Version"), "left_semi").schema) === normalizeSchema(table1Schema))
   }
 
