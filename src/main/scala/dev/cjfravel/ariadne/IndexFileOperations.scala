@@ -14,10 +14,10 @@ import org.apache.spark.sql.types.{DataType, StructType}
  * transformations, and managing column selection for optimized reads.
  *
  * '''Read pipeline:''' [[readFiles]] orchestrates the full read path:
- *   1. [[createBaseDataFrame]] — loads files using the stored schema, format, and read options 2.
- *      [[applyComputedIndexes]] — adds derived columns via Spark SQL expressions 3. [[applyExplodedFields]] — explodes
- *      nested array fields into top-level columns 4. [[applyColumnSelection]] — prunes to user-selected columns if
- *      specified
+ *   1. [[createBaseDataFrame]] — loads files using the stored schema, format, and read options
+ *   1. [[applyComputedIndexes]] — adds derived columns via Spark SQL expressions
+ *   1. [[applyExplodedFields]] — explodes nested array fields into top-level columns
+ *   1. [[applyColumnSelection]] — prunes to user-selected columns if specified
  *
  * '''Format support:''' CSV, Parquet, and JSON. The format is stored in [[IndexMetadata]] and determines which Spark
  * reader method is used. Read options (e.g., `header`, `delimiter`) are applied from metadata.
@@ -65,10 +65,10 @@ trait IndexFileOperations extends IndexMetadataOperations {
    * Reads a set of files into a DataFrame based on the specified format.
    *
    * Orchestrates the full read pipeline:
-   *   1. [[createBaseDataFrame]] — loads files using stored schema, format, and read options 2.
-   *      [[applyComputedIndexes]] — adds derived columns via Spark SQL expressions 3. [[applyExplodedFields]] —
-   *      explodes nested array fields into top-level columns 4. [[applyColumnSelection]] — prunes to user-selected
-   *      columns if specified
+   *   1. [[createBaseDataFrame]] — loads files using stored schema, format, and read options
+   *   1. [[applyComputedIndexes]] — adds derived columns via Spark SQL expressions
+   *   1. [[applyExplodedFields]] — explodes nested array fields into top-level columns
+   *   1. [[applyColumnSelection]] — prunes to user-selected columns if specified
    *
    * @param files
    *   A set of file paths to read

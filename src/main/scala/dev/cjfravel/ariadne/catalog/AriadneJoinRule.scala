@@ -21,9 +21,10 @@ import org.apache.spark.sql.types.{StructField, StructType}
  * condition, hints, and ExprIds are all preserved.
  *
  * '''Safety constraints (the rule only fires when ALL hold):'''
- *   1. The join type is `INNER` 2. The entire condition is composed of equi-join predicates (`a.col = b.col`) 3. Every
- *      Ariadne-side join column is indexed in the Ariadne index 4. The Ariadne table is the direct child of the `Join`
- *      node (no intervening Filter, Project, or other operators)
+ *   1. The join type is `INNER`
+ *   1. The entire condition is composed of equi-join predicates (`a.col = b.col`)
+ *   1. Every Ariadne-side join column is indexed in the Ariadne index
+ *   1. The Ariadne table is the direct child of the `Join` node (no intervening Filter, Project, or other operators)
  *
  * Column names may differ between sides (e.g., `c.id = q.customer_id`); the rule identifies which attribute belongs to
  * the Ariadne side by ExprId and maps values accordingly for `locateFiles()`.
@@ -32,12 +33,14 @@ import org.apache.spark.sql.types.{StructField, StructType}
  * scan + standard join).
  *
  * '''How the rewrite works:'''
- *   1. Converts the non-Ariadne side into a DataFrame of join-key values 2. Calls `locateFilesFromDataFrame()` which
- *      performs a distributed join against the Ariadne index table — value matching stays in Spark executors and only
- *      the final filename set (bounded by file count) is collected to the driver 3. Replaces the Ariadne
- *      `DataSourceV2Relation` with a plan that reads only those files, aliased to preserve the original ExprIds 4.
- *      Applies temporal deduplication if the index has temporal columns 5. Returns a new `Join` node with the pruned
- *      Ariadne side, preserving the original condition, join type, and hints
+ *   1. Converts the non-Ariadne side into a DataFrame of join-key values
+ *   1. Calls `locateFilesFromDataFrame()` which performs a distributed join against the Ariadne index table — value
+ *      matching stays in Spark executors and only the final filename set (bounded by file count) is collected to the
+ *      driver
+ *   1. Replaces the Ariadne `DataSourceV2Relation` with a plan that reads only those files, aliased to preserve the
+ *      original ExprIds
+ *   1. Applies temporal deduplication if the index has temporal columns
+ *   1. Returns a new `Join` node with the pruned Ariadne side, preserving the original condition, join type, and hints
  *
  * '''Limitations:'''
  *   - Non-equi conditions, outer/semi/anti joins, and partially-indexed conditions all fall back to the V1Scan path

@@ -13,10 +13,11 @@ import org.apache.spark.sql.functions._
  * Trait providing join operations between DataFrames and indexed data.
  *
  * Orchestrates the join workflow:
- *   1. Maps join columns to their storage column names (regular, bloom, range, exploded) 2. Locates relevant files
- *      using the index (via [[IndexQueryOperations.locateFilesFromDataFrame]]) 3. Reads only the located data files
- *      (file-level pruning) 4. Applies temporal deduplication if applicable (keeps latest version per value) 5.
- *      Performs the final Spark DataFrame join
+ *   1. Maps join columns to their storage column names (regular, bloom, range, exploded)
+ *   1. Locates relevant files using the index (via [[IndexQueryOperations.locateFilesFromDataFrame]])
+ *   1. Reads only the located data files (file-level pruning)
+ *   1. Applies temporal deduplication if applicable (keeps latest version per value)
+ *   1. Performs the final Spark DataFrame join
  *
  * An index join returns the '''minimal complete dataset''' for the join: an indexed value is never missed, and
  * index-side rows absent from the joined DataFrame are deliberately discarded. Join types whose result is defined by

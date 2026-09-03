@@ -93,9 +93,10 @@ trait BloomFilterOperations extends IndexFileOperations {
    * Builds bloom filter indexes for all configured bloom columns.
    *
    * For each [[BloomIndexConfig]], this method:
-   *   1. Reduces the input to distinct (filename, value) pairs 2. Computes each file's distinct value count so its
-   *      filter can be sized individually 3. Folds the values into a bloom filter with `BloomFilterAggregator` 4. Joins
-   *      the resulting bloom column back onto the accumulating DataFrame
+   *   1. Reduces the input to distinct (filename, value) pairs
+   *   1. Computes each file's distinct value count so its filter can be sized individually
+   *   1. Folds the values into a bloom filter with `BloomFilterAggregator`
+   *   1. Joins the resulting bloom column back onto the accumulating DataFrame
    *
    * The aggregation is streaming: values are hashed into the filter and discarded, so executor memory scales with the
    * size of the filter (~1.2 bytes per distinct value at 1% FPR) rather than with the number of values held as boxed

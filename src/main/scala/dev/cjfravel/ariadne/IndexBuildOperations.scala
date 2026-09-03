@@ -26,9 +26,9 @@ import org.apache.spark.util.SerializableConfiguration
  * Update pipeline (data flow):
  *   1. [[analyzeFiles]] — Pre-flight scan that computes per-file distinct value counts for all indexed columns. This
  *      information drives batching decisions.
- *   2. [[createOptimalBatches]] — Groups files into batches so that the sum of `maxDistinctCount` per batch stays at or
+ *   1. [[createOptimalBatches]] — Groups files into batches so that the sum of `maxDistinctCount` per batch stays at or
  *      below `largeIndexLimit`. Files that individually exceed the limit are isolated into single-file batches.
- *   3. Per-batch processing (in `updateSingleBatch`):
+ *   1. Per-batch processing (in `updateSingleBatch`):
  *      - Read source files, apply computed indexes, add filename column
  *      - [[classifyLargeFiles]] — Decide, per `(file, column)` pair, whether the file contributes enough distinct
  *        values to be stored out of line, reusing the counts from step 1
@@ -37,9 +37,9 @@ import org.apache.spark.util.SerializableConfiguration
  *      - Build auto-bloom filters for columns with at least one large file
  *      - [[appendToStaging]] (inline columns to staging Delta table)
  *      - [[appendToLargeIndex]] (large columns streamed to per-column Delta tables)
- *   4. Periodic consolidation — Every `stagingConsolidationThreshold` batches, [[consolidateStaging]] merges staging
+ *   1. Periodic consolidation — Every `stagingConsolidationThreshold` batches, [[consolidateStaging]] merges staging
  *      into the main index via Delta MERGE (upsert on filename). Auto-compaction may follow via [[maybeAutoCompact]].
- *   5. Final consolidation — After all batches complete, any remaining staged data is consolidated and the staging
+ *   1. Final consolidation — After all batches complete, any remaining staged data is consolidated and the staging
  *      table is deleted.
  *
  * Batching strategy: Files are sorted by `maxDistinctCount` (largest first) and packed sequentially into batches. This
