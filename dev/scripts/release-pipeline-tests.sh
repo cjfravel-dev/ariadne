@@ -65,6 +65,9 @@ assert_contains .github/workflows/publish.yml "commits/\$sha/check-runs"
 assert_contains .github/workflows/publish.yml "Build & Test (Spark 3.5)"
 assert_contains .github/workflows/publish.yml "Build & Test (Spark 4.1)"
 assert_contains .github/workflows/publish.yml "checks: read"
+# The gate reads check runs and then the job behind each one. Declaring permissions explicitly sets every unlisted
+# scope to none, so both scopes have to be present or the gate fails on a release that should have been allowed.
+assert_contains .github/workflows/publish.yml "actions: read"
 assert_contains .github/workflows/publish.yml "dev/scripts/run-governance-checks.sh"
 # The gate must refuse the release while any attempt is unfinished, and otherwise read the newest attempt by start
 # time. A re-run adds a second check run with the same name, so reading only one attempt could accept a stale success.
