@@ -13,8 +13,11 @@ mvn test
 # Run a single test suite
 mvn test -Dsuites="dev.cjfravel.ariadne.IndexTests"
 
-# Run a specific test within a suite
-mvn test -Dsuites="dev.cjfravel.ariadne.IndexTests#my test name"
+# Run a specific test within a suite (space separator; @ means exact-name match)
+mvn test -Dsuites="dev.cjfravel.ariadne.IndexTests @my test name"
+
+# Drop the @ to match any test whose name contains the string
+mvn test -Dsuites="dev.cjfravel.ariadne.IndexTests my test"
 
 # Package (produces shaded jar)
 mvn package

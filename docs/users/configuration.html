@@ -80,7 +80,7 @@
           <tr>
             <td><code>spark.ariadne.largeIndexLimit</code></td>
             <td><code>500000</code></td>
-            <td>Distinct values per column before switching to a separate "large index" Delta table (with row-per-value layout instead of an array column).</td>
+            <td>Distinct values <strong>a single file contributes to a column</strong> before that <code>(file, column)</code> pair switches to a separate "large index" Delta table (with row-per-value layout instead of an array column). This is a per-file threshold, not a total across the column.</td>
           </tr>
           <tr>
             <td><code>spark.ariadne.stagingConsolidationThreshold</code></td>
@@ -105,7 +105,7 @@
           <tr>
             <td><code>spark.ariadne.autoBloomFpr</code></td>
             <td><code>0.01</code></td>
-            <td>False-positive rate for the automatic bloom filters built on columns that exceed <code>largeIndexLimit</code>. This also determines how many distinct query-side values are worth probing: a filter prunes <code>(1&nbsp;&minus;&nbsp;fpr)<sup>n</sup></code> of non-matching files, so past roughly <code>1/fpr</code> values it prunes nothing and the pre-filter is skipped automatically. That bound is derived, not configurable.</td>
+            <td>False-positive rate for the automatic bloom filters built on columns that exceed <code>largeIndexLimit</code>. This also determines how many distinct query-side values are worth probing: a filter prunes <code>(1&nbsp;&minus;&nbsp;fpr)<sup>n</sup></code> of non-matching files, so past roughly <code>ln(0.01)&nbsp;/&nbsp;ln(1&nbsp;&minus;&nbsp;fpr)</code> values (458 at the default 1% FPR) it prunes less than 1% of non-matching files and the pre-filter is skipped automatically. Skipping widens the candidate file set but never changes results. That bound is derived, not configurable.</td>
           </tr>
         </tbody>
       </table>

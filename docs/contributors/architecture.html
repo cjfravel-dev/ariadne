@@ -148,7 +148,7 @@
     <p>Owns the read pipeline. Given a <code>Set[String]</code> of file paths, it produces a DataFrame that has had: format-specific read options applied, computed-index columns added, array fields exploded into their virtual columns, and (if the user called <code>select</code>) been projected down to the requested columns. It also adds a stable filename column via <code>input_file_name()</code> when needed for downstream joins.</p>
 
     <h3>BloomFilterOperations</h3>
-    <p>Build and query layer for Guava-backed bloom filters. Builds binary <code>bloom_*</code> columns during <code>update</code>, deserializes and tests them at query time, and exposes the set of columns that have bloom indexes. The implementation distinguishes <em>explicit</em> bloom indexes (added via <code>addBloomIndex</code>) from <em>auto</em>-bloom filters added automatically to large regular-index columns — both are handled here.</p>
+    <p>Build and query layer for Guava-backed bloom filters. Builds binary <code>bloom_*</code> columns during <code>update</code>, deserializes and tests them at query time, and exposes the set of columns that have bloom indexes. The implementation distinguishes <em>explicit</em> bloom indexes (added via <code>addBloomIndex</code>) from <em>auto</em>-bloom filters added automatically to large regular, computed, exploded-field, and temporal index columns (range indexes and binary-typed columns are excluded) — both are handled here.</p>
 
     <h3>IndexBuildOperations</h3>
     <p>The most substantial layer. Handles the full <code>update</code> pipeline: pre-flight file analysis, optimal batching, building each index type into DataFrame columns, splitting columns into the large-index pathway when they exceed thresholds, appending to staging and large-index tables, and consolidating staging into the main index via Delta <code>MERGE</code>.</p>
@@ -157,7 +157,7 @@
     <p>Provides the optimized <code>join</code> entry point and the internal <code>joinDf</code> that consumers like the SQL catalog use. Maps the join columns to their storage-side names (e.g. <code>user_id</code> → <code>bloom_user_id</code> for bloom indexes; exploded-field aliases back to their array column), applies temporal deduplication for any temporal-indexed join column, and produces the joined DataFrame.</p>
 
     <h3>IndexQueryOperations</h3>
-    <p>File location and statistics. <code>locateFiles(map)</code> and <code>locateFilesFromDataFrame</code> intersect the candidate-file sets across every index type involved in a query (regular, bloom, temporal, range, auto-bloom). <code>stats()</code> assembles a per-column statistics DataFrame. Internal helpers like <code>collectFilenamesViaStaging</code> exist here to avoid driver OOM on huge result sets.</p>
+    <p>File location and statistics. <code>locateFiles(map)</code> and <code>locateFilesFromDataFrame</code> intersect the candidate-file sets across every index type involved in a query (regular, bloom, temporal, range, auto-bloom). <code>stats()</code> assembles a per-column statistics DataFrame. Internal helpers like <code>collectFilenamesViaStaging</code> materialize the distinct filename set to a temporary CSV so the driver collects from a trivial scan instead of re-running the full candidate plan. The filename set itself is still collected to the driver, so it remains the one genuinely unbounded driver-side collect in the query path.</p>
 
     <h3>Index (the case class)</h3>
     <p>The public API surface. Combines every trait above, plus the user-facing methods that don't belong to any one layer: <code>addIndex</code>, <code>addBloomIndex</code>, <code>addComputedIndex</code>, <code>addExplodedFieldIndex</code>, <code>addTemporalIndex</code>, <code>addRangeIndex</code>, <code>addFile</code>, <code>update</code>, <code>deleteFiles</code>, <code>compact</code>, <code>vacuum</code>, <code>select</code>, <code>indexes</code>, <code>hasFile</code>.</p>
@@ -231,7 +231,7 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
     <h2 id="features">Key features</h2>
 
     <h3>Large index handling</h3>
-    <p>When a file contributes <code>largeIndexLimit</code> or more <em>distinct</em> values to a column, that pair can no longer live as a Spark array column in the main index — the array would blow memory at both build and query time. Instead, the column gets its own consolidated Delta table at <code>large_indexes/{column}/</code> containing <code>(filename, value)</code> rows, and the inline array is left <code>null</code>. Delta optimization works cleanly on this shape, and Z-ordering is meaningful.</p>
+    <p>When a file contributes <code>largeIndexLimit</code> or more <em>distinct</em> values to a column, that pair can no longer live as a Spark array column in the main index — the array would blow memory at both build and query time. Instead, the column gets its own consolidated Delta table at <code>large_indexes/{column}/</code> containing <code>(filename, value)</code> rows, and the inline array is left <code>null</code>. Delta optimization works cleanly on this shape. Ariadne runs plain <code>OPTIMIZE</code> compaction only; it does not Z-order the large-index tables, though the <code>(filename, value)</code> shape would be a natural candidate if Z-ordering were added.</p>
 
     <p>Classification is per <code>(file, column)</code> pair and is driven by the distinct counts already gathered by <code>analyzeFiles</code> (see <code>classifyLargeFiles</code>). It deliberately keys on the <em>distinct</em> value count rather than the row count, so a file with many duplicate rows but few distinct values stays inline. Because largeness is known before aggregation, the values for a large pair are streamed straight into <code>large_indexes/{column}/</code> from the source rows — the giant per-file array is never materialized.</p>
 
@@ -316,7 +316,7 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
           <tr><td><code>0.1.0-beta</code> through <code>__ARIADNE_VERSION__</code></td><td>Supported</td><td>Structurally validates the unversioned layout, applies only missing steps, verifies the result, then records v4. Auto-bloom filters are backfilled for any column that already has a <code>large_indexes/</code> table.</td></tr>
           <tr><td>Explicit storage v1 or v2</td><td>Supported</td><td>Resumes the ordered, idempotent migration from the declared checkpoint.</td></tr>
           <tr><td>Explicit storage v4</td><td>Current</td><td>Uses the declared current layout without repeating historical schema inspection.</td></tr>
-          <tr><td>Earlier than <code>0.0.1-alpha-37</code></td><td>Unsupported</td><td>Rebuild from source data with a current Ariadne version.</td></tr>
+          <tr><td>Earlier than <code>0.0.1-alpha-37</code></td><td>Unsupported</td><td>Rebuild from source data with a current Ariadne version. Note that Ariadne cannot detect this case: unversioned metadata is assumed to be the v1 baseline, so migration is attempted and may fail during a verification step rather than being rejected up front.</td></tr>
           <tr><td>Version newer than v4</td><td>Requires a newer library</td><td>Fails before physical or metadata writes; never downgrades an index in place.</td></tr>
         </tbody>
       </table>
@@ -339,7 +339,7 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
     <ul>
       <li>One thread per <code>Index</code> instance.</li>
       <li>Separate <code>Index</code> instances per thread — they coordinate via the file-based locks.</li>
-      <li>Read-only operations (<code>locateFiles</code>, <code>stats</code>, <code>printIndex</code>) are safe across threads as long as nothing is mutating concurrently.</li>
+      <li>Read-only queries (<code>locateFiles</code>, <code>stats</code>, <code>printIndex</code>) never modify index contents, so they are safe across threads as long as nothing is mutating concurrently. They are not, however, purely read-only against storage: each runs the migration preflight first, which can acquire the update lock and write migrated data and metadata on the first call against a non-current index.</li>
     </ul>
 
     <h3>Lock file concurrency</h3>
@@ -351,13 +351,15 @@ Index(name)  // reconnect to an existing index — metadata must exist</code></p
     </ul>
 
     <h3>Driver memory considerations</h3>
-    <p>A few operations collect data to the driver and can OOM on large indexes. They're documented in scaladoc with <code>@note</code> or inline comments:</p>
+    <p>A few operations collect data to the driver. They're documented in scaladoc with <code>@note</code> or inline comments:</p>
     <ul>
-      <li><code>FileList.addFile()</code> collects all filenames for duplicate checking.</li>
-      <li><code>BloomFilterOperations.locateFilesWithBloom()</code> collects bloom filters.</li>
-      <li><code>IndexQueryOperations.getAutoBloomCandidates()</code> collects auto-bloom data.</li>
-      <li><code>locateFilesWithRangeFromDataFrame()</code> truncates to 10,000 distinct values to keep this bounded.</li>
+      <li><strong>Unbounded:</strong> <code>IndexQueryOperations.collectFilenamesViaStaging()</code> collects the full distinct filename set. This is the one genuinely unbounded driver-side collect on the query path — an index with millions of files can OOM the driver.</li>
+      <li><strong>Bounded:</strong> bloom and auto-bloom probes collect only query-side <em>values</em>, capped by the derived probe bound (<code>BloomFilterOperations.maxProbeValues</code>). Bloom filter binary data is never collected — <code>probeBloomFilters</code> broadcasts the values and evaluates the filters on the executors, returning only matching filenames.</li>
+      <li><strong>Bounded:</strong> <code>IndexQueryOperations.getAutoBloomCandidates()</code> probes distributed; its strategy-selection collect is capped one value past the threshold.</li>
+      <li><strong>Bounded:</strong> <code>locateFilesWithRangeFromDataFrame()</code> truncates to 10,000 distinct values.</li>
+      <li><strong>Bounded by staging size:</strong> <code>Index.stats()</code> collects the staging table's contents when one exists, so it scales with unconsolidated staging rather than with the index.</li>
     </ul>
+    <p><code>FileList.addFile()</code> does <em>not</em> collect — it deduplicates with a Delta <code>MERGE</code> against the tracked file list.</p>
 
     <h2 id="extending">Extending Ariadne</h2>
 

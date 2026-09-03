@@ -56,7 +56,7 @@
     </div>
 
     <h2 id="joins">Joining</h2>
-    <p>An Ariadne index participates in normal Spark joins. Either direction works and yields the same physical plan up to side ordering.</p>
+    <p>An Ariadne index participates in normal Spark joins, in either direction. What the index guarantees is the <strong>minimal complete dataset</strong> for the join: a matching indexed value is never missed, and indexed rows whose keys are absent from the other DataFrame are pruned away. It does <em>not</em> promise the same row set you would get by joining the raw files — discarding non-matching data is the point of an index.</p>
 
 <pre><code class="language-scala">import dev.cjfravel.ariadne.Index._  // brings in the df.join(index, …) implicit
 
@@ -65,6 +65,43 @@ val a = customerDf.join(index, Seq("customer_id"), "inner")
 
 // Index on the left
 val b = index.join(customerDf, Seq("customer_id"), "inner")</code></pre>
+
+    <h3 id="join-granularity">Granularity: files, not rows</h3>
+    <p>The index maps values to <em>files</em>. Pruning therefore drops whole files that cannot contain any join key; it never drops individual rows within a file that survives. Practical consequences:</p>
+    <ul>
+      <li>A file containing one matching key is read in full, so unmatched rows sharing that file appear in the result.</li>
+      <li>Which unmatched rows appear depends on physical file layout, so a row count can change after <code>compact()</code>, after adding files, or after re-partitioning the source data — even though the underlying data is unchanged.</li>
+      <li>Matched rows are always exact and stable. Only the incidental extras vary.</li>
+      <li>Add an explicit predicate on the join keys if you need row-exact output that is independent of file layout.</li>
+    </ul>
+
+    <h3 id="join-types">Supported join types</h3>
+    <p>Because unmatched index-side rows are a file-layout artifact, join types whose result is <em>defined</em> by those rows have no stable meaning and are rejected with an <code>UnsupportedJoinTypeException</code>. Which types are rejected depends on which side the index is on:</p>
+
+    <table>
+      <thead><tr><th>Call</th><th>Index side</th><th>Supported</th><th>Rejected</th></tr></thead>
+      <tbody>
+        <tr><td><code>index.join(df, …)</code></td><td>left</td><td><code>inner</code>, <code>cross</code>, <code>left_semi</code>, <code>right</code>, <code>right_outer</code></td><td><code>left</code>, <code>left_outer</code>, <code>left_anti</code>, <code>full</code>, <code>full_outer</code>, <code>outer</code></td></tr>
+        <tr><td><code>df.join(index, …)</code></td><td>right</td><td><code>inner</code>, <code>cross</code>, <code>left_semi</code>, <code>left</code>, <code>left_outer</code>, <code>left_anti</code></td><td><code>right</code>, <code>right_outer</code>, <code>full</code>, <code>full_outer</code>, <code>outer</code></td></tr>
+      </tbody>
+    </table>
+
+    <p>The two directions are mirror images: whichever side the index occupies, the outer join that preserves <em>your</em> DataFrame is available and the one that preserves the index is not. Aliases and casing are normalized, so <code>left_outer</code>, <code>leftouter</code> and <code>LEFT_OUTER</code> behave identically.</p>
+
+<pre><code class="language-scala">// Keep every customerDf row, matched or not — index on the left
+index.join(customerDf, Seq("customer_id"), "right")
+
+// Same intent with the index on the right
+customerDf.join(index, Seq("customer_id"), "left")
+
+// Rejected: asks for indexed rows that have no match in customerDf
+index.join(customerDf, Seq("customer_id"), "left_anti")   // UnsupportedJoinTypeException</code></pre>
+
+    <p>To work with every row of the indexed dataset regardless of matches, read the data files directly rather than going through the index.</p>
+
+    <div class="callout note">
+      <p><strong>DataFrame API only.</strong> The <a href="#sql-catalog">Spark SQL catalog</a> behaves differently: it pre-prunes only for INNER equi-joins and leaves every other join type as a plain full scan, so SQL joins keep standard Spark semantics for all join types — at the cost of no pruning.</p>
+    </div>
 
     <h2 id="select">Column selection</h2>
     <p>Reduce I/O by reading only the columns you need from the source files. <code>select</code> mutates and returns the same <code>Index</code>, so it chains cleanly into a join:</p>
