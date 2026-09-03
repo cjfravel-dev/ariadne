@@ -108,10 +108,15 @@ jobs:
             # A green job is not proof the artifacts were built. CI classifies documentation-only changes and guards
             # its build steps with `if: needs.changes.outputs.source == 'true'`, so those runs report success in a few
             # seconds having compiled nothing. Confirm the build step itself ran.
+            # details_url points at the job that produced the check run, so take the id from there rather than
+            # assuming the check run's own id doubles as a job id. Fall back to that id if the URL is not in the
+            # expected shape; the name check below catches either route going wrong.
             job=$(
               printf '%s' "$checks" |
                 jq -r --arg name "$name" '
-                  [.check_runs[] | select(.name == $name)] | sort_by(.started_at // "") | last | .id
+                  [.check_runs[] | select(.name == $name)] | sort_by(.started_at // "") | last
+                  | (try (.details_url | capture("/job/(?<id>[0-9]+)") | .id) catch null)
+                    // (.id | tostring)
                 '
             )
             # A check run produced by Actions carries the id of the job behind it, and the job points back at the same
