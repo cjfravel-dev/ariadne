@@ -6,6 +6,43 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.10-beta]
+
+### Added
+
+- Join types an index cannot answer correctly are now rejected with `UnsupportedJoinTypeException` instead of returning
+  results that depend on which files the index happened to prune. The index side cannot preserve unmatched rows,
+  because rows outside the index were never read: `index.join(df, ...)` rejects `left`, `left_outer`, `left_anti`,
+  `anti`, `full`, `full_outer` and `outer`, and `df.join(index, ...)` rejects `right`, `right_outer`, `full`,
+  `full_outer` and `outer`. `left_semi` remains supported in both directions, as does `left_anti` against a DataFrame.
+- Reading a non-empty directory that is not a Delta table now raises `InvalidDeltaTableException` and leaves the
+  directory in place. Previously the directory was deleted, so a mistyped storage path could destroy unrelated data.
+
+### Changed
+
+- Auto-bloom pre-filtering now covers temporal index columns, which were the only large-index type excluded from it
+  despite already spilling into `large_indexes/`.
+- An auto-bloom probe that matches no files now skips its large index entirely instead of scanning it in full. Bloom
+  filters have no false negatives, so an empty candidate set is a definitive no-match.
+- Storage format version 4 backfills auto-bloom filters onto indexes built before auto-bloom existed and normalizes
+  legacy large-index value column names, so existing indexes gain the pre-filter without being rebuilt.
+- `addBloomIndex` now rejects `BinaryType` columns, including nested fields and exploded-field aliases. Java arrays
+  hash by identity rather than by content, so such a filter could never match its own values. Auto-bloom skips them too.
+- `cross` is no longer described as a distinct index join type. It is still accepted and behaves as `inner`.
+- Directory emptiness is checked lazily rather than by materializing the full listing, and a path deleted while being
+  inspected is treated as absent instead of failing the caller.
+
+### Fixed
+
+- Temporal deduplication no longer returns a superseded row as the latest version. Ranking previously ran only over the
+  rows that survived file pruning, so when the newest version of a value lived in a pruned file, an older row could
+  win. Rows are now first rejected against the highest timestamp the index records for their value across every file.
+- Auto-bloom index builds no longer fail with `ENCODER_NOT_FOUND` when a downstream build relocates Ariadne's packages.
+  The bloom aggregator's input encoder is now built from primitive encoders rather than derived through Scala
+  reflection, whose pickled type signatures relocation does not rewrite.
+- An unrecognized `indexSide` is now rejected rather than defaulted, which had silently applied the wrong set of
+  join-type restrictions.
+
 ## [0.1.9-beta]
 
 ### Added
