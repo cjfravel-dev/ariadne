@@ -54,6 +54,15 @@ assert_contains .github/workflows/publish.yml "-Pspark35"
 assert_contains .github/workflows/publish.yml "-Pspark41"
 assert_contains .github/workflows/publish.yml "-Dcentral.autoPublish=false"
 assert_contains .github/workflows/publish.yml "-Dcentral.waitUntil=validated"
+
+# Staging skips test execution because the tagged commit was already tested by CI on main. That tradeoff is only sound
+# while the provenance gate below runs first, so the two must be kept together.
+assert_contains .github/workflows/publish.yml "-DskipTests"
+assert_contains .github/workflows/publish.yml "Verify the release commit passed CI"
+assert_contains .github/workflows/publish.yml "commits/\$sha/check-runs"
+assert_contains .github/workflows/publish.yml "Build & Test (Spark 3.5)"
+assert_contains .github/workflows/publish.yml "Build & Test (Spark 4.1)"
+assert_contains .github/workflows/publish.yml "checks: read"
 assert_contains .github/workflows/publish.yml "set +e"
 assert_contains .github/workflows/publish.yml "state35=UNKNOWN"
 assert_contains .github/workflows/publish.yml "state41=UNKNOWN"

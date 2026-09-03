@@ -54,6 +54,10 @@
     <h2>Publish the GitHub Release</h2>
     <p>Create a tag exactly equal to the Maven project version, without a <code>v</code> prefix, then publish the GitHub Release. The protected workflow signs and uploads each profile as a user-managed Central deployment. It publishes nothing until both deployments reach the validated state.</p>
 
+    <p>Before staging, the workflow checks that the tagged commit already has successful <code>Build &amp; Test (Spark 3.5)</code> and <code>Build &amp; Test (Spark 4.1)</code> runs. Because CI runs on every push to <code>main</code>, the merge commit a release tag points at has its own green run. Staging then builds with <code>-DskipTests</code>, since re-running the same suite on the same tree adds roughly 45 minutes and cannot discover anything new. If the tag points at a commit CI never tested, the release stops before anything is uploaded.</p>
+
+    <p>Skipping tests does not skip the release guards: <code>-DskipTests</code> only suppresses Scala test execution, so version-consistency, packaged-jar contents, scalafix, scalastyle and every other governance script bound to the build still run during staging.</p>
+
     <h2>Coordinated publication</h2>
     <p>After both profiles validate, the workflow requests publication for both deployments, waits for both to reach <code>PUBLISHED</code>, confirms both Maven Central coordinates resolve, and downloads each artifact through a clean Maven repository.</p>
 
@@ -61,6 +65,7 @@
     <ul>
       <li>Local <code>mvn deploy</code> remains user-managed and droppable.</li>
       <li>A failed Spark 3.5 or Spark 4.1 stage publishes neither artifact.</li>
+      <li>A tag whose commit has no green CI run is rejected before staging.</li>
       <li>The workflow drops any validated deployment left by a staging failure.</li>
       <li>Published Central versions are immutable; corrections require a new version.</li>
       <li>Rotate the Central token and PGP key before their environment-recorded expiration dates.</li>
