@@ -102,7 +102,37 @@ storage compatibility is tracked separately by `storage_format_version` and migr
 
 ### Shading
 
+Relocation cuts both ways, and the two directions fail differently. Both have bitten this repository more than once.
+
+#### Inbound: Ariadne relocates its own dependencies
+
 Guava and Gson are shaded under `dev.cjfravel.ariadne.shaded.*` to avoid version conflicts with the host Spark environment. Source code uses standard `com.google.common.*` (Guava) and `com.google.gson.*` (Gson) imports — the Maven Shade Plugin automatically relocates these to `dev.cjfravel.ariadne.shaded.*` in the packaged JAR. Do not add additional unshaded `com.google.*` runtime dependencies to `pom.xml` as they would conflict with the shading configuration.
+
+Adding a bundled dependency requires **three coordinated edits**, not one:
+
+1. a `<relocation>` entry in the shade plugin config,
+2. a matching `<artifactSet><include>` entry, and
+3. a `reject_entry` line in `dev/scripts/package-contents-tests.sh` asserting the original package is absent from the jar.
+
+Miss any of them and the package ships unrelocated and collides with the host Spark runtime. This is not hypothetical: `com.google.thirdparty`, `error_prone_annotations` and `j2objc-annotations` all had to be retrofitted after they leaked. `package-contents-tests.sh` is the guard for this direction — keep it exhaustive.
+
+#### Outbound: a downstream consumer relocates Ariadne
+
+**Nothing in CI can catch this.** Ariadne's own build never relocates `dev.cjfravel.ariadne`, so a change that breaks under downstream relocation passes every check and fails only in a consumer's shaded build. Authors must reason about it deliberately.
+
+The mechanism: the Maven Shade Plugin rewrites bytecode constant-pool references, but leaves the Scala `ScalaSignature` pickle **byte-for-byte identical**. A relocated class therefore loads under its new package while its pickle still describes the old one. Anything that resolves a type through *Scala reflection* (`TypeTag`, `ScalaReflection`) fails to find it, typically surfacing as `ENCODER_NOT_FOUND` or a "not a `Product`" error at index-build time.
+
+Rules:
+
+- **Never use an Ariadne-defined case class as a Spark `Dataset` or encoder element type.** Use a `DataFrame` with an explicit `StructType`, or construct the encoder explicitly (`Encoders.tuple`, `Encoders.STRING`, …).
+- **Prefer the two-argument `udaf(aggregator, inputEncoder)` overload.** The single-argument overload derives the input encoder reflectively. See `buildStreamingBloomColumn` in `BloomFilterOperations`, which passes `BloomFilterAggregator.inputEncoder` explicitly.
+- `.as[T]`, `.toDS()` and `emptyDataset[T]` are safe **only** for standard-library types (`String`, tuples of primitives), which relocation never rewrites. They are not safe for Ariadne types.
+- `Encoders.javaSerialization[T]` and `Encoders.kryo[T]` are safe: they take a `ClassTag`, which compiles to a `classOf` bytecode reference that shade *does* rewrite. Only `TypeTag`-based derivation (`Encoders.product`, `implicits.newProductEncoder`) is unsafe.
+- **Never hardcode the `dev.cjfravel.ariadne` package name in a string used for lookup** — `Class.forName`, Spark extension/config keys, service-loader entries. Relocation rewrites the class but not the string. Hardcoded package names inside scaladoc examples are fine.
+
+Prior incidents, both the same root cause: `FileEntry` used as `Dataset[FileEntry]`, fixed by dropping the case class for a `DataFrame` plus explicit `StructType`; and `BloomAggInput` used as a reflectively derived aggregator input, fixed by an explicit `Encoders.tuple`.
+
+To check a change by hand, build a relocated jar and load it: package `target/classes` into a jar, `mvn install:install-file` it, then shade it in a scratch project with a `<relocation>` from `dev.cjfravel.ariadne` to some other prefix and exercise the code path.
 
 ### Spark Version
 
