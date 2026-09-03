@@ -88,9 +88,12 @@ jobs:
               printf '%s' "$checks" |
                 jq -r --arg name "$name" '
                   [.check_runs[] | select(.name == $name)]
-                  | sort_by(.completed_at // "")
+                  | sort_by(.started_at // "")
                   | last
-                  | if . == null then "no run" else (.conclusion // "incomplete") end
+                  | if . == null then "no run"
+                    elif .status != "completed" then "incomplete"
+                    else (.conclusion // "incomplete")
+                    end
                 '
             )
             if [[ "$conclusion" != "success" ]]; then

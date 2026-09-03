@@ -66,6 +66,11 @@ assert_contains .github/workflows/publish.yml "Build & Test (Spark 3.5)"
 assert_contains .github/workflows/publish.yml "Build & Test (Spark 4.1)"
 assert_contains .github/workflows/publish.yml "checks: read"
 assert_contains .github/workflows/publish.yml "dev/scripts/run-governance-checks.sh"
+# The gate must pick the newest attempt by start time and refuse anything not finished. A re-run adds a second check
+# run with the same name, and an unfinished attempt has completed_at and conclusion both null, so ordering by
+# completion time would select a stale success while CI is still running.
+assert_contains .github/workflows/publish.yml "sort_by(.started_at"
+assert_contains .github/workflows/publish.yml '.status != "completed"'
 assert_contains .github/workflows/publish.yml "set +e"
 assert_contains .github/workflows/publish.yml "state35=UNKNOWN"
 assert_contains .github/workflows/publish.yml "state41=UNKNOWN"
