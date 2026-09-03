@@ -92,12 +92,20 @@ class AriadneContextTests extends SparkTests {
     spark.conf.set(storageKey, vanishingStoragePath)
 
     try {
-      assert(contextUser.delta(new Path(s"$vanishingStoragePath/vanished_dir")).isEmpty)
+      val user = contextUser
+      val vanishingFs = user.fs
+      try {
+        assert(user.delta(new Path(s"$vanishingStoragePath/vanished_dir")).isEmpty)
+      } finally {
+        // Close only what this test opened. Caching is disabled for the vanishing scheme, so this instance was never
+        // in the JVM-wide cache and FileSystem.closeAll would close nothing of ours while purging the shared file://
+        // instance that AriadneContextUser.fs, Spark and Delta all hold.
+        vanishingFs.close()
+      }
     } finally {
       spark.conf.set(storageKey, originalStoragePath)
       hadoopConf.unset("fs.vanishing.impl")
       hadoopConf.unset("fs.vanishing.impl.disable.cache")
-      org.apache.hadoop.fs.FileSystem.closeAll()
     }
   }
 }
