@@ -6,6 +6,7 @@ import scala.collection.JavaConverters._
 
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.functions.{col, explode_outer}
 import org.apache.spark.sql.types._
 import org.scalatest.matchers.should.Matchers
 
@@ -296,5 +297,30 @@ class AutoBloomLargeIndexTests extends SparkTests with Matchers {
     } finally {
       spark.conf.set("spark.ariadne.largeIndexLimit", "500000")
     }
+  }
+
+  test("nestedFieldType returns the type an exploded field alias actually gets") {
+    val schema =
+      StructType(
+        Seq(
+          StructField("event_id", StringType),
+          StructField(
+            "users",
+            ArrayType(StructType(Seq(StructField("id", LongType), StructField("token", BinaryType)))))))
+    val df = spark.createDataFrame(spark.sparkContext.emptyRDD[Row], schema)
+
+    // Spark's dotted access over an array of structs produces an ARRAY of the extracted field.
+    df.select(col("users.id")).schema.head.dataType should be(ArrayType(LongType))
+    df.select(col("users.token")).schema.head.dataType should be(ArrayType(BinaryType))
+
+    // buildExplodedFieldIndexes wraps that in explode_outer, which unwraps it to the element type. That is the type
+    // the alias column ends up with, and the type nestedFieldType is contracted to report.
+    df.select(explode_outer(col("users.id"))).schema.head.dataType should be(LongType)
+    df.select(explode_outer(col("users.token"))).schema.head.dataType should be(BinaryType)
+    SchemaHelper.nestedFieldType(schema, "users.id") should be(Some(LongType))
+    SchemaHelper.nestedFieldType(schema, "users.token") should be(Some(BinaryType))
+
+    // A path ending AT the array has no segment left to extract, so helper and col() agree there.
+    SchemaHelper.nestedFieldType(schema, "users") should be(Some(df.select(col("users")).schema.head.dataType))
   }
 }

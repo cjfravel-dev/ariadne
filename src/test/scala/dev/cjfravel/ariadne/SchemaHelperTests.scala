@@ -52,7 +52,10 @@ class SchemaHelperTests extends AnyFunSuite {
             ArrayType(StructType(Seq(StructField("id", LongType), StructField("token", BinaryType))))),
           StructField("meta", StructType(Seq(StructField("origin", StringType))))))
 
-    // Array levels are traversed transparently, matching col("users.id") in Spark.
+    // The helper returns the ELEMENT field type when segments remain past an array. That is the type an exploded
+    // field index alias ends up with, since buildExplodedFieldIndexes materialises it as explode_outer(col(path)).
+    // It is NOT what col("users.id") alone returns in Spark — that is array<long>; the explode supplies the unwrap.
+    // Pinned against a live SparkSession in AutoBloomLargeIndexTests.
     assert(SchemaHelper.nestedFieldType(schema, "users.id") === Some(LongType))
     assert(SchemaHelper.nestedFieldType(schema, "users.token") === Some(BinaryType))
     assert(SchemaHelper.nestedFieldType(schema, "meta.origin") === Some(StringType))
@@ -63,8 +66,9 @@ class SchemaHelperTests extends AnyFunSuite {
     // event_id is a leaf, so it cannot be descended into.
     assert(SchemaHelper.nestedFieldType(schema, "event_id.nope") === None)
 
-    // An array reached at the end of a path is returned as the array type, matching col("users") in Spark. Arrays are
-    // only unwrapped when segments remain to resolve against the element type.
+    // An array reached at the end of a path has no remaining segment to extract, so it is returned as the array type.
+    // This is the one case that does coincide with col("users") in Spark. Arrays are only unwrapped when segments
+    // remain to resolve against the element type.
     val terminalArray = SchemaHelper.nestedFieldType(schema, "users")
     assert(
       terminalArray === Some(ArrayType(StructType(Seq(StructField("id", LongType), StructField("token", BinaryType))))))

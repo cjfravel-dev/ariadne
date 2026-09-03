@@ -584,8 +584,10 @@ class TemporalIndexTests extends SparkTests with Matchers {
         spark.sparkContext.parallelize(Seq(Row(1, "B", 150.0, java.sql.Timestamp.valueOf("2024-06-15 12:00:00")))),
         mixedSchema)
 
-    val stalePath = s"${System.getProperty("java.io.tmpdir")}/temporal_stale_${System.currentTimeMillis()}"
-    val currentPath = s"${System.getProperty("java.io.tmpdir")}/temporal_current_${System.currentTimeMillis()}"
+    // Written under the per-suite tempDir so the fixtures share the suite's cleanup root and cannot collide with a
+    // concurrent run of this suite in the same JVM temp directory.
+    val stalePath = s"$tempDir/temporal_stale"
+    val currentPath = s"$tempDir/temporal_current"
     stale.coalesce(1).write.mode("overwrite").parquet(stalePath)
     current.coalesce(1).write.mode("overwrite").parquet(currentPath)
 

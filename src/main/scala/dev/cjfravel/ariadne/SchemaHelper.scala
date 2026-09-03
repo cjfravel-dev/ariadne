@@ -74,14 +74,19 @@ object SchemaHelper {
   /**
    * Resolves a dotted field path to its data type, descending through structs and arrays of structs.
    *
-   * This mirrors Spark's dotted column access. `col("users.id")` on an `array<struct<id: long>>` column selects the
-   * `id` field of every element, so an array level is traversed transparently when path segments remain — `"users.id"`
-   * resolves to `LongType`, not `array<long>`.
+   * The returned type is the one an '''exploded''' field index alias ends up with, which is why this helper exists.
+   * `buildExplodedFieldIndexes` materialises such an alias as `explode_outer(col("users.id"))`, so a path that passes
+   * '''through''' an array yields the element field type: `"users.id"` on an `array<struct<id: long>>` column resolves
+   * to `LongType`.
    *
-   * An array reached at the '''end''' of a path is returned as the array type itself: `"users"` on that same schema
-   * resolves to `array<struct<id: long>>`. This also mirrors Spark, where `col("users")` selects the array column. The
-   * distinction matters only to callers that inspect the result structurally; [[containsBinaryType]] descends arrays,
-   * so binary detection is unaffected either way.
+   * '''This is deliberately not what `col(path)` alone returns.''' Spark's dotted access over an array of structs
+   * produces an array of the extracted field, so `col("users.id")` is `array<long>`; the `explode` supplies the
+   * unwrapping that this helper models. An array reached at the '''end''' of a path is returned as the array type
+   * itself — `"users"` resolves to `array<struct<id: long>>` — because there is no remaining segment to extract, and
+   * that case does coincide with `col("users")`.
+   *
+   * The distinction matters only to callers that inspect the result structurally; [[containsBinaryType]] descends
+   * arrays, so binary detection reaches the same verdict either way.
    *
    * Used to establish the type behind an exploded-field index alias, which exists only as a mapping in metadata and
    * never as a top-level column on the source DataFrame — [[fieldType]] cannot see it.
