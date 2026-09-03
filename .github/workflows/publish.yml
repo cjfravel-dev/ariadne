@@ -82,14 +82,19 @@ jobs:
         run: |
           set -euo pipefail
           sha=$(git rev-parse HEAD)
-          checks=$(
-            gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100" \
-              --jq '.check_runs[] | "\(.name)\t\(.conclusion)"'
-          )
+          checks=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100")
           for name in "Build & Test (Spark 3.5)" "Build & Test (Spark 4.1)"; do
-            conclusion=$(printf '%s\n' "$checks" | awk -F'\t' -v n="$name" '$1 == n { print $2 }')
+            conclusion=$(
+              printf '%s' "$checks" |
+                jq -r --arg name "$name" '
+                  [.check_runs[] | select(.name == $name)]
+                  | sort_by(.completed_at // "")
+                  | last
+                  | if . == null then "no run" else (.conclusion // "incomplete") end
+                '
+            )
             if [[ "$conclusion" != "success" ]]; then
-              echo "$name did not succeed for $sha (got: ${conclusion:-no run})." >&2
+              echo "$name did not succeed for $sha (got: $conclusion)." >&2
               echo "Staging skips tests, so the tagged commit must already have a green CI run." >&2
               exit 1
             fi
