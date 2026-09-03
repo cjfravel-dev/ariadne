@@ -42,6 +42,7 @@
       <li><a href="#build">Build &amp; test</a></li>
       <li><a href="#style">Code style</a></li>
       <li><a href="#compat">Backwards compatibility</a></li>
+      <li><a href="#shading">Shading &amp; relocation</a></li>
       <li><a href="#pr">Pull requests</a></li>
       <li><a href="#ai">AI-assisted contributions</a></li>
       <li><a href="#help">Questions</a></li>
@@ -149,6 +150,29 @@ mvn package</code></pre>
     <h2 id="compat">Backwards compatibility</h2>
     <p>Ariadne aims to be backwards compatible between releases — existing indexes should keep working when users upgrade, and the public Scala API shouldn't break under feet. Treat that as the default expectation when proposing changes.</p>
     <p>That said, Ariadne is still in beta. If a breaking change clearly benefits the project more than the disruption costs, it can land — but only with the maintainer's explicit sign-off. Don't assume a breaking change will be accepted just because it's cleaner; open an issue or discussion to align first.</p>
+
+    <h2 id="shading">Shading &amp; relocation</h2>
+    <p>Ariadne bundles Guava and Gson, relocated under <code>dev.cjfravel.ariadne.shaded.*</code>, so they can't collide with whatever versions the host Spark runtime ships. Relocation is easy to break in two different directions, and both have caused real bugs here.</p>
+
+    <h3>Adding a bundled dependency</h3>
+    <p>A new relocated dependency needs three coordinated edits, not one: a <code>&lt;relocation&gt;</code> entry in the shade plugin config, a matching <code>&lt;artifactSet&gt;&lt;include&gt;</code> entry, and a <code>reject_entry</code> assertion in <code>dev/scripts/package-contents-tests.sh</code> confirming the original package is absent from the packaged jar. Miss one and the package ships unrelocated and collides at runtime — which is exactly how <code>com.google.thirdparty</code>, <code>error_prone_annotations</code> and <code>j2objc-annotations</code> each had to be retrofitted after the fact.</p>
+
+    <h3>Staying safe when consumers relocate Ariadne</h3>
+    <p>Downstream builds sometimes shade Ariadne itself into their own namespace. The Maven Shade Plugin rewrites bytecode references but leaves the Scala <code>ScalaSignature</code> pickle byte-for-byte identical, so a relocated class loads under its new package while its pickle still describes the old one. Any type resolved through Scala reflection then can't be found, usually surfacing as <code>ENCODER_NOT_FOUND</code> during an index update.</p>
+
+    <div class="callout warn">
+      <p><strong>CI cannot catch this.</strong> Ariadne's own build never relocates <code>dev.cjfravel.ariadne</code>, so a change that breaks under downstream relocation passes every check and fails only in a consumer's shaded build. It has to be caught by review.</p>
+    </div>
+
+    <ul>
+      <li>Never use an Ariadne-defined case class as a Spark <code>Dataset</code> or encoder element type. Use a <code>DataFrame</code> with an explicit <code>StructType</code>, or build the encoder explicitly with <code>Encoders.tuple</code>, <code>Encoders.STRING</code> and friends.</li>
+      <li>Prefer the two-argument <code>udaf(aggregator, inputEncoder)</code> overload — the single-argument one derives the input encoder reflectively.</li>
+      <li><code>.as[T]</code>, <code>.toDS()</code> and <code>emptyDataset[T]</code> are safe only for standard-library types such as <code>String</code> and tuples of primitives, which relocation never rewrites.</li>
+      <li><code>Encoders.javaSerialization[T]</code> and <code>Encoders.kryo[T]</code> are safe — they take a <code>ClassTag</code>, which compiles to a <code>classOf</code> reference that shade does rewrite. Only <code>TypeTag</code>-based derivation is unsafe.</li>
+      <li>Never hardcode <code>dev.cjfravel.ariadne</code> in a string used for lookup (<code>Class.forName</code>, Spark extension or config keys, service-loader entries). Relocation rewrites the class, not the string. Package names inside Scaladoc examples are fine.</li>
+    </ul>
+
+    <p>To verify a change by hand, package <code>target/classes</code> into a jar, install it locally, then shade it in a scratch project with a <code>&lt;relocation&gt;</code> onto a different prefix and exercise the affected code path.</p>
 
     <h2 id="pr">Submitting a pull request</h2>
     <ol>
