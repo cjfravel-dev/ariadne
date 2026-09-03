@@ -75,9 +75,13 @@ object SchemaHelper {
    * Resolves a dotted field path to its data type, descending through structs and arrays of structs.
    *
    * This mirrors Spark's dotted column access. `col("users.id")` on an `array<struct<id: long>>` column selects the
-   * `id` field of every element, so array levels are traversed transparently rather than terminating the path. The type
-   * returned is the '''element''' type at the end of the path (`LongType` in that example), not the array that Spark
-   * would wrap it in, because callers care about the type of the values themselves.
+   * `id` field of every element, so an array level is traversed transparently when path segments remain — `"users.id"`
+   * resolves to `LongType`, not `array<long>`.
+   *
+   * An array reached at the '''end''' of a path is returned as the array type itself: `"users"` on that same schema
+   * resolves to `array<struct<id: long>>`. This also mirrors Spark, where `col("users")` selects the array column. The
+   * distinction matters only to callers that inspect the result structurally; [[containsBinaryType]] descends arrays,
+   * so binary detection is unaffected either way.
    *
    * Used to establish the type behind an exploded-field index alias, which exists only as a mapping in metadata and
    * never as a top-level column on the source DataFrame — [[fieldType]] cannot see it.

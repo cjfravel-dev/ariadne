@@ -62,6 +62,14 @@ class SchemaHelperTests extends AnyFunSuite {
     assert(SchemaHelper.nestedFieldType(schema, "missing.id") === None)
     // event_id is a leaf, so it cannot be descended into.
     assert(SchemaHelper.nestedFieldType(schema, "event_id.nope") === None)
+
+    // An array reached at the end of a path is returned as the array type, matching col("users") in Spark. Arrays are
+    // only unwrapped when segments remain to resolve against the element type.
+    val terminalArray = SchemaHelper.nestedFieldType(schema, "users")
+    assert(
+      terminalArray === Some(ArrayType(StructType(Seq(StructField("id", LongType), StructField("token", BinaryType))))))
+    // Binary detection is unaffected by that distinction, because containsBinaryType descends arrays.
+    assert(terminalArray.exists(SchemaHelper.containsBinaryType))
   }
 
 }

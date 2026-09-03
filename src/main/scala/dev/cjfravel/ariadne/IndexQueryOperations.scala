@@ -52,7 +52,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
    *   `Some(DataFrame)` containing the latest version of the index, or `None` if the index Delta table does not yet
    *   exist
    */
-  protected[ariadne] def index: Option[DataFrame] = {
+  protected def index: Option[DataFrame] = {
     ensureStorageReady()
     delta(indexFilePath).map(_.toDF)
   }
@@ -152,7 +152,7 @@ trait IndexQueryOperations extends IndexJoinOperations {
    * @return
    *   DataFrame with (filename, _value, _max_ts) rows
    */
-  protected[ariadne] def loadTemporalColumnIndex(
+  protected def loadTemporalColumnIndex(
       indexDf: DataFrame,
       colName: String,
       bloomCandidateFiles: Option[Set[String]] = None): DataFrame = {
