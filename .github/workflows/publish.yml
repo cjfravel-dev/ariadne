@@ -83,7 +83,12 @@ jobs:
         run: |
           set -euo pipefail
           sha=$(git rev-parse HEAD)
-          checks=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100")
+          # A commit can carry more check runs than fit on one page, and a required one landing on a later page would
+          # read as missing and stop a release that should have gone ahead.
+          checks=$(
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100" |
+              jq '{check_runs: (map(.check_runs) | add)}'
+          )
           for pair in \
             "Build & Test (Spark 3.5)|Build and test with coverage" \
             "Build & Test (Spark 4.1)|Build and test (Spark 4.1)"; do

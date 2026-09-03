@@ -62,6 +62,8 @@ assert_contains .github/workflows/publish.yml "-Dcentral.waitUntil=validated"
 assert_contains .github/workflows/publish.yml "-DskipTests"
 assert_contains .github/workflows/publish.yml "Verify the release commit passed CI"
 assert_contains .github/workflows/publish.yml "commits/\$sha/check-runs"
+# A required check landing beyond the first page would read as missing and stop a release that should have gone ahead.
+assert_contains .github/workflows/publish.yml "--paginate --slurp"
 assert_contains .github/workflows/publish.yml "Build & Test (Spark 3.5)"
 assert_contains .github/workflows/publish.yml "Build & Test (Spark 4.1)"
 assert_contains .github/workflows/publish.yml "checks: read"
