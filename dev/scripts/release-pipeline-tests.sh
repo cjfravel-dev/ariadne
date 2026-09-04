@@ -54,6 +54,46 @@ assert_contains .github/workflows/publish.yml "-Pspark35"
 assert_contains .github/workflows/publish.yml "-Pspark41"
 assert_contains .github/workflows/publish.yml "-Dcentral.autoPublish=false"
 assert_contains .github/workflows/publish.yml "-Dcentral.waitUntil=validated"
+
+# Staging skips test execution because the tagged commit was already tested by CI on main. That tradeoff is only sound
+# while the provenance gate runs first, and -DskipTests also suppresses the governance scripts bound to the test phase
+# (exec-maven-plugin inherits <skip>${skipTests}</skip>), so the workflow must run them explicitly. All three pieces
+# must be kept together.
+assert_contains .github/workflows/publish.yml "-DskipTests"
+assert_contains .github/workflows/publish.yml "Verify the release commit passed CI"
+assert_contains .github/workflows/publish.yml "commits/\$sha/check-runs"
+# A required check landing beyond the first page would read as missing and stop a release that should have gone ahead.
+assert_contains .github/workflows/publish.yml "--paginate --slurp"
+assert_contains .github/workflows/publish.yml "Build & Test (Spark 3.5)"
+assert_contains .github/workflows/publish.yml "Build & Test (Spark 4.1)"
+assert_contains .github/workflows/publish.yml "checks: read"
+# The gate reads check runs and then the job behind each one. Declaring permissions explicitly sets every unlisted
+# scope to none, so both scopes have to be present or the gate fails on a release that should have been allowed.
+assert_contains .github/workflows/publish.yml "actions: read"
+assert_contains .github/workflows/publish.yml "dev/scripts/run-governance-checks.sh"
+# The gate must refuse the release while any attempt is unfinished, and otherwise read the newest attempt by start
+# time. A re-run adds a second check run with the same name, so reading only one attempt could accept a stale success.
+# Failing closed on an unfinished attempt keeps that safe without depending on how a pending run fills in timestamps.
+assert_contains .github/workflows/publish.yml 'any(.[]; .status != "completed")'
+# The gate reads the conclusion of the build step inside each CI job, because a job can report success while its build
+# steps were skipped. It names those steps literally, so a rename in ci.yml would break the release. Check the names
+# still resolve.
+assert_ci_step_exists() {
+    local step="$1"
+    if ! grep -Fq -- "- name: $step" .github/workflows/ci.yml; then
+        echo ".github/workflows/publish.yml gates on CI step \"$step\", which no longer exists in .github/workflows/ci.yml"
+        exit 1
+    fi
+}
+
+while IFS= read -r step; do
+    assert_ci_step_exists "$step"
+done < <(grep -oE '^ *"Build & Test \(Spark [0-9.]+\)\|[^"]+"' .github/workflows/publish.yml | sed 's/.*|//; s/"$//')
+
+assert_contains .github/workflows/publish.yml "actions/jobs/"
+# The job is located from the check run's details_url, falling back to the check run's own id. Confirm the job's name
+# before trusting its steps, so a mismatch fails the release instead of judging some other job.
+assert_contains .github/workflows/publish.yml 'if [[ "$job_name" != "$name" ]]'
 assert_contains .github/workflows/publish.yml "set +e"
 assert_contains .github/workflows/publish.yml "state35=UNKNOWN"
 assert_contains .github/workflows/publish.yml "state41=UNKNOWN"

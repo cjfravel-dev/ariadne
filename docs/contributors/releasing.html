@@ -54,6 +54,14 @@
     <h2>Publish the GitHub Release</h2>
     <p>Create a tag exactly equal to the Maven project version, without a <code>v</code> prefix, then publish the GitHub Release. The protected workflow signs and uploads each profile as a user-managed Central deployment. It publishes nothing until both deployments reach the validated state.</p>
 
+    <p>Before staging, the workflow checks that the tagged commit already has successful <code>Build &amp; Test (Spark 3.5)</code> and <code>Build &amp; Test (Spark 4.1)</code> runs. Because CI runs on every push to <code>main</code>, the merge commit a release tag points at has its own green run. Staging then builds with <code>-DskipTests</code>, since re-running the same suite on the same tree adds roughly 45 minutes and cannot discover anything new. If the tag points at a commit CI never tested, the release stops before anything is uploaded.</p>
+
+    <p>A green job is not by itself proof the artifacts were built. CI classifies each change and guards its build steps with <code>if: needs.changes.outputs.source == 'true'</code>, so a documentation-only commit reports <code>Build &amp; Test</code> as successful within a few seconds having compiled nothing. The gate therefore also reads the conclusion of the build step inside each job and requires it to have run, so tagging such a commit is refused rather than publishing artifacts no test ever covered.</p>
+
+    <p>Re-running a job adds another check run under the same name rather than replacing the old one, so the gate refuses the release if <em>any</em> attempt for a required check has not finished, and otherwise reads the conclusion of the attempt with the newest <code>started_at</code>. Failing closed on an unfinished attempt means the result does not depend on how a pending run populates its timestamps, so a release triggered while CI is re-running is refused rather than being matched against an earlier green attempt.</p>
+
+    <p>Skipping tests would otherwise skip the release guards. The governance scripts in <code>dev/scripts</code> are bound to the <code>test</code> phase through <code>exec-maven-plugin</code>, which is configured with <code>&lt;skip&gt;${skipTests}&lt;/skip&gt;</code>, so <code>-DskipTests</code> suppresses them along with the Scala suites. The workflow therefore runs <code>dev/scripts/run-governance-checks.sh</code> as an explicit step before staging; that script derives its list from <code>pom.xml</code>, so a newly registered check is picked up automatically. Two executions opt out of the skip with <code>&lt;skip&gt;false&lt;/skip&gt;</code> and still run during staging: <code>clean-api-docs-output</code> and <code>test-package-contents</code>, the latter validating the shaded jar's contents. Scalafix and scalastyle are separate plugins and are unaffected by <code>-DskipTests</code>.</p>
+
     <h2>Coordinated publication</h2>
     <p>After both profiles validate, the workflow requests publication for both deployments, waits for both to reach <code>PUBLISHED</code>, confirms both Maven Central coordinates resolve, and downloads each artifact through a clean Maven repository.</p>
 
@@ -61,6 +69,7 @@
     <ul>
       <li>Local <code>mvn deploy</code> remains user-managed and droppable.</li>
       <li>A failed Spark 3.5 or Spark 4.1 stage publishes neither artifact.</li>
+      <li>A tag whose commit has no green CI run is rejected before staging.</li>
       <li>The workflow drops any validated deployment left by a staging failure.</li>
       <li>Published Central versions are immutable; corrections require a new version.</li>
       <li>Rotate the Central token and PGP key before their environment-recorded expiration dates.</li>

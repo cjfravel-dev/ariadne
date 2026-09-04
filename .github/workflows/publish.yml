@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: read
+  checks: read
+  actions: read
 
 concurrency:
   group: maven-central
@@ -75,6 +77,80 @@ jobs:
             fi
           done
 
+      - name: Verify the release commit passed CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          # A commit can carry more check runs than fit on one page, and a required one landing on a later page would
+          # read as missing and stop a release that should have gone ahead.
+          checks=$(
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100" |
+              jq '{check_runs: (map(.check_runs) | add // [])}'
+          )
+          for pair in \
+            "Build & Test (Spark 3.5)|Build and test with coverage" \
+            "Build & Test (Spark 4.1)|Build and test (Spark 4.1)"; do
+            name=${pair%%|*}
+            step=${pair#*|}
+            conclusion=$(
+              printf '%s' "$checks" |
+                jq -r --arg name "$name" '
+                  [.check_runs[] | select(.name == $name)]
+                  | if length == 0 then "no run"
+                    elif any(.[]; .status != "completed") then "incomplete"
+                    else (sort_by(.started_at // "") | last | .conclusion // "incomplete")
+                    end
+                '
+            )
+            if [[ "$conclusion" != "success" ]]; then
+              echo "$name did not succeed for $sha (got: $conclusion)." >&2
+              echo "Staging skips tests, so the tagged commit must already have a green CI run." >&2
+              exit 1
+            fi
+
+            # A green job is not proof the artifacts were built. CI classifies documentation-only changes and guards
+            # its build steps with `if: needs.changes.outputs.source == 'true'`, so those runs report success in a few
+            # seconds having compiled nothing. Confirm the build step itself ran.
+            # details_url points at the job that produced the check run, so take the id from there rather than
+            # assuming the check run's own id doubles as a job id. Fall back to that id if the URL is not in the
+            # expected shape; the name check below catches either route going wrong.
+            job=$(
+              printf '%s' "$checks" |
+                jq -r --arg name "$name" '
+                  [.check_runs[] | select(.name == $name)] | sort_by(.started_at // "") | last
+                  | (try (.details_url | capture("/job/(?<id>[0-9]+)") | .id) catch null)
+                    // (.id | tostring)
+                '
+            )
+            # The id above comes from details_url, or from the check run itself if that was not usable. Confirm the
+            # job's name matches either way, so a wrong id stops the release rather than being judged against
+            # another job.
+            job_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$job")
+            job_name=$(printf '%s' "$job_json" | jq -r '.name // ""')
+            if [[ "$job_name" != "$name" ]]; then
+              echo "Expected job $job to be \"$name\" but found \"$job_name\"." >&2
+              echo "The gate could not identify the job that produced the check run, so the release cannot be verified." >&2
+              exit 1
+            fi
+            step_conclusion=$(
+              printf '%s' "$job_json" |
+                jq -r --arg step "$step" '
+                  [.steps[]? | select(.name == $step)]
+                  | if length == 0 then "missing" else (last | .conclusion // "incomplete") end
+                '
+            )
+            if [[ "$step_conclusion" != "success" ]]; then
+              echo "$name succeeded for $sha but its \"$step\" step was $step_conclusion." >&2
+              echo "CI skips the build for changes it classifies as documentation only, so that run does not show the artifacts were tested." >&2
+              exit 1
+            fi
+          done
+
+      - name: Run release governance checks
+        run: bash dev/scripts/run-governance-checks.sh
+
       - name: Stage and validate Spark 3.5
         id: stage35
         run: |
@@ -82,6 +158,7 @@ jobs:
           log=$(mktemp)
           set +e
           ./mvnw clean deploy -Pspark35 -B \
+            -DskipTests \
             -Dgpg.skip=false \
             -Dgpg.keyname="$GPG_KEY_ID" \
             -Dcentral.autoPublish=false \
@@ -116,6 +193,7 @@ jobs:
           log=$(mktemp)
           set +e
           ./mvnw clean deploy -Pspark41 -B \
+            -DskipTests \
             -Dgpg.skip=false \
             -Dgpg.keyname="$GPG_KEY_ID" \
             -Dcentral.autoPublish=false \
