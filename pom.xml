@@ -249,7 +249,7 @@
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>
-                <version>3.6.1</version>
+                <version>3.6.2</version>
                 <executions>
                     <execution>
                         <id>add-spark-compat-source</id>
@@ -282,7 +282,7 @@
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
-                <version>3.6.3</version>
+                <version>3.6.4</version>
                 <configuration>
                     <skip>${skipTests}</skip>
                 </configuration>
