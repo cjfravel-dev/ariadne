@@ -127,7 +127,7 @@ fi
 assert_contains pom.xml "<central.autoPublish>false</central.autoPublish>"
 assert_contains pom.xml "<central.waitUntil>validated</central.waitUntil>"
 assert_contains pom.xml "<project.build.outputTimestamp>"
-assert_plugin_version central-publishing-maven-plugin 0.11.0
+assert_plugin_version central-publishing-maven-plugin 0.12.0
 assert_not_contains pom.xml "<autoPublish>true</autoPublish>"
 
 assert_contains docs/contributors/releasing.html "both deployments reach the validated state"
